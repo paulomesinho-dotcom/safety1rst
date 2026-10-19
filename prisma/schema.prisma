@@ -1,0 +1,998 @@
+// SafeSite — Prisma Schema
+// PostgreSQL via VPS PTISP
+// NextAuth.js v5 (Auth.js) compatible
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// AUTH (NextAuth.js v5 Required Tables)
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("oauth_accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────
+// TENANTS (Contas de Cliente / Multi-tenancy)
+// ─────────────────────────────────────────────
+
+model Tenant {
+  id                 String   @id @default(cuid())
+  name               String
+  plan               String   @default("basic") // basic | premium | enterprise
+  subscriptionStatus String   @default("active") // active | suspended | canceled
+  maxProjects        Int      @default(1)
+  accessControlLimit Int      @default(1200)
+  modules            String[] @default([])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relations
+  users        User[]
+  projects     Project[]
+  companies    Company[]
+  workers      Worker[]
+  equipment    Equipment[]
+  trainings    Training[]
+  courses      Course[]
+  pdfTemplates PdfTemplate[]
+
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String? // NextAuth standard (avatar)
+  password      String? // bcrypt hash (null for OAuth-only users)
+
+  // App-specific
+  role      String   @default("user") // superadmin | admin | user
+  tenantId  String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // App relations
+  tenant            Tenant?           @relation(fields: [tenantId], references: [id])
+  projectMembers    ProjectMember[]
+  assignedCompanies Company[]         @relation("assignedDataUser")
+  assignedWorkers   Worker[]          @relation("assignedDataUserWorker")
+  assignedEquipment Equipment[]       @relation("assignedDataUserEquipment")
+  workflowLogs      WorkflowLog[]
+  tickets           Ticket[]          @relation("ticketCreator")
+  assignedTickets   Ticket[]          @relation("ticketAssignee")
+  ticketMessages    TicketMessage[]
+  trainingSessions  TrainingSession[] @relation("trainerSessions")
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────────
+
+model Project {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  address     String?
+  tenantId    String
+  status      String  @default("active") // active | completed | archived
+  logoUrl     String?
+
+  // Configs (stored as JSON)
+  cdeConfig                           Json     @default("{}")
+  cardConfig                          Json     @default("{}")
+  workflowCcList                      String[] @default([])
+  approvalWorkflow                    Json     @default("{}")
+  shstSettings                        Json?
+  defaultCompanyProfileId             String?
+  defaultWorkerProfileId              String?
+  defaultEquipmentProfileId           String?
+  approvalFlowEnabled                 Boolean  @default(false)
+  requireCompanyValidatedToAddWorkers Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
+  members               ProjectMember[]
+  companies             Company[]
+  workers               Worker[]
+  equipment             Equipment[]
+  documents             Document[]
+  accessPoints          AccessPoint[]
+  accessLogs            AccessLog[]
+  trainings             Training[]
+  courses               Course[]
+  trainingSessions      TrainingSession[]
+  accidents             Accident[]
+  riskAssessments       RiskAssessment[]
+  workflowLogs          WorkflowLog[]
+  tickets               Ticket[]
+  companyProfiles       CompanyProfile[]
+  workerProfiles        WorkerProfile[]
+  equipmentProfiles     EquipmentProfile[]
+  safetyIncidents       SafetyIncident[]
+  workerTrainingRecords WorkerTrainingRecord[]
+
+  @@map("projects")
+}
+
+model ProjectMember {
+  id             String   @id @default(cuid())
+  projectId      String
+  userId         String
+  role           String   @default("viewer") // manager | editor | viewer | data_user | approval_user
+  allowedModules String[] @default([])
+  companyIds     String[] @default([]) // For data_user: company IDs they can access
+  createdAt      DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// ─────────────────────────────────────────────
+// COMPANIES
+// ─────────────────────────────────────────────
+
+model Company {
+  id        String  @id @default(cuid())
+  tenantId  String
+  projectId String?
+  number    String?
+  name      String
+  nif       String?
+  activity  String?
+  impic     String?
+  email     String?
+  phone     String?
+  address   String?
+
+  // Role
+  companyRole             String?
+  companyRoleCustom       String?
+  ifcActorRole            String?
+  ifcActorRoleUserDefined String?
+  ifcGlobalId             String?
+
+  // Site
+  entryDate             String?
+  exitDate              String?
+  workSchedule          String?
+  workScheduleDelivered Boolean @default(false)
+  siteManager           String?
+  siteContact           String?
+  siteManagerId         String? // FK to Worker
+  safetyTechnicianId    String? // FK to Worker
+
+  // Legal
+  caeCode           String?
+  legalForm         String?
+  priorNoticeDate   String?
+  priorNoticeNumber String?
+  pssVersion        String?
+  pssAcceptanceDate String?
+
+  // Insurance
+  insuranceCivilDate       String?
+  insuranceCivilPolicy     String?
+  insuranceCivilProvider   String?
+  insuranceWorkAccDate     String?
+  insuranceWorkAccPolicy   String?
+  insuranceWorkAccProvider String?
+
+  // Financial compliance
+  cleanSSDate     String?
+  cleanFinDate    String?
+  ssDiscountSheet String?
+
+  // ISO 45001
+  iso45001Cert   Boolean @default(false)
+  iso45001Expiry String?
+
+  // Site capacity & risk
+  maxWorkersOnSite Int?
+  riskLevel        String @default("low")
+
+  // Hierarchy
+  tier     Int?
+  parentId String?
+  parent   Company?  @relation("CompanyHierarchy", fields: [parentId], references: [id])
+  children Company[] @relation("CompanyHierarchy")
+
+  // Workflow
+  workflowStatus          String   @default("draft")
+  assignedDataUserId      String?
+  workflowNotificationCcs String[] @default([])
+  fieldValidations        Json     @default("{}")
+  fieldEditPermissions    Json     @default("{}")
+  fieldLastEditors        Json     @default("{}")
+  draftData               Json     @default("{}")
+
+  // Approval
+  approvalStatus String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  // Profile & custom docs
+  profileId       String?
+  customDocuments Json    @default("{}")
+
+  status   String  @default("active")
+  archived Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant           Tenant        @relation(fields: [tenantId], references: [id])
+  project          Project?      @relation(fields: [projectId], references: [id])
+  assignedDataUser User?         @relation("assignedDataUser", fields: [assignedDataUserId], references: [id])
+  workers          Worker[]
+  equipment        Equipment[]
+  documents        Document[]
+  workflowLogs     WorkflowLog[]
+  tickets          Ticket[]
+
+  @@map("companies")
+}
+
+// ─────────────────────────────────────────────
+// WORKERS
+// ─────────────────────────────────────────────
+
+model Worker {
+  id        String  @id @default(cuid())
+  tenantId  String
+  projectId String
+  companyId String
+  profileId String?
+
+  // Identity
+  name             String
+  firstName        String?
+  middleName       String?
+  lastName         String?
+  givenName        String?
+  familyName       String?
+  initials         String?
+  role             String?
+  occupation       String?
+  occupationCustom String?
+  ifcLaborType     String?
+  workerRoleId     String?
+  obligatoryRole   Json?
+
+  // Contact
+  email     String?
+  phone     String?
+  nif       String?
+  avatarUrl String?
+
+  // Identification
+  birthDate        String?
+  idCardNumber     String?
+  idCardType       String?
+  idCardTypeCustom String?
+  idCardExpiry     String?
+  ssn              String?
+  ssNumber         String?
+  nationality      String?
+  nationalityType  String?
+  foreignCountry   String?
+  gender           String?
+  address          String?
+  postalCode       String?
+  city             String?
+  bloodType        String?
+  isForeign        Boolean @default(false)
+
+  // Immigration
+  passportNumber        String?
+  passportExpiry        String?
+  residencyPermitNumber String?
+  residencyExpiry       String?
+  actCommunication      Boolean @default(false)
+  euCitizenCertificate  Boolean @default(false)
+  foreignContract       Boolean @default(false)
+  workPermitNumber      String?
+  workPermitExpiry      String?
+
+  // Employment
+  contractType       String?
+  professionCategory String?
+  profession         String?
+  category           String?
+  entryDate          String?
+  exitDate           String?
+  contractExpiry     String?
+  workSchedule       String?
+  subcontractorOf    String?
+  productivity       Float?
+  hourlyCost         Float?
+  wbs                String?
+  dailyAvailability  Float?
+
+  // Emergency
+  emergencyContact      String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  // Safety & Health
+  workerCardNumber             String?
+  riskLevel                    String?
+  riskCategory                 String?
+  medicalExamDate              String?
+  medicalFitness               String?
+  medicalObservations          String?
+  medicalExpiry                String?
+  medicalRestrictions          String?
+  insuranceCovered             Boolean  @default(false)
+  insuranceWorkAccPolicyWorker String?
+  mandatoryPPE                 String[] @default([])
+  epiDeliveryList              String[] @default([])
+  epiDate                      String?
+  epiSignedDate                String?
+
+  // Training & qualifications
+  inductionDate        String?
+  inductionGivenBy     String?
+  specificTrainingDate String?
+  heightWorkCert       Boolean  @default(false)
+  heightWorkCertExpiry String?
+  confinedSpaceCert    Boolean  @default(false)
+  certifications       String?
+  mandatoryTrainings   Json     @default("{}")
+  completedTrainingIds String[] @default([])
+
+  // Access
+  accessCardCode      String?  @unique
+  accessCardValid     Boolean  @default(false)
+  isAccessCardBlocked Boolean  @default(false)
+  authorizedZoneIds   String[] @default([])
+  lastAccess          String?
+  observations        String?
+
+  // IFC
+  ifcActorRole String?
+  ifcGlobalId  String?
+
+  // Workflow
+  workflowStatus          String   @default("draft")
+  assignedDataUserId      String?
+  workflowNotificationCcs String[] @default([])
+  missingElements         String[] @default([])
+  fieldValidations        Json     @default("{}")
+  fieldEditPermissions    Json     @default("{}")
+  fieldLastEditors        Json     @default("{}")
+  draftData               Json     @default("{}")
+
+  // Approval
+  approvalStatus String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  customDocuments Json    @default("{}")
+  status          String  @default("active")
+  archived        Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id])
+  project          Project                @relation(fields: [projectId], references: [id])
+  company          Company                @relation(fields: [companyId], references: [id])
+  assignedDataUser User?                  @relation("assignedDataUserWorker", fields: [assignedDataUserId], references: [id])
+  documents        Document[]
+  accessLogs       AccessLog[]
+  workflowLogs     WorkflowLog[]
+  tickets          Ticket[]
+  trainingRecords  WorkerTrainingRecord[]
+
+  @@map("workers")
+}
+
+// ─────────────────────────────────────────────
+// EQUIPMENT
+// ─────────────────────────────────────────────
+
+model Equipment {
+  id        String  @id @default(cuid())
+  tenantId  String
+  projectId String
+  companyId String
+  profileId String?
+
+  name                String
+  type                String
+  equipmentType       String?
+  equipmentTypeCustom String?
+  ifcElementType      String?
+  serialNumber        String?
+  brand               String?
+  model               String?
+  manufacturer        String?
+  manufacturingYear   String?
+  yearOfManufacture   Int?
+  soundPower          String?
+
+  // Entry/Exit
+  entryDate String?
+  exitDate  String?
+
+  // Certification
+  ceMarking         Boolean @default(false)
+  ceDeclarationDate String?
+
+  // Inspection
+  inspectionDueDate  String?
+  lastInspectionDate String?
+  inspectionEntity   String?
+
+  // Maintenance
+  maintenanceSchedule String?
+  lastMaintenanceDate String?
+  nextMaintenanceDate String?
+  workingHoursOrKm    String?
+
+  // Capacity & noise
+  maxLoadKg      Float?
+  noiseLevelDb   Float?
+  vibrationLevel Float?
+  operatorId     String?
+
+  // Risk
+  riskName           String?
+  riskType           String?
+  riskNature         String?
+  unmitigatedRisk    String?
+  mitigatedRisk      String?
+  mitigationMeasures String?
+
+  ifcGlobalId String?
+
+  // Workflow
+  workflowStatus          String   @default("draft")
+  assignedDataUserId      String?
+  workflowNotificationCcs String[] @default([])
+  missingElements         String[] @default([])
+  fieldValidations        Json     @default("{}")
+  fieldEditPermissions    Json     @default("{}")
+  fieldLastEditors        Json     @default("{}")
+  draftData               Json     @default("{}")
+
+  // Approval
+  approvalStatus String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  customDocuments Json    @default("{}")
+  status          String  @default("operational") // operational | maintenance | out_of_service
+  archived        Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant           Tenant        @relation(fields: [tenantId], references: [id])
+  project          Project       @relation(fields: [projectId], references: [id])
+  company          Company       @relation(fields: [companyId], references: [id])
+  assignedDataUser User?         @relation("assignedDataUserEquipment", fields: [assignedDataUserId], references: [id])
+  documents        Document[]
+  accessLogs       AccessLog[]
+  workflowLogs     WorkflowLog[]
+  tickets          Ticket[]
+
+  @@map("equipment")
+}
+
+// ─────────────────────────────────────────────
+// DOCUMENTS
+// ─────────────────────────────────────────────
+
+model Document {
+  id        String  @id @default(cuid())
+  name      String
+  size      BigInt?
+  type      String?
+  url       String?
+  cdeFileId String? // ID or path in external CDE
+
+  entityId    String
+  entityType  String? // worker | company | equipment | project
+  projectId   String?
+  companyId   String?
+  workerId    String?
+  equipmentId String?
+
+  category String?
+  provider String  @default("local") // gdrive | dropbox | onedrive | sharepoint | local
+  status   String  @default("synced") // synced | pending | error
+  archived Boolean @default(false)
+
+  // ISO 19650
+  documentCode    String?
+  discipline      String?
+  language        String    @default("pt")
+  issueDate       String?
+  expiryDate      String?
+  documentVersion String?
+  approvalStatus  String    @default("draft") // draft | shared | published | archived
+  approvedById    String?
+  approvedAt      DateTime?
+  fileHash        String?
+  isConfidential  Boolean   @default(false)
+  gdprBasis       String?
+  retentionUntil  String?
+
+  version Int @default(1)
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  project   Project?   @relation(fields: [projectId], references: [id])
+  company   Company?   @relation(fields: [companyId], references: [id])
+  worker    Worker?    @relation(fields: [workerId], references: [id])
+  equipment Equipment? @relation(fields: [equipmentId], references: [id])
+
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────
+// ACCESS CONTROL
+// ─────────────────────────────────────────────
+
+model AccessPoint {
+  id        String        @id @default(cuid())
+  projectId String
+  name      String
+  code      String?
+  type      String // entry | exit | zone
+  category  String // site | zone | gate | safe_point
+  parentId  String?
+  parent    AccessPoint?  @relation("AccessPointHierarchy", fields: [parentId], references: [id])
+  children  AccessPoint[] @relation("AccessPointHierarchy")
+
+  capacity            Int?
+  gps                 Json?    @default("{}")
+  requiresGps         Boolean  @default(false)
+  requiredTrainingIds String[] @default([])
+
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+
+  project    Project     @relation(fields: [projectId], references: [id])
+  accessLogs AccessLog[]
+
+  @@map("access_points")
+}
+
+model AccessLog {
+  id          String   @id @default(cuid())
+  projectId   String
+  entityType  String? // worker | equipment
+  workerId    String?
+  equipmentId String?
+  workerName  String?
+  entityName  String?
+  location    String?
+  locationId  String?
+  timestamp   DateTime @default(now())
+  status      String // granted | denied
+  method      String // qr | nfc | face | manual
+  reason      String?
+
+  createdAt DateTime @default(now())
+
+  project     Project      @relation(fields: [projectId], references: [id])
+  worker      Worker?      @relation(fields: [workerId], references: [id])
+  equipment   Equipment?   @relation(fields: [equipmentId], references: [id])
+  accessPoint AccessPoint? @relation(fields: [locationId], references: [id])
+
+  @@map("access_logs")
+}
+
+// ─────────────────────────────────────────────
+// TRAINING & COURSES
+// ─────────────────────────────────────────────
+
+model Training {
+  id             String   @id @default(cuid())
+  tenantId       String
+  projectId      String
+  name           String
+  type           String // general | heights | electrical | first_aid | confined_space | machinery
+  provider       String?
+  description    String?
+  validityMonths Int?
+  icon           String?
+  isMandatory    Boolean  @default(false)
+  mandatoryKey   String?
+  createdAt      DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("trainings")
+}
+
+model Course {
+  id                String  @id @default(cuid())
+  tenantId          String
+  projectId         String
+  title             String
+  description       String?
+  coverImage        String?
+  type              String // general_safety | onboarding | environment | emergency | safety_plan | task_based
+  status            String  @default("draft") // draft | published | archived
+  isTemplate        Boolean @default(false)
+  isMandatory       Boolean @default(false)
+  isSelfLearning    Boolean @default(false)
+  language          String  @default("pt")
+  estimatedDuration Int?
+  sourceType        String  @default("manual")
+  sourceDocumentUrl String?
+  aiPromptUsed      String?
+  slides            Json    @default("[]")
+  passingScore      Int     @default(70)
+  questions         Json    @default("[]")
+  validityMonths    Int?
+  createdBy         String?
+  version           Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant                 @relation(fields: [tenantId], references: [id])
+  project  Project                @relation(fields: [projectId], references: [id])
+  sessions TrainingSession[]
+  records  WorkerTrainingRecord[]
+
+  @@map("courses")
+}
+
+model TrainingSession {
+  id                String    @id @default(cuid())
+  courseId          String?
+  projectId         String
+  tenantId          String?
+  status            String    @default("scheduled") // scheduled | in_progress | completed | cancelled
+  scheduledDate     String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  location          String?
+  trainerId         String?
+  enrolledWorkers   String[]  @default([])
+  attendees         Json      @default("[]")
+  signedDocumentUrl String?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  project Project                @relation(fields: [projectId], references: [id])
+  course  Course?                @relation(fields: [courseId], references: [id])
+  trainer User?                  @relation("trainerSessions", fields: [trainerId], references: [id])
+  records WorkerTrainingRecord[]
+
+  @@map("training_sessions")
+}
+
+model WorkerTrainingRecord {
+  id                String    @id @default(cuid())
+  workerId          String
+  projectId         String
+  courseId          String?
+  sessionId         String?
+  trainingType      String?
+  courseTitle       String
+  completedAt       DateTime
+  validUntil        DateTime?
+  score             Int?
+  passed            Boolean   @default(false)
+  trainerId         String?
+  trainerName       String?
+  signedDocumentUrl String?
+  source            String    @default("presential")
+  createdAt         DateTime  @default(now())
+
+  worker  Worker           @relation(fields: [workerId], references: [id])
+  project Project          @relation(fields: [projectId], references: [id])
+  course  Course?          @relation(fields: [courseId], references: [id])
+  session TrainingSession? @relation(fields: [sessionId], references: [id])
+
+  @@map("worker_training_records")
+}
+
+// ─────────────────────────────────────────────
+// ACCIDENTS & SAFETY
+// ─────────────────────────────────────────────
+
+model Accident {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String
+  date        String
+  time        String?
+  location    String?
+  locationId  String?
+  severity    String? // low | medium | high | critical
+  status      String? // open | investigating | closed
+  type        String? // accident | near_miss | incident
+  description String?
+  workerIds   String[] @default([])
+  photos      String[] @default([])
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("accidents")
+}
+
+model SafetyIncident {
+  id                  String   @id @default(cuid())
+  projectId           String
+  incidentCode        String
+  incidentType        String?
+  severity            String?
+  occurredAt          DateTime
+  locationDescription String?
+  zoneId              String?
+  workerId            String?
+  companyId           String?
+  equipmentId         String?
+  relatedRiskName     String?
+  description         String
+  immediateCause      String?
+  rootCause           String?
+  correctiveAction    String?
+  reportedToAct       Boolean  @default(false)
+  actReportDate       String?
+  actReference        String?
+  reportedToInsurance Boolean  @default(false)
+  insuranceReportDate String?
+  workDaysLost        Int      @default(0)
+  investigatedBy      String?
+  investigationDate   String?
+  status              String   @default("reported")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("safety_incidents")
+}
+
+model RiskAssessment {
+  id                        String   @id @default(cuid())
+  projectId                 String
+  riskName                  String
+  riskType                  String?
+  natureOfRisk              String?
+  riskAssessmentMethodology String?
+  unmitigatedLikelihood     String?
+  unmitigatedConsequence    String?
+  unmitigatedSignificance   String?
+  mitigationPlanned         String?
+  mitigationAccepted        String?
+  mitigatedLikelihood       String?
+  mitigatedConsequence      String?
+  mitigatedSignificance     String?
+  associatedWorkerId        String?
+  associatedEquipmentId     String?
+  associatedCompanyId       String?
+  associatedLocation        String?
+  associatedActivity        String?
+  responsibleUserId         String?
+  reviewDate                String?
+  version                   Int      @default(1)
+  supersededById            String?
+  status                    String   @default("active")
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("risk_assessments")
+}
+
+// ─────────────────────────────────────────────
+// WORKFLOW & TICKETS
+// ─────────────────────────────────────────────
+
+model WorkflowLog {
+  id             String   @id @default(cuid())
+  projectId      String?
+  entityId       String
+  entityType     String // company | worker | equipment | ticket
+  action         String // status_change | data_requested | validation_submitted | approved | rejected | created
+  previousStatus String?
+  newStatus      String?
+  actorId        String?
+  details        String?
+  createdAt      DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id])
+  actor   User?    @relation(fields: [actorId], references: [id])
+
+  // Polymorphic — manual lookup by entityId + entityType
+  company   Company?   @relation(fields: [entityId], references: [id], map: "workflow_log_company_fk")
+  worker    Worker?    @relation(fields: [entityId], references: [id], map: "workflow_log_worker_fk")
+  equipment Equipment? @relation(fields: [entityId], references: [id], map: "workflow_log_equipment_fk")
+
+  @@map("workflow_logs")
+}
+
+model Ticket {
+  id            String   @id @default(cuid())
+  entityId      String
+  entityType    String? // company | worker | equipment
+  projectId     String?
+  companyId     String?
+  workerId      String?
+  equipmentId   String?
+  type          String? // field_review | general | support
+  fieldId       String?
+  title         String?
+  description   String?
+  priority      String   @default("medium") // low | medium | high | critical
+  status        String   @default("open") // open | in_progress | resolved | closed
+  createdById   String?
+  assignedToId  String?
+  isDraft       Boolean  @default(false)
+  valueAtReview String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project    Project?        @relation(fields: [projectId], references: [id])
+  company    Company?        @relation(fields: [companyId], references: [id])
+  worker     Worker?         @relation(fields: [workerId], references: [id])
+  equipment  Equipment?      @relation(fields: [equipmentId], references: [id])
+  createdBy  User?           @relation("ticketCreator", fields: [createdById], references: [id])
+  assignedTo User?           @relation("ticketAssignee", fields: [assignedToId], references: [id])
+  messages   TicketMessage[]
+
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id              String   @id @default(cuid())
+  ticketId        String
+  userId          String?
+  message         String
+  isSystemMessage Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@map("ticket_messages")
+}
+
+// ─────────────────────────────────────────────
+// PROFILES
+// ─────────────────────────────────────────────
+
+model CompanyProfile {
+  id                String   @id @default(cuid())
+  projectId         String
+  name              String
+  requirements      Json     @default("{}")
+  standardUploads   Json     @default("{}")
+  standardDocConfig Json     @default("{}")
+  customDocuments   Json     @default("[]")
+  isSystem          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("company_profiles")
+}
+
+model WorkerProfile {
+  id                String   @id @default(cuid())
+  projectId         String
+  name              String
+  requirements      Json     @default("{}")
+  standardUploads   Json     @default("{}")
+  standardDocConfig Json     @default("{}")
+  customDocuments   Json     @default("[]")
+  isSystem          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("worker_profiles")
+}
+
+model EquipmentProfile {
+  id                String   @id @default(cuid())
+  projectId         String
+  name              String
+  requirements      Json     @default("{}")
+  standardUploads   Json     @default("{}")
+  standardDocConfig Json     @default("{}")
+  customDocuments   Json     @default("[]")
+  isSystem          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id])
+
+  @@map("equipment_profiles")
+}
+
+// ─────────────────────────────────────────────
+// PDF TEMPLATES
+// ─────────────────────────────────────────────
+
+model PdfTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  config    Json     @default("{}")
+  header    Json     @default("{}")
+  footer    Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("pdf_templates")
+}

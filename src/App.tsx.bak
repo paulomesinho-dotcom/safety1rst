@@ -1,0 +1,92 @@
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { ProjectLayout } from './layouts/ProjectLayout';
+import { ProjectSelection } from './pages/ProjectSelection';
+import PlatformDashboard from './pages/PlatformDashboard';
+import AccountDashboard from './pages/AccountDashboard';
+import LoginPage from './pages/LoginPage';
+import { useStore } from './store/useStore';
+import ToastContainer from './components/ui/ToastContainer'; // Added import for ToastContainer
+
+// Pages
+import Companies from './pages/Companies';
+import Workers from './pages/Workers';
+import FormBuilder from './pages/FormBuilder';
+import Equipment from './pages/Equipment';
+import Documents from './pages/Documents';
+import AccessControl from './pages/AccessControl';
+import Accidents from './pages/Accidents';
+import Training from './pages/Training';
+import SettingsPage from './pages/Settings';
+import ProjectTeam from './pages/ProjectTeam';
+import ProjectDashboardPage from './pages/ProjectDashboard';
+
+import React, { useEffect } from 'react';
+
+// Auth Guard Wrapper
+const AuthGuard = ({ children }: { children: React.ReactElement }) => {
+  const { currentUser } = useStore();
+  const location = useLocation();
+
+  if (!currentUser) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return children;
+};
+
+function App() {
+  const { ensureSuperAdmin } = useStore();
+
+  useEffect(() => {
+    ensureSuperAdmin();
+  }, []);
+
+  return (
+    <BrowserRouter>
+      <ToastContainer />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+
+        {/* Protected Routes */}
+        <Route path="/" element={
+          <AuthGuard>
+            <ProjectSelection />
+          </AuthGuard>
+        } />
+
+        <Route path="/global-users" element={
+          <AuthGuard>
+            <AccountDashboard />
+          </AuthGuard>
+        } />
+
+        <Route path="/platform" element={
+          <AuthGuard>
+            <PlatformDashboard />
+          </AuthGuard>
+        } />
+
+        <Route path="/project/:id" element={
+          <AuthGuard>
+            <ProjectLayout />
+          </AuthGuard>
+        }>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<ProjectDashboardPage />} />
+          <Route path="team" element={<ProjectTeam />} />
+          <Route path="companies" element={<Companies />} />
+          <Route path="workers" element={<Workers />} />
+          <Route path="equipment" element={<Equipment />} />
+          <Route path="access-control" element={<AccessControl />} />
+          <Route path="accidents" element={<Accidents />} />
+          <Route path="training" element={<Training />} />
+          <Route path="forms" element={<FormBuilder />} />
+          <Route path="documents" element={<Documents />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
