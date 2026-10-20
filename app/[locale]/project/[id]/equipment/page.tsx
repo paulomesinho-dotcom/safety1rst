@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { LayoutGrid, List as ListIcon, HardHat, Plus, Search, Check, AlertTriangle, FileText, Wrench, Gauge, Save, Download, MoreVertical, Settings, Shield, X, CheckCircle, MessageSquare, Unlock, Lock, Edit2, ChevronDown, Eye } from 'lucide-react';
+import { LayoutGrid, List as ListIcon, HardHat, Plus, Search, Check, AlertTriangle, FileText, Wrench, Gauge, Save, Download, MoreVertical, Settings, Shield, X, CheckCircle, MessageSquare, Unlock, Lock, Edit2, ChevronDown, Eye, Clock } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import type { Equipment, Company, Ticket } from '@/types';
@@ -15,6 +15,64 @@ import { ProfileManagerModal } from '@/components/ProfileManagerModal';
 import { PDFConfigModal } from '@/components/PDFConfigModal';
 import { FieldValidator } from '@/components/FieldValidator';
 import { EQUIPMENT_TYPE_OPTIONS, EQUIPMENT_TYPE_GROUPS, getEquipmentTypeLabel, getEquipmentTypeIcon } from '@/lib/equipment-ifc-map';
+
+export const getEquipmentDisplayStatus = (eq: Partial<Equipment>) => {
+    if (eq.status === 'out_of_service' || (eq as any).archived) {
+        return {
+            status: 'archived' as const,
+            label: 'Arquivado',
+            color: 'bg-gray-100 text-gray-600 border border-gray-200 dark:bg-surface dark:text-gray-300 dark:border-[#444746]',
+            icon: 'file' as const
+        };
+    }
+    if (eq.nextMaintenanceDate && new Date(eq.nextMaintenanceDate) < new Date()) {
+        return {
+            status: 'expired' as const,
+            label: 'Manutenção Vencida',
+            color: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800',
+            icon: 'alert' as const
+        };
+    }
+    const ws = eq.workflowStatus;
+    if (eq.approvalStatus === 'approved' || ws === 'approved') {
+        return {
+            status: 'approved' as const,
+            label: 'Aprovado',
+            color: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800',
+            icon: 'check' as const
+        };
+    }
+    if (ws === 'approval_pending' || (ws === 'validated' && eq.approvalStatus === 'pending')) {
+        return {
+            status: 'pending' as const,
+            label: 'Pendente Aprovação',
+            color: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800',
+            icon: 'clock' as const
+        };
+    }
+    if (ws === 'validated') {
+        return {
+            status: 'valid' as const,
+            label: 'Validado',
+            color: 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800',
+            icon: 'check' as const
+        };
+    }
+    if (ws === 'validation_pending') {
+        return {
+            status: 'pending' as const,
+            label: 'Validação Pendente',
+            color: 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800',
+            icon: 'clock' as const
+        };
+    }
+    return {
+        status: 'incomplete' as const,
+        label: 'Em Validação',
+        color: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800',
+        icon: 'clock' as const
+    };
+};
 
 const DocumentRow: React.FC<{
     label: string;
@@ -701,10 +759,18 @@ const EquipmentPage: React.FC = () => {
                                         {eq.nextMaintenanceDate && <div className="flex justify-between"><span>Next Maint:</span> <span className={new Date(eq.nextMaintenanceDate) < new Date() ? "text-red-600 font-bold" : ""}>{eq.nextMaintenanceDate}</span></div>}
                                     </div>
                                     <div className="flex items-center justify-between border-t border-gray-100 dark:border-[#444746] pt-3">
-                                        <span className={cn("px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider",
-                                            eq.workflowStatus === 'validated' ? "bg-green-100 text-green-700" :
-                                                eq.workflowStatus === 'draft' ? "bg-gray-100 dark:bg-surface text-gray-600 dark:text-gray-300" : "bg-primary-light text-primary-hover"
-                                        )}>{eq.workflowStatus?.replace('_', ' ') || 'DRAFT'}</span>
+                                        {(() => {
+                                            const st = getEquipmentDisplayStatus(eq);
+                                            return (
+                                                <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs", st.color)}>
+                                                    {st.icon === 'check' && <CheckCircle size={12} />}
+                                                    {st.icon === 'alert' && <AlertTriangle size={12} />}
+                                                    {st.icon === 'clock' && <Clock size={12} />}
+                                                    {st.icon === 'file' && <FileText size={12} />}
+                                                    {st.label}
+                                                </span>
+                                            );
+                                        })()}
 
                                         <button onClick={(e) => { e.stopPropagation(); setCardEq(eq); }} className="text-gray-400 hover:text-primary p-1">
                                             <Gauge size={16} />
@@ -750,10 +816,18 @@ const EquipmentPage: React.FC = () => {
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className={cn("px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider",
-                                                    eq.workflowStatus === 'validated' ? "bg-green-100 text-green-700" :
-                                                        eq.workflowStatus === 'draft' ? "bg-gray-100 dark:bg-surface text-gray-600 dark:text-gray-300" : "bg-primary-light text-primary-hover"
-                                                )}>{eq.workflowStatus?.replace('_', ' ') || 'DRAFT'}</span>
+                                                {(() => {
+                                                    const st = getEquipmentDisplayStatus(eq);
+                                                    return (
+                                                        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs", st.color)}>
+                                                            {st.icon === 'check' && <CheckCircle size={12} />}
+                                                            {st.icon === 'alert' && <AlertTriangle size={12} />}
+                                                            {st.icon === 'clock' && <Clock size={12} />}
+                                                            {st.icon === 'file' && <FileText size={12} />}
+                                                            {st.label}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <button onClick={(e) => { e.stopPropagation(); setCardEq(eq); }} className="text-gray-400 hover:text-primary p-1">
@@ -775,16 +849,15 @@ const EquipmentPage: React.FC = () => {
                 resizable={true}
                 headerAction={
                     <div className="flex items-center gap-2">
-                        {/* Badge: modo de visualização */}
+                        {/* Mode Badge */}
                         {!isEditing && mode !== 'create' && (
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-primary bg-primary/10 border border-primary/20 uppercase rounded-lg tracking-wider animate-in fade-in zoom-in-95">
-                                <Eye size={12} /> Visualização
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-surface border border-gray-200 dark:border-[#444746] rounded shrink-0">
+                                <Eye size={10} className="text-gray-400" /> Visualização
                             </span>
                         )}
-                        {/* Badge: modo de edição */}
                         {isEditing && mode !== 'create' && (
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 uppercase rounded-lg tracking-wider animate-in fade-in zoom-in-95">
-                                <Edit2 size={12} /> Edição
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded shrink-0">
+                                <Edit2 size={10} /> Edição
                             </span>
                         )}
 
@@ -802,9 +875,9 @@ const EquipmentPage: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => { submitEquipment(currentEq.id!); setIsModalOpen(false); }}
-                                            className="px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm flex items-center gap-1.5"
+                                            className="px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5"
                                         >
-                                            <CheckCircle size={14} /> Submeter
+                                            <CheckCircle size={13} /> Submeter
                                         </button>
                                     )}
 
@@ -817,9 +890,9 @@ const EquipmentPage: React.FC = () => {
                                                     updateEquipment(currentEq.id!, { ...currentEq, workflowStatus: 'incomplete' });
                                                     setIsModalOpen(false);
                                                 }}
-                                                className="px-3 py-1.5 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-sm flex items-center gap-1.5"
+                                                className="px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-xs flex items-center gap-1.5"
                                             >
-                                                <AlertTriangle size={14} /> Rever
+                                                <AlertTriangle size={13} /> Rever
                                             </button>
                                             {(() => {
                                                 const checkFields: (keyof Equipment)[] = ['name', 'type', 'serialNumber', 'manufacturer', 'model', 'companyId', 'entryDate'];
@@ -831,11 +904,11 @@ const EquipmentPage: React.FC = () => {
                                                         disabled={!isAllValidated}
                                                         onClick={() => { validateEquipment(currentEq.id!); setIsModalOpen(false); }}
                                                         className={cn(
-                                                            "px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-sm flex items-center gap-1.5",
+                                                            "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5",
                                                             !isAllValidated && "opacity-50 cursor-not-allowed"
                                                         )}
                                                     >
-                                                        <Check size={14} /> Validar
+                                                        <Check size={13} /> Validar
                                                     </button>
                                                 );
                                             })()}
@@ -843,13 +916,13 @@ const EquipmentPage: React.FC = () => {
                                     )}
 
                                     {/* Approval Action */}
-                                    {isApprovalUser && isValidated && (
+                                    {isApprovalUser && (isValidated || currentEq.workflowStatus === 'approval_pending') && (
                                         <button
                                             type="button"
                                             onClick={() => { approveEquipment(currentEq.id!); setIsModalOpen(false); }}
-                                            className="px-3 py-1.5 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5"
+                                            className="px-3 py-1.5 text-xs font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-xs flex items-center gap-1.5"
                                         >
-                                            <CheckCircle size={14} /> Aprovar
+                                            <CheckCircle size={13} /> Aprovar
                                         </button>
                                     )}
                                     <div className="h-6 w-px bg-gray-200 dark:bg-[#444746] mx-1" />
@@ -862,9 +935,9 @@ const EquipmentPage: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsEditing(true)}
-                                className="px-3 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] hover:text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
                             >
-                                <Edit2 size={14} /> Editar
+                                <Edit2 size={13} className="text-white" /> Editar
                             </button>
                         )}
                         {/* Botão Cancelar — só em modo de edição (sai do modo, não fecha a janela) */}
@@ -872,7 +945,7 @@ const EquipmentPage: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setIsEditing(false)}
-                                className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-sm"
+                                className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-xs cursor-pointer shrink-0"
                             >
                                 Cancelar
                             </button>
@@ -882,12 +955,12 @@ const EquipmentPage: React.FC = () => {
                             <button
                                 type="submit"
                                 form="eq-form"
-                                className="px-3 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
                             >
                                 {showSavedMessage && mode !== 'create' && (
-                                    <span className="text-xs font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
+                                    <span className="text-[11px] font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
                                 )}
-                                {mode === 'create' ? <Plus size={16} /> : <Save size={14} />}
+                                {mode === 'create' ? <Plus size={13} /> : <Save size={13} />}
                                 {mode === 'create' ? 'Criar' : 'Guardar'}
                             </button>
                         )}
@@ -898,11 +971,18 @@ const EquipmentPage: React.FC = () => {
                     <div className="flex items-center justify-between mb-4 bg-gray-50 dark:bg-[#131314] p-3 rounded-lg border border-gray-200 dark:border-[#444746]">
                         <div className="flex items-center gap-2">
                             <span className="text-xs font-semibold uppercase text-gray-500 tracking-wider">Status:</span>
-                            <span className={cn("px-2 py-0.5 rounded text-xs font-bold uppercase",
-                                currentEq.workflowStatus === 'validated' ? "bg-green-100 text-green-700" :
-                                    currentEq.workflowStatus === 'draft' ? "bg-gray-200 text-gray-600 dark:text-gray-300" :
-                                        "bg-primary-light text-primary-hover"
-                            )}>{currentEq.workflowStatus?.replace('_', ' ') || 'DRAFT'}</span>
+                            {(() => {
+                                const st = getEquipmentDisplayStatus(currentEq);
+                                return (
+                                    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs", st.color)}>
+                                        {st.icon === 'check' && <CheckCircle size={12} />}
+                                        {st.icon === 'alert' && <AlertTriangle size={12} />}
+                                        {st.icon === 'clock' && <Clock size={12} />}
+                                        {st.icon === 'file' && <FileText size={12} />}
+                                        {st.label}
+                                    </span>
+                                );
+                            })()}
                         </div>
                     </div>
 

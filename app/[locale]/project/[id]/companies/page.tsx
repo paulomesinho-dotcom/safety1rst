@@ -81,28 +81,29 @@ import { CompanyQuickCreateModal } from "@/components/CompanyQuickCreateModal";
 import { nanoid } from "nanoid";
 
 export const getWorkflowStatusColors = (status: string | undefined, role: string | null = null) => {
-  if (status === "validated" || status === "approved") {
-    return "bg-green-100 text-green-800 border-green-200";
+  if (status === "validated") {
+    return "bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800";
   }
-
-  if (role) {
-    if (role === "data_user") return "bg-orange-100 text-orange-800 border-orange-200";
-    if (role === "manager") return "bg-blue-100 text-blue-800 border-blue-200";
-    if (role === "approval_user" || role === "approver") return "bg-purple-100 text-purple-800 border-purple-200";
+  if (status === "approved") {
+    return "bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800";
   }
 
   switch (status) {
-    case "draft": return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-surface dark:text-gray-300 dark:border-[#444746]";
-    case "data_requested": return "bg-orange-100 text-orange-800 border-orange-200";
-    case "validation_pending": return "bg-blue-100 text-blue-800 border-blue-200";
-    case "approval_pending": return "bg-purple-100 text-purple-800 border-purple-200";
-    case "validated": return "bg-green-100 text-green-800 border-green-200";
-    case "approved": return "bg-green-100 text-green-800 border-green-200";
-    case "data_update": return "bg-yellow-100 text-yellow-800 border-yellow-200";
-    case "approval_data_update": return "bg-red-100 text-red-800 border-red-200";
-    case "off_site": return "bg-gray-100 text-gray-600 border-gray-200";
-    case "incomplete": return "bg-red-100 text-red-800 border-red-200";
-    default: return "bg-gray-100 text-gray-700 border-gray-200 dark:bg-surface dark:text-gray-300 dark:border-[#444746]";
+    case "draft":
+    case "incomplete":
+      return "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800";
+    case "validation_pending":
+    case "data_requested":
+    case "data_update":
+      return "bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800";
+    case "approval_pending":
+    case "approval_data_update":
+      return "bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800";
+    case "off_site":
+    case "archived":
+      return "bg-gray-100 text-gray-600 border border-gray-200 dark:bg-surface dark:text-gray-300 dark:border-[#444746]";
+    default:
+      return "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800";
   }
 };
 
@@ -285,10 +286,14 @@ const ListView: React.FC<{
                   <td className="px-6 py-4">
                     <span
                       className={cn(
-                        "px-2 py-1 rounded text-xs font-semibold border whitespace-nowrap",
+                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs whitespace-nowrap",
                         status.color,
                       )}
                     >
+                      {(status.status === "validated" || status.status === "approved" || status.status === "valid") && <CheckCircle size={12} />}
+                      {(status.status === "validation_pending" || status.status === "approval_pending" || status.status === "data_requested" || status.status === "data_update" || status.status === "approval_data_update" || status.status === "draft" || status.status === "incomplete" || status.status === "pending") && <Clock size={12} />}
+                      {status.status === "expired" && <AlertTriangle size={12} />}
+                      {(status.status === "off_site" || status.status === "archived") && <FileText size={12} />}
                       {status.label}
                     </span>
                   </td>
@@ -406,10 +411,14 @@ const GridView: React.FC<{
               </span>
               <span
                 className={cn(
-                  "px-2 py-1 rounded text-xs font-semibold border whitespace-nowrap",
+                  "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs whitespace-nowrap",
                   getValidationStatus(company).color,
                 )}
               >
+                {(getValidationStatus(company).status === "validated" || getValidationStatus(company).status === "approved" || getValidationStatus(company).status === "valid") && <CheckCircle size={12} />}
+                {(getValidationStatus(company).status === "validation_pending" || getValidationStatus(company).status === "approval_pending" || getValidationStatus(company).status === "data_requested" || getValidationStatus(company).status === "data_update" || getValidationStatus(company).status === "approval_data_update" || getValidationStatus(company).status === "draft" || getValidationStatus(company).status === "incomplete" || getValidationStatus(company).status === "pending") && <Clock size={12} />}
+                {getValidationStatus(company).status === "expired" && <AlertTriangle size={12} />}
+                {(getValidationStatus(company).status === "off_site" || getValidationStatus(company).status === "archived") && <FileText size={12} />}
                 {getValidationStatus(company).label}
               </span>
             </div>
@@ -1985,7 +1994,7 @@ export default function CompaniesPage() {
       case "draft":
         return {
           status: "draft",
-          label: t("status.draft"),
+          label: "Em Validação",
           color: getWorkflowStatusColors("draft", role),
           details: details,
           waitingForRole: role,
@@ -2049,7 +2058,7 @@ export default function CompaniesPage() {
       case "incomplete":
         return {
           status: "incomplete",
-          label: t("status.incomplete"),
+          label: "Em Validação",
           color: getWorkflowStatusColors("incomplete", role),
           details: details,
           waitingForRole: role,
@@ -3317,7 +3326,7 @@ export default function CompaniesPage() {
         <StatusIcon size={12} />
         {mode !== "create"
           ? getDisplayStatus(newItem as Company).label
-          : "Rascunho"}
+          : "Em Validação"}
       </span>
       {isActingAsDataUser && (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border shadow-2xs bg-orange-100 text-orange-800 border-orange-200 animate-pulse">
@@ -4012,25 +4021,7 @@ export default function CompaniesPage() {
                 {statusBadge}
               </div>
               <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-0.5 truncate">
-                {newItem?.tier && (
-                  <span className="flex items-center gap-1 truncate font-medium">
-                    Nível {newItem.tier}
-                  </span>
-                )}
-                {newItem?.parentId && (
-                  <>
-                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
-                    <span className="truncate">
-                      Contratante: {activeCompanies.find(c => c.id === newItem.parentId)?.name || 'Empreiteiro Geral'}
-                    </span>
-                  </>
-                )}
-                {newItem?.nif && (
-                  <>
-                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
-                    <span className="truncate">NIF: {newItem.nif}</span>
-                  </>
-                )}
+                <span className="truncate">NIF: {newItem?.nif || '---'}</span>
                 {waitingFor && (
                   <>
                     <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>

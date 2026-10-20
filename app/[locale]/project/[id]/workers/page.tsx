@@ -657,8 +657,9 @@ const WorkersPage: React.FC = () => {
                 if (!cw.id) return null;
 
                 const isManagerForThis = isManager;
+                const isApprovalForThis = isApprovalUser && !!currentProject?.approvalWorkflow?.workers;
                 const dataUserCanSeeActions = isDataUser && ['draft', 'data_requested', 'data_update'].includes(cw.workflowStatus || '');
-                if (!isManagerForThis && !dataUserCanSeeActions) return null;
+                if (!isManagerForThis && !dataUserCanSeeActions && !isApprovalForThis) return null;
 
                 const checkFields: (keyof Worker)[] = ['name', 'birthDate', 'idCardExpiry', 'companyId', 'role'];
                 if (cw.isForeign) checkFields.push('residencyExpiry');
@@ -703,11 +704,11 @@ const WorkersPage: React.FC = () => {
                                     disabled={!drawerReadyToSubmit}
                                     onClick={() => submitWorker(cw.id!)}
                                     className={cn(
-                                        "px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-sm flex items-center gap-1.5",
+                                        "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5",
                                         !drawerReadyToSubmit && "opacity-40 cursor-not-allowed"
                                     )}
                                 >
-                                    <CheckCircle size={14} /> Submeter
+                                    <CheckCircle size={13} /> Submeter
                                 </button>
                             );
                         })()}
@@ -720,9 +721,9 @@ const WorkersPage: React.FC = () => {
                                         const missing = checkFields.filter(k => !cw.fieldValidations?.[k]);
                                         requestWorkerElements(cw.id!, missing);
                                     }}
-                                    className="px-3 py-1.5 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-sm flex items-center gap-1.5"
+                                    className="px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-xs flex items-center gap-1.5"
                                 >
-                                    <AlertTriangle size={14} /> Rever
+                                    <AlertTriangle size={13} /> Rever
                                 </button>
                                 
                                 {isCompliant ? (
@@ -731,11 +732,11 @@ const WorkersPage: React.FC = () => {
                                         disabled={!isAllValidated}
                                         onClick={() => validateWorker(cw.id!)}
                                         className={cn(
-                                            "px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-sm flex items-center gap-1.5",
+                                            "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5",
                                             !isAllValidated && "opacity-50 cursor-not-allowed"
                                         )}
                                     >
-                                        <Check size={14} /> Validar
+                                        <Check size={13} /> Validar
                                     </button>
                                 ) : (
                                     <button
@@ -743,15 +744,26 @@ const WorkersPage: React.FC = () => {
                                         disabled={!isAllValidated}
                                         onClick={() => updateWorker(cw.id!, { workflowStatus: 'in_training_process' })}
                                         className={cn(
-                                            "px-3 py-1.5 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors shadow-sm flex items-center gap-1.5",
+                                            "px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors shadow-xs flex items-center gap-1.5",
                                             !isAllValidated && "opacity-50 cursor-not-allowed"
                                         )}
                                     >
-                                        <GraduationCap size={14} /> Formação
+                                        <GraduationCap size={13} /> Formação
                                     </button>
                                 )}
                             </>
                         )}
+
+                        {isApprovalForThis && (cw.workflowStatus === 'approval_pending' || (cw.workflowStatus === 'validated' && cw.approvalStatus !== 'approved')) && (
+                            <button
+                                type="button"
+                                onClick={() => approveWorker(cw.id!)}
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-xs flex items-center gap-1.5"
+                            >
+                                <CheckCircle size={13} /> Aprovar
+                            </button>
+                        )}
+
                         <div className="h-6 w-px bg-gray-200 dark:bg-[#444746] mx-1" />
                     </div>
                 );

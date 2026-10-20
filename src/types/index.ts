@@ -538,7 +538,7 @@ export interface Equipment {
     ifcGlobalId?: string;
 
     // Workflow
-    workflowStatus?: 'draft' | 'data_requested' | 'validation_pending' | 'validated' | 'incomplete' | 'out_of_service';
+    workflowStatus?: 'draft' | 'data_requested' | 'data_update' | 'validation_pending' | 'validated' | 'approval_pending' | 'approval_data_update' | 'approved' | 'incomplete' | 'out_of_service' | 'off_site';
     missingElements?: string[]; // Fields requested by manager
     fieldValidations?: Record<string, boolean>; // Field key -> Validated by manager
     fieldEditPermissions?: Record<string, boolean>; // Field key -> Can Data User edit? (Lock override)

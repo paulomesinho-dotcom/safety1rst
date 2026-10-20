@@ -94,7 +94,9 @@ const getValidationStatus = (worker: Worker) => {
 
     if (warnings.length > 0) return { status: 'expired', label: warnings[0], color: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800' };
     if (worker.workflowStatus === 'validated') return { status: 'valid', label: 'Validado', color: 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800' };
+    if (worker.workflowStatus === 'approved') return { status: 'valid', label: 'Aprovado', color: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800' };
     if (worker.workflowStatus === 'validation_pending') return { status: 'pending', label: 'Validação Pendente', color: 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800' };
+    if (worker.workflowStatus === 'approval_pending') return { status: 'pending', label: 'Pendente Aprovação', color: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800' };
 
     return { status: 'incomplete', label: 'Em Validação', color: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800' };
 };
