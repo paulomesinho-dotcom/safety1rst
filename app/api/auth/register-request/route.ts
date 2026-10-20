@@ -8,12 +8,13 @@ import { nanoid } from 'nanoid';
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { companyName, nif, contactName, email, phone, password, plan } = body;
+        const { companyName, nif, contactName, name, email, phone, password, plan, consentRgpd } = body;
+        const finalContactName = (contactName || name || '').trim();
 
         // Validações
-        if (!companyName || !nif || !contactName || !email || !password) {
+        if (!companyName?.trim() || !nif?.trim() || !finalContactName || !email?.trim() || !password) {
             return NextResponse.json(
-                { error: 'Todos os campos obrigatórios devem ser preenchidos.' },
+                { error: 'Todos os campos obrigatórios (Empresa, NIF, Nome do Responsável, Email e Palavra-passe) devem ser preenchidos.' },
                 { status: 400 }
             );
         }
@@ -21,6 +22,13 @@ export async function POST(req: NextRequest) {
         if (password.length < 8) {
             return NextResponse.json(
                 { error: 'A palavra-passe deve ter pelo menos 8 caracteres.' },
+                { status: 400 }
+            );
+        }
+
+        if (!consentRgpd) {
+            return NextResponse.json(
+                { error: 'É necessário autorizar o tratamento de dados pessoais (RGPD) para submeter o pedido.' },
                 { status: 400 }
             );
         }
@@ -46,7 +54,7 @@ export async function POST(req: NextRequest) {
                 data: {
                     companyName,
                     nif,
-                    contactName,
+                    contactName: finalContactName,
                     email: cleanEmail,
                     phone: phone || null,
                     password: hashedPassword,
@@ -62,7 +70,7 @@ export async function POST(req: NextRequest) {
         // 2. Enviar email de verificação via Resend
         const emailResult = await sendVerificationEmail({
             to: cleanEmail,
-            name: contactName,
+            name: finalContactName,
             companyName,
             plan: selectedPlan,
             token: verificationToken,

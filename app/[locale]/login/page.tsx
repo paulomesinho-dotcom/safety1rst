@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { Shield, Mail, Lock, Building2, ArrowRight, Box, Smartphone, CheckCircle, FileText, HardHat, Truck, Check, Sparkles, Phone, User, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { PrimaryButton } from '@/components/Modal';
+import { PrimaryButton, Modal } from '@/components/Modal';
 import { BrandLogo } from '@/components/BrandLogo';
 import type { PlanType } from '@/types';
 import { nanoid } from 'nanoid';
@@ -29,6 +29,8 @@ export default function LoginPage() {
         password: '',
         plan: 'basic' as PlanType,
     });
+    const [consentRgpd, setConsentRgpd] = useState(false);
+    const [showPrivacyModal, setShowPrivacyModal] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [regSuccess, setRegSuccess] = useState(false);
     const [regError, setRegError] = useState('');
@@ -101,6 +103,11 @@ export default function LoginPage() {
             return;
         }
 
+        if (!consentRgpd) {
+            setRegError('É necessário autorizar o tratamento de dados pessoais (RGPD) para submeter o pedido.');
+            return;
+        }
+
         setIsSubmitting(true);
         const verificationToken = nanoid(32);
 
@@ -123,8 +130,15 @@ export default function LoginPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    ...regData,
+                    companyName: regData.companyName.trim(),
+                    nif: regData.nif.trim(),
+                    contactName: regData.name.trim(),
+                    name: regData.name.trim(),
                     email: regData.email.trim().toLowerCase(),
+                    phone: regData.phone.trim() || undefined,
+                    password: regData.password,
+                    plan: regData.plan,
+                    consentRgpd: true,
                     verificationToken,
                 }),
             });
@@ -422,6 +436,29 @@ export default function LoginPage() {
                                             </div>
                                         </div>
 
+                                        {/* RGPD / Consentimento de Tratamento de Dados */}
+                                        <div className="pt-1.5 pb-1">
+                                            <label className="flex items-start gap-2.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    required
+                                                    checked={consentRgpd}
+                                                    onChange={e => setConsentRgpd(e.target.checked)}
+                                                    className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary h-4 w-4 shrink-0"
+                                                />
+                                                <span className="leading-tight text-[11px]">
+                                                    Autorizo a recolha e o tratamento dos meus dados pessoais (nome, email e telefone) pela <strong>XISPOLI / SafetyFirst</strong> para efeitos de análise do pedido de subscrição, ativação da conta e esclarecimentos.{' '}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setShowPrivacyModal(true)}
+                                                        className="text-primary underline font-semibold hover:text-blue-700 inline"
+                                                    >
+                                                        Proteção de Dados & RGPD
+                                                    </button>
+                                                </span>
+                                            </label>
+                                        </div>
+
                                         {regError && (
                                             <div className="text-red-600 text-xs bg-red-50 p-2.5 rounded-lg border border-red-200 flex items-center gap-2">
                                                 <AlertCircle size={14} className="shrink-0" />
@@ -572,6 +609,60 @@ export default function LoginPage() {
                     </div>
                 </footer>
             </main>
+
+            {/* Modal de Informação RGPD */}
+            <Modal
+                title="Informação sobre Proteção de Dados (RGPD)"
+                isOpen={showPrivacyModal}
+                onClose={() => setShowPrivacyModal(false)}
+            >
+                <div className="space-y-4 text-xs text-gray-700 dark:text-gray-300 leading-relaxed max-h-[60vh] overflow-y-auto pr-1">
+                    <div className="bg-blue-50 dark:bg-blue-950/40 p-3 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200">
+                        <p className="font-semibold text-xs mb-1">Em conformidade com o Regulamento Geral sobre a Proteção de Dados (Regulamento (UE) 2016/679):</p>
+                        <p>O tratamento dos seus dados rege-se pelos princípios da licitude, lealdade, transparência e minimização.</p>
+                    </div>
+
+                    <div>
+                        <h4 className="font-bold text-gray-900 dark:text-white mb-1">1. Responsável pelo Tratamento</h4>
+                        <p>A entidade responsável pelo tratamento dos seus dados é a <strong>XISPOLI - Engenharia, Lda.</strong>, titular e administradora da plataforma <strong>SafetyFirst</strong>.</p>
+                    </div>
+
+                    <div>
+                        <h4 className="font-bold text-gray-900 dark:text-white mb-1">2. Finalidade e Base de Licitude</h4>
+                        <p>Os dados recolhidos (Nome, Empresa, NIF, Email e Telefone) destinam-se exclusivamente a:</p>
+                        <ul className="list-disc pl-5 mt-1 space-y-1">
+                            <li>Processar e validar o seu pedido de adesão/subscrição (diligências pré-contratuais — Art. 6.º, n.º 1, al. b) do RGPD);</li>
+                            <li>Verificação de legitimidade da empresa e contacto direto para apoio à ativação do acesso (consentimento — Art. 6.º, n.º 1, al. a) do RGPD);</li>
+                            <li>Envio de notificações de ativação e link de confirmação do email corporativo.</li>
+                        </ul>
+                    </div>
+
+                    <div>
+                        <h4 className="font-bold text-gray-900 dark:text-white mb-1">3. Prazo de Conservação</h4>
+                        <p>Os dados são conservados durante o período necessário ao processamento da adesão. Caso o acesso seja ativado, os dados permanecem vinculados à conta durante a vigência do serviço e respetivos prazos legais fiscais. Se o pedido não for concretizado, os dados são eliminados no prazo máximo de 90 dias.</p>
+                    </div>
+
+                    <div>
+                        <h4 className="font-bold text-gray-900 dark:text-white mb-1">4. Confidencialidade e Terceiros</h4>
+                        <p>Garantimos a total confidencialidade dos seus dados. Os seus dados não são vendidos, partilhados ou cedidos a terceiros para fins publicitários ou comerciais alheios à plataforma.</p>
+                    </div>
+
+                    <div>
+                        <h4 className="font-bold text-gray-900 dark:text-white mb-1">5. Exercício dos Seus Direitos</h4>
+                        <p>Nos termos da lei, pode a qualquer momento exercer os seus direitos de acesso, retificação, oposição, limitação e eliminação dos seus dados, ou revogar o seu consentimento, bastando enviar uma mensagem para o email: <strong className="text-primary font-semibold">paulo.ferreira@xispoli.eu</strong>.</p>
+                    </div>
+
+                    <div className="pt-2 text-right">
+                        <button
+                            type="button"
+                            onClick={() => setShowPrivacyModal(false)}
+                            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition-colors"
+                        >
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }
