@@ -66,6 +66,7 @@ export default function PlatformDashboardPage() {
             email: newAccount.adminEmail,
             role: 'admin',
             accountId: accountId,
+            password: newAccount.adminPassword || '123456',
             projectAccess: []
         });
 

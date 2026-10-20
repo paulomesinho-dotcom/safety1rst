@@ -51,7 +51,7 @@ export default function AccountDashboardPage() {
 
     // State for Forms
     const [newProject, setNewProject] = useState({ name: '', address: '', description: '' });
-    const [newUser, setNewUser] = useState({ name: '', email: '', role: 'user' });
+    const [newUser, setNewUser] = useState({ name: '', email: '', role: 'user', password: '' });
     const [selectedUserForAccess, setSelectedUserForAccess] = useState<User | null>(null);
 
     const handleCreateProject = (e: React.FormEvent) => {
@@ -73,10 +73,11 @@ export default function AccountDashboardPage() {
             email: newUser.email,
             role: newUser.role as any,
             accountId: currentAccountId!,
+            password: newUser.password || '123456',
             projectAccess: []
         });
         setIsUserModalOpen(false);
-        setNewUser({ name: '', email: '', role: 'user' });
+        setNewUser({ name: '', email: '', role: 'user', password: '' });
     };
 
     const handleOpenAccessModal = (user: User) => {
@@ -338,6 +339,10 @@ export default function AccountDashboardPage() {
                         <InputGroup label="Email Address">
                             <input required type="email" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"
                                 value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} placeholder="john@company.com" />
+                        </InputGroup>
+                        <InputGroup label="Palavra-passe">
+                            <input required type="password" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"
+                                value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="••••••••" />
                         </InputGroup>
                         <InputGroup label="Role">
                             <select className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"

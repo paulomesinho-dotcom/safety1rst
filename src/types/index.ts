@@ -18,6 +18,7 @@ export interface User {
     accountId: string; // Tenant ID
     projectAccess?: ProjectAccess[]; // Permissions per project
     avatarUrl?: string;
+    password?: string;
     createdAt: string;
 }
 

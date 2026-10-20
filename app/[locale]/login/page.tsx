@@ -9,12 +9,12 @@ import { BrandLogo } from '@/components/BrandLogo';
 
 export default function LoginPage() {
     const router = useRouter();
-    const { users, setCurrentUser } = useStore();
+    const { users, setCurrentUser, login } = useStore();
     const [isLogin, setIsLogin] = useState(true);
 
     // Login State
     const [email, setEmail] = useState('');
-    const [password, setPassword] = useState(''); // Mock - any password works if user exists
+    const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
     // Register State
@@ -57,15 +57,21 @@ export default function LoginPage() {
         }
     }, []);
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+        setError('');
 
-        if (user) {
-            setCurrentUser(user);
+        if (!email.trim() || !password) {
+            setError('Por favor preencha o e-mail e a palavra-passe.');
+            return;
+        }
+
+        const success = await login(email.trim(), password);
+
+        if (success) {
             router.push('/');
         } else {
-            setError('Invalid email or password. (Try admin@safesite.com)');
+            setError('E-mail ou palavra-passe incorretos.');
         }
     };
 
@@ -145,13 +151,13 @@ export default function LoginPage() {
                             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
 
                             <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-6 text-center">
-                                {isLogin ? 'Welcome Back' : 'Get Started'}
+                                {isLogin ? 'Iniciar Sessão' : 'Criar Conta'}
                             </h2>
 
                             {isLogin ? (
                                 <form className="space-y-5" onSubmit={handleLogin}>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Email address</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">E-mail</label>
                                         <div className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                                 <Mail className="h-5 w-5 text-gray-400" />
@@ -160,13 +166,13 @@ export default function LoginPage() {
                                                 type="email" required
                                                 className="block w-full pl-10 sm:text-sm border-gray-300 dark:border-[#444746] rounded-lg py-2.5 border focus:ring-2 focus:ring-primary focus:border-blue-500 transition-all outline-none"
                                                 value={email} onChange={e => setEmail(e.target.value)}
-                                                placeholder="admin@safesite.com"
+                                                placeholder="exemplo@empresa.com"
                                             />
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Password</label>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Palavra-passe</label>
                                         <div className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                                 <Lock className="h-5 w-5 text-gray-400" />
@@ -183,11 +189,11 @@ export default function LoginPage() {
                                     {error && <div className="text-red-500 text-sm bg-red-50 p-2 rounded-md border border-red-100 flex items-center gap-2"><Shield size={14} /> {error}</div>}
 
                                     <PrimaryButton type="submit" className="w-full justify-center py-2.5 text-base shadow-lg shadow-primary/20">
-                                        Sign In <ArrowRight size={18} className="ml-2" />
+                                        Entrar <ArrowRight size={18} className="ml-2" />
                                     </PrimaryButton>
 
                                     <p className="text-center text-sm text-gray-500 mt-4">
-                                        Don't have an account? <button type="button" onClick={() => setIsLogin(false)} className="font-semibold text-primary hover:text-primary hover:underline">Register now</button>
+                                        Não tem conta? <button type="button" onClick={() => setIsLogin(false)} className="font-semibold text-primary hover:text-primary hover:underline">Pedir acesso</button>
                                     </p>
                                 </form>
                             ) : (

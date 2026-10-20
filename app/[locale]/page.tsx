@@ -131,20 +131,20 @@ export default function Home() {
                                         onClick={() => router.push('/platform')}
                                         className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-2 rounded-lg font-medium hover:bg-indigo-100 shadow-sm transition-all text-sm"
                                     >
-                                        <Layout size={16} /> Platform Admin
+                                        <Layout size={16} /> Gestão de Clientes
                                     </button>
                                 )}
                                 <button
                                     onClick={() => router.push('/global-users')}
                                     className="flex items-center gap-2 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] text-gray-700 dark:text-gray-200 px-4 py-2 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-[#131314] shadow-sm transition-all text-sm"
                                 >
-                                    <Users size={16} /> Manage Users
+                                    <Users size={16} /> Utilizadores
                                 </button>
                                 <button
                                     onClick={() => setIsCreateOpen(true)}
                                     className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-hover shadow-sm transition-all text-sm"
                                 >
-                                    <Plus size={16} /> New Project
+                                    <Plus size={16} /> Novo Projecto
                                 </button>
                             </div>
                         )}

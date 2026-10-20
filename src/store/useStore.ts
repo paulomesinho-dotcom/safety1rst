@@ -76,7 +76,7 @@ export interface AppState {
     setFieldPermission: (entityId: string, entityType: 'company' | 'worker' | 'equipment', field: string, allowEdit: boolean) => void;
 
     // Users
-    login: (email: string) => Promise<boolean>;
+    login: (email: string, password?: string) => Promise<boolean>;
     addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
     addAccount: (account: Omit<Account, 'id' | 'createdAt'>) => void;
     updateAccount: (id: string, updates: Partial<Account>) => void;
@@ -266,53 +266,20 @@ const MOCK_PROJECTS: Project[] = [
     },
 ];
 
-// Mock Users with Roles
+// Super Admin User
 const MOCK_USERS: User[] = [
     {
-        id: 'user_1', email: 'admin@safesite.com', name: 'Paulo Admin', role: 'admin', accountId: MOCK_ACCOUNT_ID,
-        createdAt: new Date().toISOString(),
-        projectAccess: []
-    },
-    {
-        id: 'user_2', email: 'manager@safesite.com', name: 'Sara Gestora', role: 'user', accountId: MOCK_ACCOUNT_ID,
+        id: 'user_super',
+        email: 'paulo.ferreira@xispoli.eu',
+        name: 'Paulo Ferreira',
+        role: 'superadmin',
+        accountId: 'platform_admin',
+        password: 'Pferreira.Xispoli@1914',
         createdAt: new Date().toISOString(),
         projectAccess: [
             { projectId: 'proj_1', role: 'manager', allowedModules: MOCK_MODULES.map(m => m.id) }
         ]
-    },
-    {
-        id: 'user_3', email: 'basic@safesite.com', name: 'Rui Técnico', role: 'user', accountId: MOCK_ACCOUNT_ID,
-        createdAt: new Date().toISOString(),
-        projectAccess: [
-            { projectId: 'proj_1', role: 'editor', allowedModules: ['workers', 'equipment', 'accidents'] }
-        ]
-    },
-    {
-        id: 'user_4', email: 'fiscal@safesite.com', name: 'Ana Fiscal', role: 'user', accountId: MOCK_ACCOUNT_ID,
-        createdAt: new Date().toISOString(),
-        projectAccess: [
-            { projectId: 'proj_1', role: 'viewer', allowedModules: ['workers', 'documents'] }
-        ]
-    },
-    {
-        id: 'user_5', email: 'data@safesite.com', name: 'Carlos Dados', role: 'user', accountId: MOCK_ACCOUNT_ID,
-        createdAt: new Date().toISOString(),
-        projectAccess: [
-            { projectId: 'proj_1', role: 'data_user', allowedModules: ['companies', 'workers', 'equipment'], companyIds: ['c1'] }
-        ]
-    },
-    {
-        id: 'user_super', email: 'super@safesite.com', name: 'Super Admin', role: 'superadmin', accountId: 'platform_admin',
-        createdAt: new Date().toISOString(),
-        projectAccess: []
-    },
-    {
-        id: 'user_6', email: 'approver@safesite.com', name: 'Pedro Aprovador', role: 'user', accountId: MOCK_ACCOUNT_ID,
-        createdAt: new Date().toISOString(),
-        projectAccess: [
-            { projectId: 'proj_1', role: 'approval_user', allowedModules: ['companies', 'workers'] }
-        ]
-    },
+    }
 ];
 
 // Seed data
@@ -671,35 +638,53 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const safeUsers = Array.isArray(users) ? users : [];
             const safeMembers = Array.isArray(members) ? members : [];
 
-            // Force Seed Approval User if missing
-            const approvalUserEmail = 'approver@safesite.com';
-            if (!safeUsers.some((u: any) => u.email === approvalUserEmail)) {
-                console.log('Seeding missing Approval User...');
-                const approver = MOCK_USERS.find(u => u.email === approvalUserEmail);
-                if (approver) {
-                    await insert('users', [approver]);
-                    if (approver.projectAccess) {
-                        for (const pa of approver.projectAccess) {
-                            await executeQuery(`INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, allowed_modules, company_id) VALUES (?, ?, ?, ?, ?, ?)`,
-                                [nanoid(), pa.projectId, approver.id, pa.role, JSON.stringify(pa.allowedModules), pa.companyIds ? JSON.stringify(pa.companyIds) : null]);
+            // Cleanup legacy demo accounts and ensure Super User
+            const DEMO_EMAILS = [
+                'admin@safesite.com',
+                'manager@safesite.com',
+                'basic@safesite.com',
+                'fiscal@safesite.com',
+                'data@safesite.com',
+                'super@safesite.com',
+                'approver@safesite.com'
+            ];
 
-                            // Also push to members array so the map below picks it up!
-                            safeMembers.push({
-                                userId: approver.id,
-                                projectId: pa.projectId,
-                                role: pa.role,
-                                allowedModules: pa.allowedModules,
-                                companyIds: pa.companyIds
-                            });
-                        }
-                    }
-                    safeUsers.push(approver as any); // Add to local state
-                    console.log('[Store] Seeded user, users count:', safeUsers.length);
-                }
+            for (const demoEmail of DEMO_EMAILS) {
+                await executeQuery(`DELETE FROM users WHERE LOWER(email) = ?`, [demoEmail.toLowerCase()]).catch(() => {});
+                await executeQuery(`DELETE FROM project_members WHERE user_id IN (SELECT id FROM users WHERE LOWER(email) = ?)`, [demoEmail.toLowerCase()]).catch(() => {});
             }
+
+            const superUser = MOCK_USERS[0];
+            const existingSuper = safeUsers.find((u: any) => u.email?.toLowerCase() === superUser.email.toLowerCase());
+            if (!existingSuper) {
+                console.log('[Store] Seeding Super User...');
+                await insert('users', [superUser]);
+                if (superUser.projectAccess) {
+                    for (const pa of superUser.projectAccess) {
+                        await executeQuery(`INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, allowed_modules, company_id) VALUES (?, ?, ?, ?, ?, ?)`,
+                            [nanoid(), pa.projectId, superUser.id, pa.role, JSON.stringify(pa.allowedModules), pa.companyIds ? JSON.stringify(pa.companyIds) : null]);
+                        safeMembers.push({
+                            userId: superUser.id,
+                            projectId: pa.projectId,
+                            role: pa.role,
+                            allowedModules: pa.allowedModules,
+                            companyIds: pa.companyIds
+                        });
+                    }
+                }
+                safeUsers.push(superUser as any);
+            } else {
+                await executeQuery(`UPDATE users SET password = ?, role = 'superadmin' WHERE LOWER(email) = ?`, [superUser.password, superUser.email.toLowerCase()]).catch(() => {});
+                existingSuper.password = superUser.password;
+                existingSuper.role = 'superadmin';
+            }
+
+            // Exclude demo accounts
+            const cleanSafeUsers = safeUsers.filter((u: any) => !DEMO_EMAILS.includes(u.email?.toLowerCase()));
+
             console.log('[Store] Mapping users with access...');
 
-            const usersWithAccess = safeUsers.map((u: any) => ({
+            const usersWithAccess = cleanSafeUsers.map((u: any) => ({
                 ...u,
                 projectAccess: safeMembers.filter((m: any) => m.userId === u.id).map((m: any) => ({
                     projectId: m.projectId,
@@ -708,22 +693,6 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     companyIds: m.companyId
                 }))
             }));
-
-            // Force Update Approval User Role if it's currently 'viewer' or incorrect (Fix for stale DB data during dev)
-            const approverEmail = 'approver@safesite.com';
-            const approverUser = usersWithAccess.find((u: any) => u.email === approverEmail);
-            if (approverUser) {
-                const proj1Access = approverUser.projectAccess.find((pa: any) => pa.projectId === 'proj_1');
-                if (proj1Access && proj1Access.role !== 'approval_user') {
-                    console.log('[Store] Fixing stale role for Approver User...');
-                    // Update DB
-                    await executeQuery(`UPDATE project_members SET role = 'approval_user' WHERE user_id = ? AND project_id = 'proj_1'`, [approverUser.id]);
-                    // Update Local State
-                    approverUser.projectAccess = approverUser.projectAccess.map((pa: any) =>
-                        pa.projectId === 'proj_1' ? { ...pa, role: 'approval_user' } : pa
-                    );
-                }
-            }
 
 
             // Verify Standard Profiles
@@ -790,7 +759,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 isInitialized: true,
                 accounts,
                 users: usersWithAccess,
-                currentUser: usersWithAccess.find((u: any) => u.id === state.currentUser?.id) || usersWithAccess[0],
+                currentUser: usersWithAccess.find((u: any) => u.id === state.currentUser?.id) || null,
                 projects,
                 companies,
                 workers,
@@ -817,10 +786,16 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }
     },
 
-    login: async (email: string) => {
+    login: async (email: string, password?: string) => {
         const users = get().users;
-        const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+        const cleanEmail = email.trim().toLowerCase();
+        const user = users.find(u => u.email.trim().toLowerCase() === cleanEmail);
         if (user) {
+            if (user.password) {
+                if (!password || user.password !== password) {
+                    return false;
+                }
+            }
             set({ currentUser: user });
             return true;
         }
@@ -920,13 +895,15 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
 
     ensureSuperAdmin: () => set((state) => {
-        if (state.users.some(u => u.email === 'super@safesite.com')) return state;
+        const superUser = MOCK_USERS[0];
+        const existing = state.users.find(u => u.email?.toLowerCase() === superUser.email.toLowerCase());
+        if (existing) {
+            return {
+                users: state.users.map(u => u.email?.toLowerCase() === superUser.email.toLowerCase() ? { ...u, password: superUser.password, role: 'superadmin' as const } : u)
+            };
+        }
         return {
-            users: [...state.users, {
-                id: 'user_super', email: 'super@safesite.com', name: 'Super Admin', role: 'superadmin', accountId: 'platform_admin',
-                createdAt: new Date().toISOString(),
-                projectAccess: []
-            }]
+            users: [...state.users, superUser]
         };
     }),
 
