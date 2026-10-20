@@ -127,23 +127,23 @@ const Drawer = ({
   if (!isOpen) return null;
 
   return (
-    <div className="absolute inset-0 w-full h-full bg-white dark:bg-surface flex flex-col z-50">
-      {/* Header */}
-      <div className="bg-white dark:bg-surface border-b border-gray-200 dark:border-[#444746] sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
+    <div className="absolute inset-0 w-full h-full bg-[var(--bg-card)] flex flex-col z-50">
+      {/* Clean Header */}
+      <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-10 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={onClose}
-              className="p-2 -ml-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-surface rounded-full transition-colors"
-              title="Go Back"
+              className="p-1.5 -ml-1 text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] rounded-lg transition-colors shrink-0"
+              title="Voltar"
             >
-              <ArrowLeft size={24} />
+              <ArrowLeft size={20} />
             </button>
-            <div className="text-xl font-semibold text-gray-800 dark:text-gray-100">
+            <div className="min-w-0">
               {title}
             </div>
           </div>
-          <div className="flex gap-2 items-center">{actions}</div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>
         </div>
         {/* Extended Header Content (Tabs/Status) */}
         {headerContent && <div className="px-6">{headerContent}</div>}
@@ -3307,25 +3307,22 @@ export default function CompaniesPage() {
   };
 
   const statusBadge = (
-    <div className="flex items-center gap-2 ml-8">
-      <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-        Status:
-      </span>
+    <div className="flex items-center gap-2 shrink-0">
       <span
         className={cn(
-          "flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-bold uppercase border shadow-sm",
+          "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs shrink-0",
           statusConfig.color,
         )}
       >
-        <StatusIcon size={14} />
+        <StatusIcon size={12} />
         {mode !== "create"
           ? getDisplayStatus(newItem as Company).label
-          : "DRAFT"}
+          : "Rascunho"}
       </span>
       {isActingAsDataUser && (
-        <span className="flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-bold uppercase border shadow-sm bg-orange-100 text-orange-800 border-orange-200 animate-pulse">
-          <User size={14} />
-          ACTING AS DATA USER
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border shadow-2xs bg-orange-100 text-orange-800 border-orange-200 animate-pulse">
+          <User size={11} />
+          Acting as Data User
         </span>
       )}
     </div>
@@ -3441,17 +3438,17 @@ export default function CompaniesPage() {
         )}
 
       {/* │ Separator before Edit/Cancel/Save actions */}
-      <div className="h-8 w-px bg-gray-200 dark:bg-[#444746]" />
+      <div className="h-6 w-px bg-gray-200 dark:bg-[#334155]" />
 
       {/* Mode Badge */}
       {!isEditing && mode !== "create" && (
-        <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-primary bg-primary/10 border border-primary/20 uppercase rounded-lg tracking-wider animate-in fade-in zoom-in-95">
-          <Eye size={12} /> Visualização
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-surface border border-gray-200 dark:border-[#444746] rounded shrink-0">
+          <Eye size={10} className="text-gray-400" /> Visualização
         </span>
       )}
       {isEditing && mode !== "create" && (
-        <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 uppercase rounded-lg tracking-wider animate-in fade-in zoom-in-95">
-          <Edit2 size={12} /> Edição
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded shrink-0">
+          <Edit2 size={10} /> Edição
         </span>
       )}
 
@@ -3460,9 +3457,9 @@ export default function CompaniesPage() {
         <button
           type="button"
           onClick={() => setIsEditing(true)}
-          className="px-3 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5"
+          className="px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] hover:text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
         >
-          <Pencil size={14} /> Editar
+          <Pencil size={13} className="text-white" /> Editar
         </button>
       )}
 
@@ -3471,7 +3468,7 @@ export default function CompaniesPage() {
         <button
           type="button"
           onClick={() => handleCancelWithRollback()}
-          className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-sm"
+          className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-xs"
         >
           Cancelar
         </button>
@@ -3498,14 +3495,14 @@ export default function CompaniesPage() {
           }
           disabled={isCreateMode ? !isCreateFormValid : false}
           className={cn(
-            "px-3 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5",
+            "px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5",
             isCreateMode && !isCreateFormValid && "opacity-50 cursor-not-allowed bg-gray-400 hover:bg-gray-400",
           )}
         >
           {showSavedMessage && (
-            <span className="text-xs font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
+            <span className="text-[11px] font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
           )}
-          <Save size={14} /> Guardar
+          <Save size={13} /> Guardar
         </button>
       )}
 
@@ -3557,11 +3554,11 @@ export default function CompaniesPage() {
                       setIsSubmitConfirmationOpen(true);
                     }}
                     className={cn(
-                      "px-3 py-1.5 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-sm flex items-center gap-1.5",
+                      "px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-xs flex items-center gap-1.5",
                       isDraftReverDisabled && "opacity-50 pointer-events-none bg-gray-400 hover:bg-gray-400",
                     )}
                   >
-                    <ArrowLeft size={14} /> Rever
+                    <ArrowLeft size={13} /> Rever
                   </button>
                 </div>
               );
@@ -3589,11 +3586,11 @@ export default function CompaniesPage() {
                   }}
                   disabled={!headerHasPendingReviewTickets}
                   className={cn(
-                    "px-3 py-1.5 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-sm flex items-center gap-1.5",
+                    "px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-xs flex items-center gap-1.5",
                     !headerHasPendingReviewTickets && "opacity-50 pointer-events-none bg-gray-400 hover:bg-gray-400",
                   )}
                 >
-                  <ArrowLeft size={14} /> Rever
+                  <ArrowLeft size={13} /> Rever
                 </button>
               </div>
             );
@@ -3610,11 +3607,11 @@ export default function CompaniesPage() {
                   setIsSubmitConfirmationOpen(true);
                 }}
                 className={cn(
-                  "px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-1.5",
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-xs flex items-center gap-1.5",
                   !isDataUserReady ? "opacity-50 pointer-events-none text-white bg-gray-400" : "text-white hover:opacity-90 bg-purple-600",
                 )}
               >
-                <Forward size={14} /> Seguir
+                <Forward size={13} /> Seguir
               </button>
             </div>
           )}
@@ -3630,11 +3627,11 @@ export default function CompaniesPage() {
                   setIsSubmitConfirmationOpen(true);
                 }}
                 className={cn(
-                  "px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-1.5",
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-xs flex items-center gap-1.5",
                   !isAllValidated ? "opacity-50 pointer-events-none bg-gray-400 text-white" : "text-white hover:opacity-90 bg-purple-600",
                 )}
               >
-                <Forward size={14} /> Seguir
+                <Forward size={13} /> Seguir
               </button>
             </div>
           )}
@@ -3677,11 +3674,11 @@ export default function CompaniesPage() {
                         setIsSubmitConfirmationOpen(true);
                       }}
                       className={cn(
-                        "px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-1.5",
+                        "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-xs flex items-center gap-1.5",
                         !canManagerSubmitApproval ? "opacity-50 pointer-events-none bg-gray-400 text-white" : "text-white hover:opacity-90 bg-purple-600",
                       )}
                     >
-                      <Forward size={14} /> Seguir
+                      <Forward size={13} /> Seguir
                     </button>
                   </div>
                 );
@@ -3702,14 +3699,14 @@ export default function CompaniesPage() {
                     setIsSubmitConfirmationOpen(true);
                   }}
                   className={cn(
-                    "px-3 py-1.5 text-sm font-semibold rounded-lg transition-colors shadow-sm flex items-center gap-1.5",
+                    "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors shadow-xs flex items-center gap-1.5",
                     currentProject?.approvalWorkflow?.companies
                       ? !isAllValidated ? "opacity-50 pointer-events-none bg-gray-400 text-white" : "text-white hover:opacity-90 bg-purple-600"
                       : !isAllValidated ? "opacity-50 pointer-events-none bg-gray-400 text-white" : "bg-green-600 text-white hover:bg-green-700 font-medium"
                   )}
                 >
                   {currentProject?.approvalWorkflow?.companies ? (
-                    <><Forward size={14} /> Seguir</>
+                    <><Forward size={13} /> Seguir</>
                   ) : (
                     "Validar"
                   )}
@@ -3739,7 +3736,7 @@ export default function CompaniesPage() {
                       setIsSubmitConfirmationOpen(true);
                     }}
                     className={cn(
-                      "px-3 py-1.5 text-sm font-medium text-white rounded-lg transition-colors shadow-sm flex items-center gap-1.5",
+                      "px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5",
                       !approverCanApprove ? "opacity-50 pointer-events-none bg-gray-400 hover:bg-gray-400" : "bg-green-600 hover:bg-green-700",
                     )}
                   >
@@ -3754,30 +3751,27 @@ export default function CompaniesPage() {
   );
 
   const headerContent = (
-    <div className="flex flex-row items-center justify-between border-b border-gray-200 dark:border-[#444746] w-full mt-4 px-1">
-      <div className="flex items-center gap-8">
+    <div className="flex flex-row items-center justify-between border-b border-[var(--border)] w-full mt-2 overflow-x-auto">
+      <div className="flex items-center gap-1">
         {[
-          { id: "info", label: "Identification" },
-          { id: "site", label: "Site Info" },
-          { id: "legal", label: "Legal / Documents" },
-          { id: "docs", label: "Files" },
-          { id: "history", label: "History" },
+          { id: "info", label: "1. Identificação" },
+          { id: "site", label: "2. Obra & Atividade" },
+          { id: "legal", label: "3. Legal & Documentos" },
+          { id: "docs", label: "4. Ficheiros" },
+          { id: "history", label: "5. Histórico" },
         ].map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id as any)}
             className={cn(
-              "pb-3 text-sm font-medium transition-all relative",
+              "flex items-center gap-2 py-2.5 px-3.5 border-b-2 transition-colors text-xs font-medium whitespace-nowrap shrink-0",
               activeTab === tab.id
-                ? "text-primary"
-                : "text-gray-500 hover:text-gray-900 dark:hover:text-white",
+                ? "border-[#4285F4] text-[#4285F4] font-semibold"
+                : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]",
             )}
           >
-            {tab.label}
-            {activeTab === tab.id && (
-              <span className="absolute bottom-0 left-0 w-full h-[3px] bg-primary rounded-t-sm" />
-            )}
+            <span>{tab.label}</span>
           </button>
         ))}
       </div>
@@ -3785,10 +3779,10 @@ export default function CompaniesPage() {
         <button
           type="button"
           onClick={() => setShowCompanyStats(!showCompanyStats)}
-          className="text-xs font-semibold text-primary hover:text-primary-hover flex items-center gap-1.5 bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors border border-primary/20 mb-2"
+          className="text-xs font-semibold text-[#4285F4] hover:text-[#3367D6] flex items-center gap-1.5 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded-lg transition-colors border border-blue-500/20 shrink-0 mb-1"
         >
-          <Info size={14} />
-          {showCompanyStats ? "Hide Info" : "+ Info"}
+          <Info size={13} />
+          {showCompanyStats ? "Ocultar Info" : "+ Info"}
         </button>
       )}
     </div>
@@ -4004,19 +3998,50 @@ export default function CompaniesPage() {
           handleCustomCancel();
         }}
         title={
-          <div className="flex flex-col">
-            <div className="flex items-center">
-              {mode === "create"
-                ? "New Organization"
-                : newItem?.name || "Organization Details"}
-              {statusBadge}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-xs shrink-0 border border-blue-500/20 shadow-2xs">
+              {newItem?.name ? newItem.name.slice(0, 2).toUpperCase() : 'ORG'}
             </div>
-            {waitingFor && (
-              <div className="flex items-center gap-1 text-sm text-gray-500 mt-1">
-                <Clock size={14} />
-                <span>Waiting for: {waitingFor}</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-base font-bold text-[var(--text)] tracking-tight truncate">
+                  {mode === "create"
+                    ? "Nova Organização"
+                    : newItem?.name || "Detalhes da Organização"}
+                </h2>
+                {statusBadge}
               </div>
-            )}
+              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                {newItem?.tier && (
+                  <span className="flex items-center gap-1 truncate font-medium">
+                    Nível {newItem.tier}
+                  </span>
+                )}
+                {newItem?.parentId && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                    <span className="truncate">
+                      Contratante: {activeCompanies.find(c => c.id === newItem.parentId)?.name || 'Empreiteiro Geral'}
+                    </span>
+                  </>
+                )}
+                {newItem?.nif && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                    <span className="truncate">NIF: {newItem.nif}</span>
+                  </>
+                )}
+                {waitingFor && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                    <span className="flex items-center gap-1 truncate">
+                      <Clock size={12} className="shrink-0" />
+                      <span>A aguardar: {waitingFor}</span>
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         }
         actions={drawerActions}
