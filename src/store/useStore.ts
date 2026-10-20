@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus } from '../types';
 
 export interface ProjectRequest {
     id: string;
@@ -40,6 +40,7 @@ export interface AppState {
     modules: Module[];
     projectRequests: ProjectRequest[];
     companyRequests: CompanyRequest[];
+    subscriptionRequests: SubscriptionRequest[];
     templates: PDFTemplate[];
     documents: Document[];
     notifications: Notification[];
@@ -84,6 +85,12 @@ export interface AppState {
     deleteUser: (userId: string) => void;
     ensureSuperAdmin: () => void;
     addAccessLog: (log: Omit<AccessLog, 'id' | 'timestamp'>) => { success: boolean; message?: string };
+
+    // Subscription Requests (Client Onboarding)
+    addSubscriptionRequest: (req: Omit<SubscriptionRequest, 'id' | 'createdAt'> & { id?: string }) => void;
+    updateSubscriptionRequest: (id: string, updates: Partial<SubscriptionRequest>) => void;
+    approveSubscriptionRequest: (id: string, reviewedBy?: string) => void;
+    rejectSubscriptionRequest: (id: string, reason?: string) => void;
 
     // Access Points
     addAccessPoint: (point: Omit<AccessPoint, 'id' | 'createdAt'>) => void;
@@ -465,6 +472,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
     projectRequests: [],
     companyRequests: [],
+    subscriptionRequests: [],
     templates: [],
     documents: [],
     notifications: [],
@@ -624,12 +632,14 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const [
                 accounts, users, projects, companies, workers, equipment,
                 accessPoints, trainings, accidents, riskAssessments, accessLogs, documents, companyProfiles,
-                workerProfiles, equipmentProfiles, tickets, ticketMessages, courses, trainingSessions, workerTrainingRecords
+                workerProfiles, equipmentProfiles, tickets, ticketMessages, courses, trainingSessions, workerTrainingRecords,
+                subscriptionRequests
             ] = await Promise.all([
                 load('accounts'), load('users'), load('projects'), load('companies'), load('workers'), load('equipment'),
                 load('access_points'), load('trainings'), load('accidents'), load('risk_assessments'), load('access_logs'), load('documents'), load('company_profiles'),
                 load('worker_profiles'), load('equipment_profiles'), load('tickets'), load('ticket_messages'),
-                load('courses'), load('training_sessions'), load('worker_training_records')
+                load('courses'), load('training_sessions'), load('worker_training_records'),
+                load('subscription_requests')
             ]);
 
             const members = (await load('project_members')) as any[];
@@ -775,7 +785,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 equipmentProfiles: finalEquipmentProfiles,
                 courses: courses || [],
                 trainingSessions: trainingSessions || [],
-                workerTrainingRecords: workerTrainingRecords || []
+                workerTrainingRecords: workerTrainingRecords || [],
+                subscriptionRequests: subscriptionRequests || []
             });
             console.log(`[Store] Initialization Complete. Loaded ${documents?.length || 0} documents.`);
 
@@ -983,6 +994,79 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbUpdate('accounts', id, updates).catch(console.error);
         return { accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) };
     }),
+
+    // Subscription Request Handlers (Client Onboarding)
+    addSubscriptionRequest: (req) => set((state) => {
+        const id = req.id || nanoid();
+        const newReq: SubscriptionRequest = {
+            ...req,
+            id,
+            status: req.status || 'pending_email',
+            createdAt: new Date().toISOString()
+        };
+        dbInsert('subscription_requests', newReq).catch(console.error);
+        return { subscriptionRequests: [newReq, ...state.subscriptionRequests] };
+    }),
+    updateSubscriptionRequest: (id, updates) => set((state) => {
+        dbUpdate('subscription_requests', id, updates).catch(console.error);
+        return {
+            subscriptionRequests: state.subscriptionRequests.map(r =>
+                r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
+            )
+        };
+    }),
+    approveSubscriptionRequest: (id, reviewedBy = 'Super Admin') => {
+        const state = get();
+        const req = state.subscriptionRequests.find(r => r.id === id);
+        if (!req) return;
+
+        const accountId = nanoid();
+        let maxProjects = 1;
+        let accessLimit = 1200;
+        if (req.plan === 'premium') {
+            maxProjects = 3;
+            accessLimit = 3600;
+        } else if (req.plan === 'enterprise') {
+            maxProjects = -1;
+            accessLimit = -1;
+        }
+
+        // 1. Create client Account / Tenant
+        state.addAccount({
+            // @ts-ignore
+            id: accountId,
+            name: req.companyName,
+            plan: req.plan,
+            maxProjects,
+            accessControlLimit: accessLimit,
+            subscriptionStatus: 'active',
+            modules: state.modules.map(m => m.id),
+        });
+
+        // 2. Create Company Administrator User
+        state.addUser({
+            name: req.contactName,
+            email: req.email,
+            role: 'admin',
+            accountId: accountId,
+            password: req.password || '123456',
+            projectAccess: []
+        });
+
+        // 3. Mark request as approved
+        state.updateSubscriptionRequest(id, {
+            status: 'approved',
+            reviewedBy,
+            reviewedAt: new Date().toISOString()
+        });
+    },
+    rejectSubscriptionRequest: (id, reason) => {
+        get().updateSubscriptionRequest(id, {
+            status: 'rejected',
+            rejectionReason: reason || 'Pedido rejeitado pelo administrador.',
+            reviewedAt: new Date().toISOString()
+        });
+    },
 
     updateProject: (id, updates) => set((state) => {
         dbUpdate('projects', id, updates).catch(console.error);

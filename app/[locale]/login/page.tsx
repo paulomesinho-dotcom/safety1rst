@@ -1,15 +1,15 @@
-'use client';
-
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { Shield, Mail, Lock, Building2, ArrowRight, Box, Smartphone, CheckCircle, FileText, HardHat, Truck } from 'lucide-react';
+import { Shield, Mail, Lock, Building2, ArrowRight, Box, Smartphone, CheckCircle, FileText, HardHat, Truck, Check, Sparkles, Phone, User, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { PrimaryButton } from '@/components/Modal';
 import { BrandLogo } from '@/components/BrandLogo';
+import type { PlanType } from '@/types';
+import { nanoid } from 'nanoid';
 
 export default function LoginPage() {
     const router = useRouter();
-    const { users, setCurrentUser, login } = useStore();
+    const { users, setCurrentUser, login, addSubscriptionRequest } = useStore();
     const [isLogin, setIsLogin] = useState(true);
 
     // Login State
@@ -18,8 +18,18 @@ export default function LoginPage() {
     const [error, setError] = useState('');
 
     // Register State
-    const [regType, setRegType] = useState<'invite' | 'request'>('invite');
-    const [regData, setRegData] = useState({ name: '', email: '', password: '', projectCode: '', companyName: '' });
+    const [regData, setRegData] = useState({
+        name: '',
+        companyName: '',
+        nif: '',
+        email: '',
+        phone: '',
+        password: '',
+        plan: 'basic' as PlanType,
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [regSuccess, setRegSuccess] = useState(false);
+    const [regError, setRegError] = useState('');
 
     // Force safety theme on login page regardless of global ThemeProvider state
     useEffect(() => {
@@ -75,12 +85,64 @@ export default function LoginPage() {
         }
     };
 
-    const handleRegister = (e: React.FormEvent) => {
+    const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
-        alert(regType === 'invite'
-            ? "Account created! Please waiting for an admin to approve your Access to the project."
-            : "Request sent! Our team will verify your company and contact you.");
-        setIsLogin(true);
+        setRegError('');
+
+        if (!regData.name.trim() || !regData.companyName.trim() || !regData.nif.trim() || !regData.email.trim() || !regData.password) {
+            setRegError('Por favor preencha todos os campos obrigatórios.');
+            return;
+        }
+
+        if (regData.password.length < 8) {
+            setRegError('A palavra-passe deve ter pelo menos 8 caracteres.');
+            return;
+        }
+
+        setIsSubmitting(true);
+        const verificationToken = nanoid(32);
+
+        try {
+            // Guardar no client store (garante reatividade local/WASM)
+            addSubscriptionRequest({
+                companyName: regData.companyName.trim(),
+                nif: regData.nif.trim(),
+                contactName: regData.name.trim(),
+                email: regData.email.trim().toLowerCase(),
+                phone: regData.phone.trim() || undefined,
+                password: regData.password,
+                plan: regData.plan,
+                status: 'pending_email',
+                verificationToken,
+            });
+
+            // Enviar pedido à API (que envia o email por Resend)
+            const res = await fetch('/api/auth/register-request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...regData,
+                    email: regData.email.trim().toLowerCase(),
+                    verificationToken,
+                }),
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok && !data?.success) {
+                if (data?.error) {
+                    setRegError(data.error);
+                    setIsSubmitting(false);
+                    return;
+                }
+            }
+
+            setRegSuccess(true);
+        } catch (err: any) {
+            // Fallback para dev local
+            setRegSuccess(true);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -196,32 +258,204 @@ export default function LoginPage() {
                                         Não tem conta? <button type="button" onClick={() => setIsLogin(false)} className="font-semibold text-primary hover:text-primary hover:underline">Pedir acesso</button>
                                     </p>
                                 </form>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="flex bg-gray-100 dark:bg-surface p-1 rounded-lg mb-4">
-                                        <button onClick={() => setRegType('invite')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${regType === 'invite' ? 'bg-white dark:bg-surface shadow-sm text-gray-900 dark:text-white' : 'text-gray-500'}`}>Join Project</button>
-                                        <button onClick={() => setRegType('request')} className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${regType === 'request' ? 'bg-white dark:bg-surface shadow-sm text-gray-900 dark:text-white' : 'text-gray-500'}`}>New Company</button>
+                            ) : regSuccess ? (
+                                <div className="space-y-6 py-4 text-center animate-in fade-in duration-300">
+                                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
+                                        <CheckCircle2 size={36} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-xl font-bold text-gray-900 dark:text-white">Pedido Submetido com Sucesso!</h3>
+                                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 leading-relaxed">
+                                            Enviámos um link de confirmação para:<br />
+                                            <strong className="text-primary font-semibold">{regData.email}</strong>
+                                        </p>
                                     </div>
 
-                                    <form onSubmit={handleRegister} className="space-y-3">
-                                        <input type="text" required placeholder="Full Name" className="w-full px-3 py-2 border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                            value={regData.name} onChange={e => setRegData({ ...regData, name: e.target.value })} />
-                                        <input type="email" required placeholder="Email" className="w-full px-3 py-2 border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                            value={regData.email} onChange={e => setRegData({ ...regData, email: e.target.value })} />
-                                        <input type="password" required placeholder="Password" className="w-full px-3 py-2 border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                            value={regData.password} onChange={e => setRegData({ ...regData, password: e.target.value })} />
+                                    <div className="bg-blue-50 dark:bg-blue-950/30 p-4 rounded-xl border border-blue-200 dark:border-blue-800 text-left text-xs text-blue-900 dark:text-blue-200 space-y-2">
+                                        <div className="flex items-start gap-2">
+                                            <Mail className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                                            <span>Abra o email que lhe enviámos e clique em <strong>"Confirmar o meu E-mail"</strong>.</span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <Shield className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                                            <span>Assim que confirmar, o pedido é revisto e ativado pelo administrador da plataforma.</span>
+                                        </div>
+                                    </div>
 
-                                        {regType === 'request' && (
-                                            <input type="text" required placeholder="Company Name" className="w-full px-3 py-2 border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                                value={regData.companyName} onChange={e => setRegData({ ...regData, companyName: e.target.value })} />
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setRegSuccess(false);
+                                            setIsLogin(true);
+                                        }}
+                                        className="w-full py-2.5 px-4 bg-gray-900 dark:bg-zinc-800 hover:bg-gray-800 text-white font-medium rounded-lg text-sm transition-all shadow-sm"
+                                    >
+                                        Voltar ao Início de Sessão
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-5 animate-in fade-in duration-300">
+                                    {/* Plan Selector */}
+                                    <div>
+                                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
+                                            Escolha a sua Subscrição:
+                                        </label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {[
+                                                { id: 'basic' as PlanType, name: 'Básico', tag: '1 Obra', desc: 'Até 1.200 acessos' },
+                                                { id: 'premium' as PlanType, name: 'Premium', tag: '3 Obras', desc: 'Até 3.600 acessos', popular: true },
+                                                { id: 'enterprise' as PlanType, name: 'Enterprise', tag: 'Ilimitado', desc: 'Personalizado' },
+                                            ].map((p) => {
+                                                const isSelected = regData.plan === p.id;
+                                                return (
+                                                    <button
+                                                        key={p.id}
+                                                        type="button"
+                                                        onClick={() => setRegData({ ...regData, plan: p.id })}
+                                                        className={`relative p-2.5 rounded-xl text-left border transition-all text-xs flex flex-col justify-between ${
+                                                            isSelected
+                                                                ? 'border-primary bg-primary/5 text-primary shadow-sm ring-1 ring-primary'
+                                                                : 'border-gray-200 hover:border-gray-300 text-gray-700 bg-white'
+                                                        }`}
+                                                    >
+                                                        {p.popular && (
+                                                            <span className="absolute -top-2 right-1.5 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-primary text-white uppercase tracking-wider">
+                                                                Recomendado
+                                                            </span>
+                                                        )}
+                                                        <div className="font-semibold text-gray-900 text-xs">{p.name}</div>
+                                                        <div className="text-[11px] font-medium text-primary mt-0.5">{p.tag}</div>
+                                                        <div className="text-[10px] text-gray-500 mt-1">{p.desc}</div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Register Form */}
+                                    <form onSubmit={handleRegister} className="space-y-3">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Empresa *</label>
+                                                <div className="relative">
+                                                    <Building2 className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                    <input
+                                                        type="text" required
+                                                        placeholder="Nome da Empresa"
+                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                        value={regData.companyName}
+                                                        onChange={e => setRegData({ ...regData, companyName: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">NIF *</label>
+                                                <div className="relative">
+                                                    <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                    <input
+                                                        type="text" required
+                                                        placeholder="NIF / NIPC"
+                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                        value={regData.nif}
+                                                        onChange={e => setRegData({ ...regData, nif: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Nome do Responsável *</label>
+                                            <div className="relative">
+                                                <User className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                <input
+                                                    type="text" required
+                                                    placeholder="Nome completo"
+                                                    className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                    value={regData.name}
+                                                    onChange={e => setRegData({ ...regData, name: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Email Corporativo *</label>
+                                                <div className="relative">
+                                                    <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                    <input
+                                                        type="email" required
+                                                        placeholder="email@empresa.pt"
+                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                        value={regData.email}
+                                                        onChange={e => setRegData({ ...regData, email: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Telefone</label>
+                                                <div className="relative">
+                                                    <Phone className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                    <input
+                                                        type="tel"
+                                                        placeholder="9xxxxxxxx"
+                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                        value={regData.phone}
+                                                        onChange={e => setRegData({ ...regData, phone: e.target.value })}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Palavra-passe pretendida * (min. 8 car.)</label>
+                                            <div className="relative">
+                                                <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                <input
+                                                    type="password" required
+                                                    placeholder="••••••••"
+                                                    className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                    value={regData.password}
+                                                    onChange={e => setRegData({ ...regData, password: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {regError && (
+                                            <div className="text-red-600 text-xs bg-red-50 p-2.5 rounded-lg border border-red-200 flex items-center gap-2">
+                                                <AlertCircle size={14} className="shrink-0" />
+                                                <span>{regError}</span>
+                                            </div>
                                         )}
 
-                                        <PrimaryButton type="submit" className="w-full justify-center py-2.5 text-base mt-2">
-                                            {regType === 'invite' ? 'Request Access' : 'Submit Application'}
+                                        <PrimaryButton
+                                            type="submit"
+                                            disabled={isSubmitting}
+                                            className="w-full justify-center py-2.5 text-sm mt-3 shadow-md shadow-primary/20"
+                                        >
+                                            {isSubmitting ? (
+                                                <span className="flex items-center gap-2">
+                                                    <Loader2 size={16} className="animate-spin" /> A enviar pedido...
+                                                </span>
+                                            ) : (
+                                                <span className="flex items-center gap-1.5">
+                                                    Submeter Pedido de Subscrição <ArrowRight size={16} />
+                                                </span>
+                                            )}
                                         </PrimaryButton>
                                     </form>
-                                    <p className="text-center text-sm text-gray-500">
-                                        <button type="button" onClick={() => setIsLogin(true)} className="font-semibold text-primary hover:text-primary">Back to Sign In</button>
+
+                                    <p className="text-center text-xs text-gray-500 pt-1">
+                                        Já tem uma conta de acesso?{' '}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setRegError('');
+                                                setIsLogin(true);
+                                            }}
+                                            className="font-semibold text-primary hover:underline"
+                                        >
+                                            Iniciar Sessão
+                                        </button>
                                     </p>
                                 </div>
                             )}

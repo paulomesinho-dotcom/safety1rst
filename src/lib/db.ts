@@ -380,6 +380,24 @@ const createSchema = async () => {
             signed_document_url TEXT,
             source TEXT DEFAULT 'presential',
             created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        `CREATE TABLE IF NOT EXISTS subscription_requests (
+            id TEXT PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            nif TEXT NOT NULL,
+            contact_name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT,
+            password TEXT,
+            plan TEXT DEFAULT 'basic',
+            status TEXT DEFAULT 'pending_email',
+            verification_token TEXT UNIQUE,
+            email_verified_at TEXT,
+            reviewed_by TEXT,
+            reviewed_at TEXT,
+            rejection_reason TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
         )`
     ];
 

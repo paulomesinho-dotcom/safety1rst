@@ -24,6 +24,27 @@ export interface User {
 
 export type PlanType = 'free' | 'basic' | 'premium' | 'enterprise';
 
+export type SubscriptionRequestStatus = 'pending_email' | 'pending_approval' | 'approved' | 'rejected';
+
+export interface SubscriptionRequest {
+    id: string;
+    companyName: string;
+    nif: string;
+    contactName: string;
+    email: string;
+    phone?: string;
+    password?: string;
+    plan: PlanType;
+    status: SubscriptionRequestStatus;
+    verificationToken: string;
+    emailVerifiedAt?: string;
+    reviewedBy?: string;
+    reviewedAt?: string;
+    rejectionReason?: string;
+    createdAt: string;
+    updatedAt?: string;
+}
+
 export interface Account {
     id: string;
     name: string;
