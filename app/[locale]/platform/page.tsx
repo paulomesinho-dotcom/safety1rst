@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore, type AppState } from '@/store/useStore';
-import { ArrowLeft, Shield, Plus, Building2, CheckCircle2, Clock, XCircle, Mail, Phone, UserCheck, AlertTriangle, Inbox, Check, X, FileText, User as UserIcon, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, Shield, Plus, Building2, CheckCircle2, Clock, XCircle, Mail, Phone, UserCheck, AlertTriangle, Inbox, Check, X, FileText, User as UserIcon, Loader2, Sparkles, RotateCw } from 'lucide-react';
 import { Modal, InputGroup, PrimaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -19,19 +19,14 @@ export default function PlatformDashboardPage() {
     const updateAccount = useStore(state => state.updateAccount);
     const currentUser = useStore(state => state.currentUser);
 
-    const subscriptionRequests = useStore(state => state.subscriptionRequests);
+    const storeRequests = useStore(state => state.subscriptionRequests);
     const approveSubscriptionRequest = useStore(state => state.approveSubscriptionRequest);
     const rejectSubscriptionRequest = useStore(state => state.rejectSubscriptionRequest);
 
-    // Permission check for superadmin only logic
-    if (!currentUser || currentUser.role !== 'superadmin') {
-        return null;
-    }
-
-    const pendingCount = subscriptionRequests.filter(r => r.status === 'pending_approval').length;
-    const [activeTab, setActiveTab] = useState<'requests' | 'accounts'>(
-        pendingCount > 0 ? 'requests' : 'accounts'
-    );
+    // State declarations - all hooks unconditionally at top level
+    const [serverRequests, setServerRequests] = useState<SubscriptionRequest[]>([]);
+    const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+    const [activeTab, setActiveTab] = useState<'requests' | 'accounts'>('requests');
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -47,16 +42,53 @@ export default function PlatformDashboardPage() {
         adminPassword: ''
     });
 
+    // Fetch subscription requests from server database
+    const fetchRequests = async () => {
+        setIsLoadingRequests(true);
+        try {
+            const res = await fetch('/api/platform/requests');
+            const data = await res.json();
+            if (data.success && Array.isArray(data.requests)) {
+                setServerRequests(data.requests);
+            }
+        } catch (err) {
+            console.error('[Platform] Erro ao carregar pedidos da API:', err);
+        } finally {
+            setIsLoadingRequests(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchRequests();
+    }, []);
+
+    // Merge server requests and local store requests without duplicate IDs
+    const allRequestsMap = new Map<string, SubscriptionRequest>();
+    serverRequests.forEach(r => allRequestsMap.set(r.id, r));
+    storeRequests.forEach(r => {
+        if (!allRequestsMap.has(r.id)) {
+            allRequestsMap.set(r.id, r);
+        }
+    });
+    const subscriptionRequests = Array.from(allRequestsMap.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    const pendingCount = subscriptionRequests.filter(r => r.status === 'pending_approval' || r.status === 'pending_email').length;
+
     const handleApprove = async (req: SubscriptionRequest) => {
         setProcessingId(req.id);
         try {
-            // 1. Atualizar estado local imediatamente
+            // 1. Atualizar store local
             approveSubscriptionRequest(req.id, currentUser?.name || 'Super Admin');
 
-            // 2. Chamar endpoint da API para atualizar backend e disparar email por Resend
+            // 2. Chamar endpoint da API para atualizar Prisma e disparar Resend email
             await fetch(`/api/platform/requests/${req.id}/approve`, {
                 method: 'POST',
             }).catch(() => {});
+
+            // 3. Atualizar serverRequests na view imediatamente
+            setServerRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'approved', reviewedAt: new Date().toISOString() } : r));
 
             setFeedback({
                 type: 'success',
@@ -82,6 +114,8 @@ export default function PlatformDashboardPage() {
                 body: JSON.stringify({ reason: 'Pedido não validado pela administração.' }),
             }).catch(() => {});
 
+            setServerRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
+
             setFeedback({
                 type: 'success',
                 message: `Pedido de "${req.companyName}" foi marcado como rejeitado.`
@@ -93,6 +127,18 @@ export default function PlatformDashboardPage() {
             setProcessingId(null);
         }
     };
+
+    // Safe permission check rendered inside UI without breaking hook rules
+    if (!currentUser || currentUser.role !== 'superadmin') {
+        return (
+            <AuthGuard>
+                <div className="min-h-screen bg-background flex flex-col justify-center items-center p-8">
+                    <Shield className="w-12 h-12 text-primary animate-pulse mb-3" />
+                    <p className="text-sm text-gray-500">A verificar credenciais de administrador da plataforma...</p>
+                </div>
+            </AuthGuard>
+        );
+    }
 
     const handleCreateAccount = (e: React.FormEvent) => {
         e.preventDefault();
@@ -229,6 +275,14 @@ export default function PlatformDashboardPage() {
                                         Analise, aprove ou rejeite novos clientes registados a partir do site.
                                     </p>
                                 </div>
+                                <button
+                                    onClick={fetchRequests}
+                                    disabled={isLoadingRequests}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-zinc-700 hover:bg-gray-50 dark:hover:bg-zinc-800 text-xs font-medium text-gray-700 dark:text-gray-200 transition-colors shadow-sm disabled:opacity-50"
+                                >
+                                    <RotateCw size={14} className={isLoadingRequests ? "animate-spin text-primary" : ""} />
+                                    <span>{isLoadingRequests ? "A carregar..." : "Atualizar"}</span>
+                                </button>
                             </div>
 
                             {subscriptionRequests.length === 0 ? (
