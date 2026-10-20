@@ -219,36 +219,36 @@ const Drawer = ({
     if (!isOpen) return null;
 
     return (
-        <div className="absolute inset-0 w-full h-full bg-white dark:bg-surface flex flex-col z-50">
-            {/* Header */}
-            <div className="bg-white dark:bg-surface border-b border-gray-200 dark:border-[#444746] sticky top-0 z-10 shadow-sm">
-                <div className="flex items-center justify-between px-6 py-4">
-                    <div className="flex items-center gap-4">
+        <div className="absolute inset-0 w-full h-full bg-[var(--bg-card)] flex flex-col z-50">
+            {/* Clean Header */}
+            <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-10 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                         <button
                             onClick={onClose}
-                            className="p-2 -ml-2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-surface rounded-full transition-colors"
-                            title="Go Back"
+                            className="p-1.5 -ml-1 text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] rounded-lg transition-colors shrink-0"
+                            title="Voltar"
                         >
-                            <ArrowLeft size={24} />
+                            <ArrowLeft size={20} />
                         </button>
-                        <div className="text-xl font-semibold text-gray-800 dark:text-gray-100">
+                        <div className="min-w-0">
                             {title}
                         </div>
                     </div>
-                    <div className="flex gap-2 items-center">{actions}</div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>
                 </div>
                 {/* Extended Header Content (Tabs/Status) */}
                 {headerContent && <div className="px-6">{headerContent}</div>}
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto bg-white dark:bg-surface">
+            <div className="flex-1 overflow-y-auto bg-[var(--bg)]">
                 <div className="max-w-7xl mx-auto p-6 min-h-full">{children}</div>
             </div>
 
             {/* Sticky Footer */}
             {footerContent && (
-                <div className="border-t border-gray-200 dark:border-[#444746] bg-white dark:bg-surface p-4 sticky bottom-0 z-20">
+                <div className="border-t border-[var(--border)] bg-[var(--bg-card)] p-4 sticky bottom-0 z-20">
                     <div className="max-w-7xl mx-auto flex items-center justify-end gap-3">
                         {footerContent}
                     </div>
@@ -817,59 +817,72 @@ const WorkersPage: React.FC = () => {
             )}
 
             {/* Header / Top Bar */}
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-[#444746] mb-4 px-4 pt-4">
-                <h2 className="text-xl font-normal text-google-text">Pessoas ({filteredWorkers.length})</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--border)] mb-4 px-2 pt-2">
+                {/* Title + Count */}
+                <div className="flex items-center gap-3">
+                    <h1 className="text-xl font-bold text-[var(--text)] tracking-tight">
+                        Pessoas
+                    </h1>
+                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]">
+                        {filteredWorkers.length}
+                    </span>
+                </div>
 
-                <div className="flex items-center gap-2">
-                    {/* Company Filter */}
-                    <div className="relative mr-2">
+                {/* Controls & Actions */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* Search Bar */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" size={15} />
+                        <input
+                            type="text"
+                            placeholder="Pesquisar pessoas..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-40 sm:w-48 focus:w-60 transition-all duration-200 pl-9 pr-3 py-1.5 text-xs bg-[var(--bg-input)] text-[var(--text)] border border-[var(--border)] rounded-lg outline-none focus:border-[#4285F4] placeholder:text-[var(--text-muted)]"
+                        />
+                    </div>
+
+                    {/* Filter Pills */}
+                    <div className="flex items-center bg-[var(--bg-input)] border border-[var(--border)] rounded-lg p-0.5 overflow-x-auto">
+                        {[
+                            { key: 'all', label: 'Todas' },
+                            { key: 'valid', label: 'Válidas' },
+                            { key: 'pending', label: 'Pendentes' },
+                            { key: 'expired', label: 'Expiradas' },
+                            { key: 'archived', label: 'Arquivadas' },
+                        ].map((f) => (
+                            <button
+                                key={f.key}
+                                onClick={() => setFilter(f.key as any)}
+                                className={cn(
+                                    "px-2.5 py-1 text-xs font-medium rounded-md transition-all whitespace-nowrap",
+                                    filter === f.key
+                                        ? "bg-[var(--bg-card)] text-[var(--text)] font-semibold shadow-xs"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Company Filter Dropdown */}
+                    <div className="relative">
                         <select
                             title="Filtrar por empresa"
                             value={selectedCompanyId}
                             onChange={(e) => setSelectedCompanyId(e.target.value)}
-                            className="appearance-none pl-3 pr-8 py-1.5 text-sm border border-gray-300 dark:border-[#444746] rounded-lg focus:border-blue-500 outline-none transition-all bg-white dark:bg-surface text-gray-700 dark:text-gray-200"
+                            className="appearance-none pl-3 pr-8 py-1.5 text-xs bg-[var(--bg-input)] text-[var(--text)] border border-[var(--border)] rounded-lg outline-none focus:border-[#4285F4] cursor-pointer"
                         >
                             <option value="all">Todas as empresas</option>
                             {filteredCompanies.map(c => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                         </select>
-                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
+                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" size={13} />
                     </div>
 
-                    {/* Search Bar - Moved here */}
-                    <div className="relative mr-2">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Search workers..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-9 pr-4 py-1.5 text-sm border border-gray-300 dark:border-[#444746] rounded-lg focus:border-blue-500 outline-none w-48 transition-all focus:w-64"
-                        />
-                    </div>
-
-                    {/* Filters Pill Group */}
-                    <div className="flex items-center bg-gray-100 dark:bg-surface rounded-lg p-1 mr-2 overflow-x-auto max-w-[400px]">
-                        {['all', 'valid', 'pending', 'expired', 'archived'].map((f) => (
-                            <button
-                                key={f}
-                                onClick={() => setFilter(f as any)}
-                                className={cn(
-                                    "px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap",
-                                    filter === f
-                                        ? "bg-white dark:bg-surface text-gray-900 dark:text-white shadow-sm"
-                                        : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-200"
-                                )}
-                            >
-                                {f.charAt(0).toUpperCase() + f.slice(1)}
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 mr-2">
-                    </div>
-
+                    {/* New Worker Button */}
                     {(isDataUser || isManager) && (
                         <button
                             disabled={!hasValidCompany}
@@ -880,22 +893,29 @@ const WorkersPage: React.FC = () => {
                                 : "Adicionar Pessoa"}
                             onClick={() => setIsQuickCreateOpen(true)}
                             className={cn(
-                                "flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-all whitespace-nowrap",
-                                hasValidCompany ? "bg-primary hover:bg-primary-hover" : "bg-gray-400 cursor-not-allowed opacity-70"
+                                "flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg shadow-xs transition-all whitespace-nowrap",
+                                hasValidCompany ? "bg-[#4285F4] hover:bg-[#3367D6]" : "bg-gray-400 cursor-not-allowed opacity-60"
                             )}
                         >
-                            <Plus size={18} /> New
+                            <Plus size={15} /> <span>Nova Pessoa</span>
                         </button>
                     )}
 
                     {/* View Toggle */}
-                    <div className="flex items-center border border-gray-300 dark:border-[#444746] rounded-lg overflow-hidden ml-2">
-                        <button title="List View" onClick={() => setViewMode('list')} className={cn("p-2 hover:bg-gray-100 dark:hover:bg-surface", viewMode === 'list' && "bg-primary-light text-primary")}>
-                            <ListIcon size={20} />
+                    <div className="flex items-center bg-[var(--bg-input)] border border-[var(--border)] rounded-lg p-0.5">
+                        <button
+                            title="Vista de Lista"
+                            onClick={() => setViewMode('list')}
+                            className={cn("p-1.5 rounded-md transition-colors", viewMode === 'list' ? "bg-[var(--bg-card)] text-[#4285F4] shadow-xs" : "text-[var(--text-muted)] hover:text-[var(--text)]")}
+                        >
+                            <ListIcon size={16} />
                         </button>
-                        <div className="w-px h-full bg-gray-300"></div>
-                        <button title="Grid View" onClick={() => setViewMode('grid')} className={cn("p-2 hover:bg-gray-100 dark:hover:bg-surface", viewMode === 'grid' && "bg-primary-light text-primary")}>
-                            <LayoutGrid size={20} />
+                        <button
+                            title="Vista de Grelha"
+                            onClick={() => setViewMode('grid')}
+                            className={cn("p-1.5 rounded-md transition-colors", viewMode === 'grid' ? "bg-[var(--bg-card)] text-[#4285F4] shadow-xs" : "text-[var(--text-muted)] hover:text-[var(--text)]")}
+                        >
+                            <LayoutGrid size={16} />
                         </button>
                     </div>
                 </div>
@@ -2156,11 +2176,15 @@ const WorkersPage: React.FC = () => {
                     setCurrentWorker({});
                 }}
                 title={
-                    <div className="flex flex-col gap-1">
-                        <div className="flex items-center">
-                            {currentWorker.name}
-                            <div className="flex items-center gap-2 ml-8">
-                                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Status:</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-xs shrink-0 border border-blue-500/20 shadow-2xs">
+                            {currentWorker.name ? currentWorker.name.slice(0, 2).toUpperCase() : 'TR'}
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2.5">
+                                <h2 className="text-base font-bold text-[var(--text)] tracking-tight truncate">
+                                    {currentWorker.name}
+                                </h2>
                                 {(() => {
                                     const ws = (currentWorker.workflowStatus || 'draft') as string;
                                     const color = getWorkflowStatusColors(ws);
@@ -2170,38 +2194,38 @@ const WorkersPage: React.FC = () => {
                                                 : ws === 'data_update' || ws === 'approval_data_update' ? AlertTriangle
                                                     : FileText;
                                     const label = ws === 'draft' ? (currentWorker.id ? 'Em Validação' : 'Rascunho')
-                                        : ws === 'data_requested' ? 'Data Requested'
-                                            : ws === 'data_update' ? 'Data Update'
-                                                : ws === 'validation_pending' ? 'Validation Pending'
-                                                    : ws === 'validated' ? 'Validated'
-                                                        : ws === 'approval_pending' ? 'Approval Pending'
-                                                            : ws === 'approved' ? 'Approved'
-                                                                : ws === 'approval_data_update' ? 'Data Update'
+                                        : ws === 'data_requested' ? 'Dados Pedidos'
+                                            : ws === 'data_update' ? 'Atualização'
+                                                : ws === 'validation_pending' ? 'Pendente Validação'
+                                                    : ws === 'validated' ? 'Validado'
+                                                        : ws === 'approval_pending' ? 'Pendente Aprovação'
+                                                            : ws === 'approved' ? 'Aprovado'
+                                                                : ws === 'approval_data_update' ? 'Atualização'
                                                                     : ws;
                                     return (
-                                        <span className={cn('flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-bold uppercase border shadow-sm', color)}>
-                                            <Icon size={14} />{label}
+                                        <span className={cn('flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shadow-2xs shrink-0', color)}>
+                                            <Icon size={12} /> {label}
                                         </span>
                                     );
                                 })()}
                             </div>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                            <span className="flex items-center gap-1">
-                                <Building2 size={14} />
-                                {companies.find(c => c.id === currentWorker.companyId)?.name || 'Sem Empresa Associada'}
-                            </span>
-                            {currentWorker.role && (
-                                <>
-                                    <span className="w-1 h-1 rounded-full bg-gray-300"></span>
-                                    <span>{currentWorker.role}</span>
-                                </>
-                            )}
+                            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                <span className="flex items-center gap-1 truncate">
+                                    <Building2 size={13} className="shrink-0 text-[var(--text-muted)]" />
+                                    {companies.find(c => c.id === currentWorker.companyId)?.name || 'Sem Empresa'}
+                                </span>
+                                {currentWorker.role && (
+                                    <>
+                                        <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                        <span className="truncate">{currentWorker.role}</span>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                 }
                 headerContent={
-                    <div className="flex gap-1 border-b border-gray-200 dark:border-[#444746] mt-4 overflow-x-auto">
+                    <div className="flex gap-1 border-b border-[var(--border)] mt-2 overflow-x-auto">
                         {[
                             { id: 'id', label: tWorkers('tabs.id') },
                             { id: 'pro', label: tWorkers('tabs.pro') },
@@ -2215,23 +2239,20 @@ const WorkersPage: React.FC = () => {
                                 key={tab.id}
                                 onClick={() => setDrawerTab(tab.id as any)}
                                 className={cn(
-                                    "flex items-center gap-2 pb-3 px-3 border-b-2 transition-colors text-sm font-medium whitespace-nowrap shrink-0",
+                                    "flex items-center gap-2 py-2.5 px-3.5 border-b-2 transition-colors text-xs font-medium whitespace-nowrap shrink-0",
                                     drawerTab === tab.id
-                                        ? "border-primary text-primary"
-                                        : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                                        ? "border-[#4285F4] text-[#4285F4] font-semibold"
+                                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
                                 )}
                             >
-                                <span className={cn(
-                                    "hidden sm:inline font-semibold",
-                                    drawerTab === tab.id ? "text-primary dark:text-primary-light" : ""
-                                )}>{tab.label}</span>
+                                <span>{tab.label}</span>
                             </button>
                         ))}
                     </div>
                 }
                 actions={
-                    <div className="flex items-center gap-4">
-                        {/* Team Avatars — Data User */}
+                    <div className="flex items-center gap-2">
+                        {/* Compact Team Avatars */}
                         {(() => {
                             let dataUserId = currentWorker.assignedDataUserId;
                             if (!dataUserId && currentWorker.companyId) {
@@ -2239,101 +2260,44 @@ const WorkersPage: React.FC = () => {
                                 dataUserId = company?.assignedDataUserId;
                             }
                             const dataUser = users?.find(u => u.id === dataUserId);
+                            const projectManagers = (users || []).filter(u =>
+                                u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'manager')
+                            );
+
+                            if (!dataUser && projectManagers.length === 0) return null;
+
                             return (
-                                <div className="flex flex-col items-start gap-1">
-                                    <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Data User</span>
-                                    {dataUser ? (
+                                <div className="hidden lg:flex items-center -space-x-1.5 mr-1" title="Equipa atribuída">
+                                    {dataUser && (
                                         <div
-                                            className="w-6 h-6 rounded-full bg-orange-100 border-2 border-white flex items-center justify-center text-[10px] font-medium text-orange-700 ring-1 ring-white"
+                                            className="w-7 h-7 rounded-full bg-orange-100 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-bold text-orange-700 shadow-2xs"
                                             title={`Data User: ${dataUser.name}`}
                                         >
                                             {dataUser.name.charAt(0)}
                                         </div>
-                                    ) : (
-                                        <div
-                                            className="w-6 h-6 rounded-full bg-gray-100 dark:bg-surface border-2 border-white flex items-center justify-center text-[9px] text-gray-400 ring-1 ring-white"
-                                            title="No Data User"
-                                        >
-                                            <User size={12} />
-                                        </div>
                                     )}
-                                </div>
-                            );
-                        })()}
-
-                        <div className="h-6 w-px bg-gray-200"></div>
-
-                        {/* Managers */}
-                        {(() => {
-                            const projectManagers = (users || []).filter(u =>
-                                u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'manager')
-                            );
-                            return (
-                                <div className="flex flex-col items-start gap-1">
-                                    <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Managers</span>
-                                    <div className="flex items-center -space-x-2">
-                                        {projectManagers.slice(0, 3).map(mgr => (
-                                            <div
-                                                key={mgr.id}
-                                                className="w-6 h-6 rounded-full bg-primary-light border-2 border-white flex items-center justify-center text-[10px] font-medium text-primary-hover relative z-20 ring-1 ring-white"
-                                                title={`Manager: ${mgr.name}`}
-                                            >
-                                                {mgr.name.charAt(0)}
-                                            </div>
-                                        ))}
-                                        {projectManagers.length > 3 && (
-                                            <div className="w-6 h-6 rounded-full bg-gray-50 dark:bg-[#131314] border-2 border-white flex items-center justify-center text-[9px] font-medium text-gray-500 relative z-10 ring-1 ring-white">
-                                                +{projectManagers.length - 3}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })()}
-
-                        {/* Approvers */}
-                        {(() => {
-                            const approvalUsers = (users || []).filter(u =>
-                                u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'approval_user')
-                            );
-                            if (!currentProject?.approvalWorkflow?.workers || approvalUsers.length === 0) return null;
-                            return (
-                                <>
-                                    <div className="h-6 w-px bg-gray-200"></div>
-                                    <div className="flex flex-col items-start gap-1">
-                                        <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Approvers</span>
-                                        <div className="flex items-center -space-x-2">
-                                            {approvalUsers.slice(0, 3).map(u => (
-                                                <div
-                                                    key={u.id}
-                                                    className="w-6 h-6 rounded-full bg-purple-100 border-2 border-white flex items-center justify-center text-[10px] font-medium text-purple-700 relative z-10 ring-1 ring-white"
-                                                    title={`Approver: ${u.name}`}
-                                                >
-                                                    {u.name.charAt(0)}
-                                                </div>
-                                            ))}
-                                            {approvalUsers.length > 3 && (
-                                                <div className="w-6 h-6 rounded-full bg-gray-50 border-2 border-white flex items-center justify-center text-[9px] font-medium text-gray-500 ring-1 ring-white">
-                                                    +{approvalUsers.length - 3}
-                                                </div>
-                                            )}
+                                    {projectManagers.slice(0, 2).map(mgr => (
+                                        <div
+                                            key={mgr.id}
+                                            className="w-7 h-7 rounded-full bg-blue-100 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-bold text-[#1A73E8] shadow-2xs"
+                                            title={`Manager: ${mgr.name}`}
+                                        >
+                                            {mgr.name.charAt(0)}
                                         </div>
-                                    </div>
-                                </>
+                                    ))}
+                                </div>
                             );
                         })()}
 
-                        <div className="h-6 w-px bg-gray-200"></div>
-
-                        {/* Existing buttons */}
+                        {/* Export & Card Buttons */}
                         <button
                             onClick={() => {
                                 if (currentWorker.id) setCardWorkerId(currentWorker.id);
                             }}
-                            className="p-2 text-gray-500 hover:text-gray-900 dark:hover:text-white bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] rounded-lg transition-colors flex items-center gap-2 font-medium text-sm"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--bg-input)] hover:bg-[var(--border)] border border-[var(--border)] rounded-lg transition-colors flex items-center gap-1.5 text-xs font-medium"
                             title="Cartão do Trabalhador"
                         >
-                            <QrCode size={18} /> <span className="hidden sm:inline">Cartão</span>
+                            <QrCode size={15} /> <span className="hidden sm:inline">Cartão</span>
                         </button>
                         <button
                             onClick={() => {
@@ -2353,12 +2317,13 @@ const WorkersPage: React.FC = () => {
                                     URL.revokeObjectURL(url);
                                 }
                             }}
-                            className="p-2 text-primary hover:text-primary-hover bg-white dark:bg-surface border border-primary/20 hover:bg-primary-light rounded-lg transition-colors flex items-center gap-2 font-medium text-sm"
-                            title="Exportar dados do trabalhador para formato IFC"
+                            className="p-1.5 text-[var(--text-muted)] hover:text-[#4285F4] bg-[var(--bg-input)] hover:bg-[var(--border)] border border-[var(--border)] rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"
+                            title="Exportar dados para IFC"
                         >
-                            <span className="font-bold">IFC</span> <span className="hidden sm:inline">Export</span>
+                            <span>IFC</span>
                         </button>
-                        <div className="h-6 w-px bg-gray-200"></div>
+
+                        <div className="h-5 w-px bg-[var(--border)] mx-0.5" />
 
                         {drawerActions}
                     </div>

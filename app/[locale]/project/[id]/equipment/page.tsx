@@ -568,30 +568,74 @@ const EquipmentPage: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-[#444746] mb-4 px-4 pt-4">
-                <h2 className="text-xl font-normal text-google-text">Equipment ({filteredEquipment.length})</h2>
-                <div className="flex items-center gap-2">
-                    <div className="relative mr-2">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                        <input type="text" placeholder="Search equipment..." className="pl-9 pr-4 py-1.5 text-sm border border-gray-300 dark:border-[#444746] rounded-lg focus:border-primary outline-none w-48 transition-all focus:w-64"
-                            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
-                    </div>
-                    <div className="flex items-center bg-gray-100 dark:bg-surface rounded-lg p-1 mr-2">
-                        <button onClick={() => setFilter('all')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all", filter === 'all' ? "bg-white dark:bg-surface text-gray-900 dark:text-white shadow-sm" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>All</button>
-                        <button onClick={() => setFilter('valid')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all", filter === 'valid' ? "bg-white dark:bg-surface text-green-700 shadow-sm" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>Valid</button>
-                        <button onClick={() => setFilter('pending')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all", filter === 'pending' ? "bg-white dark:bg-surface text-primary-hover shadow-sm" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>Pending</button>
-                        <button onClick={() => setFilter('maintenance')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-all", filter === 'maintenance' ? "bg-white dark:bg-surface text-orange-700 shadow-sm" : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>Maint.</button>
+            {/* Header / Top Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--border)] mb-4 px-2 pt-2">
+                {/* Title + Count */}
+                <div className="flex items-center gap-3">
+                    <h1 className="text-xl font-bold text-[var(--text)] tracking-tight">
+                        Equipamentos
+                    </h1>
+                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]">
+                        {filteredEquipment.length}
+                    </span>
+                </div>
+
+                {/* Controls & Actions */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* Search Bar */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" size={15} />
+                        <input
+                            type="text"
+                            placeholder="Pesquisar equipamentos..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-40 sm:w-48 focus:w-60 transition-all duration-200 pl-9 pr-3 py-1.5 text-xs bg-[var(--bg-input)] text-[var(--text)] border border-[var(--border)] rounded-lg outline-none focus:border-[#4285F4] placeholder:text-[var(--text-muted)]"
+                        />
                     </div>
 
-                    <div className="flex items-center gap-1 mr-2">
-                        <button onClick={exportToExcel} className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Export Excel">
-                            <FileText size={20} />
+                    {/* Filter Pills */}
+                    <div className="flex items-center bg-[var(--bg-input)] border border-[var(--border)] rounded-lg p-0.5">
+                        {[
+                            { key: 'all', label: 'Todos' },
+                            { key: 'valid', label: 'Válidos' },
+                            { key: 'pending', label: 'Pendentes' },
+                            { key: 'maintenance', label: 'Manutenção' },
+                        ].map((f) => (
+                            <button
+                                key={f.key}
+                                onClick={() => setFilter(f.key as any)}
+                                className={cn(
+                                    "px-2.5 py-1 text-xs font-medium rounded-md transition-all whitespace-nowrap",
+                                    filter === f.key
+                                        ? "bg-[var(--bg-card)] text-[var(--text)] font-semibold shadow-xs"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Export Buttons */}
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={exportToExcel}
+                            className="p-1.5 text-[var(--text-muted)] hover:text-green-600 hover:bg-green-500/10 rounded-lg transition-colors"
+                            title="Exportar Excel"
+                        >
+                            <FileText size={17} />
                         </button>
-                        <button onClick={() => setIsPDFModalOpen(true)} className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Export PDF">
-                            <Download size={20} />
+                        <button
+                            onClick={() => setIsPDFModalOpen(true)}
+                            className="p-1.5 text-[var(--text-muted)] hover:text-red-600 hover:bg-red-500/10 rounded-lg transition-colors"
+                            title="Exportar PDF"
+                        >
+                            <Download size={17} />
                         </button>
                     </div>
 
+                    {/* New Equipment Button */}
                     {(canEdit || isManager || isDataUser) && (
                         <button
                             disabled={!hasValidCompany}
@@ -602,18 +646,30 @@ const EquipmentPage: React.FC = () => {
                                 : ""}
                             onClick={handleCreate}
                             className={cn(
-                                "flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-all whitespace-nowrap",
-                                hasValidCompany ? "bg-primary hover:bg-primary-hover" : "bg-gray-400 cursor-not-allowed opacity-70"
+                                "flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white rounded-lg shadow-xs transition-all whitespace-nowrap",
+                                hasValidCompany ? "bg-[#4285F4] hover:bg-[#3367D6]" : "bg-gray-400 cursor-not-allowed opacity-60"
                             )}
                         >
-                            <Plus size={18} /> New Equipment
+                            <Plus size={15} /> <span>Novo Equipamento</span>
                         </button>
                     )}
 
-                    <div className="flex items-center border border-gray-300 dark:border-[#444746] rounded-lg overflow-hidden ml-2">
-                        <button onClick={() => setViewMode('list')} className={cn("p-2 hover:bg-gray-100 dark:hover:bg-surface", viewMode === 'list' && "bg-primary-light text-primary")}><ListIcon size={20} /></button>
-                        <div className="w-px h-full bg-gray-300"></div>
-                        <button onClick={() => setViewMode('grid')} className={cn("p-2 hover:bg-gray-100 dark:hover:bg-surface", viewMode === 'grid' && "bg-primary-light text-primary")}><LayoutGrid size={20} /></button>
+                    {/* View Toggle */}
+                    <div className="flex items-center bg-[var(--bg-input)] border border-[var(--border)] rounded-lg p-0.5">
+                        <button
+                            title="Vista de Lista"
+                            onClick={() => setViewMode('list')}
+                            className={cn("p-1.5 rounded-md transition-colors", viewMode === 'list' ? "bg-[var(--bg-card)] text-[#4285F4] shadow-xs" : "text-[var(--text-muted)] hover:text-[var(--text)]")}
+                        >
+                            <ListIcon size={16} />
+                        </button>
+                        <button
+                            title="Vista de Grelha"
+                            onClick={() => setViewMode('grid')}
+                            className={cn("p-1.5 rounded-md transition-colors", viewMode === 'grid' ? "bg-[var(--bg-card)] text-[#4285F4] shadow-xs" : "text-[var(--text-muted)] hover:text-[var(--text)]")}
+                        >
+                            <LayoutGrid size={16} />
+                        </button>
                     </div>
                 </div>
             </div>

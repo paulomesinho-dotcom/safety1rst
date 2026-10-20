@@ -3815,114 +3815,99 @@ export default function CompaniesPage() {
 
   return (
     <div className="flex flex-col h-full relative overflow-hidden">
-      <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-[#444746] mb-4 px-4 pt-4">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-normal text-google-text">
-              Organizations ({filteredCompanies.length})
-            </h2>
+      {/* Header / Top Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[var(--border)] mb-4 px-2 pt-2">
+        {/* Title + Count */}
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold text-[var(--text)] tracking-tight">
+            Organizações
+          </h1>
+          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]">
+            {filteredCompanies.length}
+          </span>
+        </div>
 
-            {/* Search Input */}
-            <div className="relative ml-2">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                size={16}
-              />
-              <input
-                type="text"
-                placeholder="To search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 pr-4 py-1.5 text-xs border border-gray-200 dark:border-[#444746] rounded-lg focus:outline-none focus:ring-2 focus:ring-primary w-48 bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors"
-              />
-            </div>
-
-            {/* Quick Filters */}
-            <div className="flex items-center bg-gray-50 dark:bg-[#131314] rounded-lg p-0.5 ml-4 border border-gray-200 dark:border-[#444746]">
-              <button
-                onClick={() => setFilter("all")}
-                className={cn(
-                  "px-3 py-1 text-xs font-medium rounded-md transition-all",
-                  filter === "all"
-                    ? "bg-white dark:bg-surface text-gray-900 dark:text-white shadow-sm ring-1 ring-gray-200 dark:ring-[#444746]"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 bim-unselected",
-                )}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setFilter("active")}
-                className={cn(
-                  "px-3 py-1 text-xs font-medium rounded-md transition-all",
-                  filter === "active"
-                    ? "bg-white dark:bg-surface text-green-700 dark:text-green-500 shadow-sm ring-1 ring-gray-200 dark:ring-[#444746]"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 bim-unselected",
-                )}
-              >
-                On Site
-              </button>
-              {isManager && (
-                <button
-                  onClick={() => setFilter("archived")}
-                  className={cn(
-                    "px-3 py-1 text-xs font-medium rounded-md transition-all",
-                    filter === "archived"
-                      ? "bg-white dark:bg-surface text-red-700 dark:text-red-500 shadow-sm ring-1 ring-gray-200 dark:ring-[#444746]"
-                      : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 bim-unselected",
-                  )}
-                >
-                  Archived
-                </button>
-              )}
-            </div>
+        {/* Controls & Actions */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" size={15} />
+            <input
+              type="text"
+              placeholder="Pesquisar organizações..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-40 sm:w-48 focus:w-60 transition-all duration-200 pl-9 pr-3 py-1.5 text-xs bg-[var(--bg-input)] text-[var(--text)] border border-[var(--border)] rounded-lg outline-none focus:border-[#4285F4] placeholder:text-[var(--text-muted)]"
+            />
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Status Filter */}
-            <div className="relative">
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="pl-3 pr-8 py-1.5 text-xs border border-gray-200 dark:border-[#444746] rounded-lg focus:outline-none focus:ring-2 focus:ring-primary bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface appearance-none cursor-pointer"
+          {/* Quick Filters */}
+          <div className="flex items-center bg-[var(--bg-input)] border border-[var(--border)] rounded-lg p-0.5">
+            {[
+              { key: 'all', label: 'Todas' },
+              { key: 'active', label: 'Em Obra' },
+              ...(isManager ? [{ key: 'archived', label: 'Arquivadas' }] : [])
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key as any)}
+                className={cn(
+                  "px-2.5 py-1 text-xs font-medium rounded-md transition-all whitespace-nowrap",
+                  filter === tab.key
+                    ? "bg-[var(--bg-card)] text-[var(--text)] font-semibold shadow-xs"
+                    : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                )}
               >
-                <option value="all">Status: All</option>
-                <option value="draft">Draft</option>
-                <option value="data_requested">Data Requested</option>
-                <option value="data_update">Data Update</option>
-                <option value="validation_pending">Validation Pending</option>
-                <option value="validated">Validated</option>
-                <option value="approval_pending">Pending Approval</option>
-                <option value="approved">Approved</option>
-                <option value="off_site">Off Site</option>
-              </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                <ChevronDown size={12} />
-              </div>
-            </div>
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Clean Export Buttons */}
-          <button
-            onClick={exportToExcel}
-            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-            title="Export Excel"
-          >
-            <FileText size={18} />
-          </button>
-          <button
-            onClick={() => setIsPDFModalOpen(true)}
-            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors mr-2"
-            title="Export PDF"
-          >
-            <Download size={18} />
-          </button>
+          {/* Status Filter */}
+          <div className="relative">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="appearance-none pl-3 pr-8 py-1.5 text-xs bg-[var(--bg-input)] text-[var(--text)] border border-[var(--border)] rounded-lg outline-none focus:border-[#4285F4] cursor-pointer"
+            >
+              <option value="all">Estado: Todos</option>
+              <option value="draft">Rascunho</option>
+              <option value="data_requested">Dados Pedidos</option>
+              <option value="data_update">Atualização</option>
+              <option value="validation_pending">Pendente Validação</option>
+              <option value="validated">Validada</option>
+              <option value="approval_pending">Pendente Aprovação</option>
+              <option value="approved">Aprovada</option>
+              <option value="off_site">Fora da Obra</option>
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" size={13} />
+          </div>
 
+          {/* Export Buttons */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={exportToExcel}
+              className="p-1.5 text-[var(--text-muted)] hover:text-green-600 hover:bg-green-500/10 rounded-lg transition-colors"
+              title="Exportar Excel"
+            >
+              <FileText size={17} />
+            </button>
+            <button
+              onClick={() => setIsPDFModalOpen(true)}
+              className="p-1.5 text-[var(--text-muted)] hover:text-red-600 hover:bg-red-500/10 rounded-lg transition-colors"
+              title="Exportar PDF"
+            >
+              <Download size={17} />
+            </button>
+          </div>
+
+          {/* New Company Button */}
           {canCreate && (
             <button
               onClick={handleOpenCreate}
-              className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-hover shadow-sm transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg shadow-xs transition-all whitespace-nowrap"
             >
-              <Plus size={18} /> New
+              <Plus size={15} /> <span>Nova Organização</span>
             </button>
           )}
         </div>
