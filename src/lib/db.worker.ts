@@ -63,7 +63,10 @@ self.onmessage = async (e: MessageEvent) => {
             self.postMessage({ id, success: true });
         }
     } catch (error: any) {
-        console.error('[Worker] Error executing query', error);
-        self.postMessage({ id, error: error.message || String(error) });
+        const msg = error?.message || String(error);
+        if (!msg.includes('duplicate column name')) {
+            console.error('[Worker] Error executing query', error);
+        }
+        self.postMessage({ id, error: msg });
     }
 };

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'safety1irst-v1';
+const CACHE_NAME = 'safety1irst-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -37,10 +37,31 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
 
-  // Skip chrome-extension, internal schemes, and API requests that should always be fresh
+  // Skip chrome-extension, internal schemes, API requests, and Next.js data
   if (!url.protocol.startsWith('http')) return;
-  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/_next/data/')) return;
 
+  // For HTML navigation requests, use network-first strategy with guaranteed fallback Response
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        const rootCached = await caches.match('/');
+        if (rootCached) return rootCached;
+        return new Response(
+          '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Offline - SafetyFirst</title></head><body style="font-family:sans-serif;text-align:center;padding:50px;"><h2>Sem Ligação</h2><p>Por favor verifique a sua ligação à internet.</p></body></html>',
+          {
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }
+        );
+      })
+    );
+    return;
+  }
+
+  // For static assets: cache-first with network fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
@@ -60,7 +81,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         }
 
-        // Cache static files (images, css, js)
+        // Cache static files (images, css, js, fonts)
         if (
           url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp|woff2|woff|ttf|css|js)$/)
         ) {
@@ -72,10 +93,7 @@ self.addEventListener('fetch', (event) => {
 
         return response;
       }).catch(() => {
-        // Offline fallback for navigation requests if any
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
+        return new Response('', { status: 408, statusText: 'Request Timeout / Offline' });
       });
     })
   );

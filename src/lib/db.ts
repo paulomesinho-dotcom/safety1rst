@@ -109,7 +109,7 @@ export const remove = async (table: string, id: string) => {
 // Schema Definition (Called after Worker Init)
 const createSchema = async () => {
     const run = (sql: string) => {
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<any[]>((resolve, reject) => {
             const id = uuid();
             requestMap.set(id, { resolve, reject });
             worker?.postMessage({ id, type: 'exec', sql, params: [] });
@@ -603,11 +603,33 @@ const createSchema = async () => {
         )`,
         `ALTER TABLE courses ADD COLUMN cover_image TEXT`
     ];
+
+    const existingColumnsCache = new Map<string, Set<string>>();
+    const getTableColumns = async (table: string): Promise<Set<string>> => {
+        if (existingColumnsCache.has(table)) return existingColumnsCache.get(table)!;
+        try {
+            const rows = await run(`PRAGMA table_info(${table})`);
+            const set = new Set<string>((rows || []).map((r: any) => String(r.name)));
+            existingColumnsCache.set(table, set);
+            return set;
+        } catch {
+            return new Set<string>();
+        }
+    };
+
     for (const sql of migrations) {
         try {
+            const alterMatch = sql.match(/^ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)/i);
+            if (alterMatch) {
+                const [, table, col] = alterMatch;
+                const cols = await getTableColumns(table);
+                if (cols.has(col)) {
+                    continue; // Column already exists in SQLite — skip without error
+                }
+            }
             await run(sql);
         } catch (_) {
-            // Column already exists — safe to ignore
+            // Safe to ignore
         }
     }
 };
