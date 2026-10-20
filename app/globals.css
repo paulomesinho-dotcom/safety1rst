@@ -3,529 +3,268 @@
 @tailwind utilities;
 
 @layer base {
-    :root {
-        /* Default (Safety1st / Google Blue) */
-        --primary: 26 115 232; /* #1a73e8 */
-        --primary-hover: 21 87 176; /* #1557b0 */
-        --primary-light: 232 240 254; /* #e8f0fe */
+    /* FundacaoJM Dark Mode (Default / :root / .dark) */
+    :root,
+    .dark {
+        --primary: 66 133 244; /* #4285F4 */
+        --primary-light: 92 157 255; /* #5C9DFF */
+        --primary-dark: 51 103 214; /* #3367D6 */
+        --accent: 139 92 246; /* #8B5CF6 */
+        --success: 52 168 83; /* #34A853 */
+        --warning: 251 188 4; /* #FBBC04 */
+        --error: 234 67 53; /* #EA4335 */
         
-        --background: 248 250 252; /* #f8fafc */
-        --surface: 255 255 255; /* #ffffff */
-        --content-text: 32 33 36; /* #202124 */
+        --bg: #0F172A;
+        --bg-card: #1E293B;
+        --bg-input: #334155;
+        --text: #F1F5F9;
+        --text-muted: #94A3B8;
+        --border: #334155;
 
-        /* Static Brand Color (For content that should not change with theme) */
-        --brand-blue: 26 115 232; /* #1a73e8 - Safety1rst Blue */
+        /* Tailwind RGB variables */
+        --background: 15 23 42; /* #0F172A */
+        --surface: 30 41 59; /* #1E293B */
+        --content-text: 241 245 249; /* #F1F5F9 */
+
+        --nav-sidebar-bg: 30 41 59; /* #1E293B */
+        --nav-sidebar-border: 51 65 85; /* #334155 */
+        --nav-active-bg: 40 56 84;
+        --nav-active-text: 66 133 244;
+        --row-hover-bg: 51 65 85;
+
+        --brand-blue: 66 133 244;
     }
 
-    /* Utility classes for static brand color */
+    /* FundacaoJM Light Mode (.light) */
+    .light {
+        --primary: 26 115 232; /* #1A73E8 */
+        --primary-light: 66 133 244; /* #4285F4 */
+        --primary-dark: 21 87 176; /* #1557B0 */
+        --accent: 124 58 237; /* #7C3AED */
+        --success: 52 168 83; /* #34A853 */
+        --warning: 251 188 4; /* #FBBC04 */
+        --error: 234 67 53; /* #EA4335 */
+
+        --bg: #F8F9FA;
+        --bg-card: #FFFFFF;
+        --bg-input: #F4F7FA;
+        --text: #202124;
+        --text-muted: #5F6368;
+        --border: #DADCE0;
+
+        /* Tailwind RGB variables */
+        --background: 248 249 250; /* #F8F9FA */
+        --surface: 255 255 255; /* #FFFFFF */
+        --content-text: 32 33 36; /* #202124 */
+
+        --nav-sidebar-bg: 255 255 255; /* #FFFFFF */
+        --nav-sidebar-border: 218 220 224; /* #DADCE0 */
+        --nav-active-bg: 232 240 254; /* #E8F0FE */
+        --nav-active-text: 26 115 232; /* #1A73E8 */
+        --row-hover-bg: 241 243 244;
+
+        --brand-blue: 26 115 232;
+    }
+
+    /* Base Body & App Styling */
+    html, body {
+        @apply h-full w-full;
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* Static Brand Color utilities */
     .text-brand { color: rgb(var(--brand-blue)); }
     .bg-brand { background-color: rgb(var(--brand-blue)); }
 
-    /* Dark Mode Overrides (Google Drive Style) */
-    .dark, html.dark[data-color], body.dark[data-color], .dark [data-color] {
-        --background: 19 19 20;
-        --surface: 30 31 32;
-        --content-text: 227 227 227;
-        --primary-light: 40 42 44;
-        --nav-sidebar-bg: 19 19 20;
-        --nav-sidebar-border: 68 71 70;
-        --nav-hover-bg: 68 71 70;
-        --row-hover-bg: 68 71 70;
-        --nav-active-bg: 55 57 59;
-        --nav-active-text: 227 227 227;
-        --primary: 154 160 166;
-        --primary-hover: 128 134 139;
-    }
-
-    /* Sidebar Specific Variables (Default to Safety Blue style) */
-    :root {
-        --nav-active-bg: 232 240 254; /* blue-50 */
-        --nav-active-text: 15 23 42; /* slate-900 (black-ish) */
-        --nav-hover-bg: 241 245 249; /* slate-100 */
-        --nav-sidebar-bg: 248 250 252; /* slate-50 (Match Safety1rst) */
-        --nav-sidebar-border: 243 244 246; /* gray-100 */
-    }
-
-    /* Utility classes for Nav items */
+    /* Nav utilities */
     .bg-nav-active { background-color: rgb(var(--nav-active-bg)); }
     .text-nav-active { color: rgb(var(--nav-active-text)); }
     .bg-nav-sidebar { background-color: rgb(var(--nav-sidebar-bg)); }
     .border-nav-sidebar { border-color: rgb(var(--nav-sidebar-border)); }
-
-    /* Standard Themes - Only affect Sidebar Variables Light Mode */
-    [data-color="safety"] {
-        --nav-active-bg: 232 240 254;
-        --nav-active-text: 15 23 42; /* slate-900 (black-ish) */
-        --row-hover-bg: 248 250 252; /* slate-50 (Standard) */
-        --nav-sidebar-bg: 248 250 252; /* slate-50 (Match Page Background) */
-    }
-
-    [data-color="green"] {
-        --nav-active-bg: 220 252 231; /* green-100 */
-        --nav-active-text: 22 163 74; /* green-600 */
-        --row-hover-bg: 240 253 244; /* green-50 */
-        --nav-sidebar-bg: 248 250 252; /* slate-50 */
-    }
-
-    [data-color="pink"] {
-        --nav-active-bg: 255 228 230; /* rose-100 */
-        --nav-active-text: 225 29 72; /* rose-600 */
-        --row-hover-bg: 255 241 242; /* rose-50 */
-        --nav-sidebar-bg: 248 250 252; /* slate-50 */
-    }
-
-    [data-color="blue"] {
-        --nav-active-bg: 224 242 254; /* sky-100 */
-        --nav-active-text: 2 132 199; /* sky-600 */
-        --row-hover-bg: 240 249 255; /* sky-50 */
-        --nav-sidebar-bg: 248 250 252; /* slate-50 */
-    }
-
-    [data-color="brown"] {
-        --nav-active-bg: 254 243 199; /* amber-100 */
-        --nav-active-text: 217 119 6; /* amber-600 */
-        --row-hover-bg: 255 251 235; /* amber-50 */
-        --nav-sidebar-bg: 248 250 252; /* slate-50 */
-    }
-
-    [data-color="colab"] {
-        /* Sidebar background is dark blue #203149 */
-        --nav-sidebar-bg: 32 49 73; 
-        
-        /* Sidebar borders - dark or matching */
-        --nav-sidebar-border: 45 65 95; 
-
-        /* Active items in the dark sidebar - Needs a lighter background and white/light text */
-        --nav-active-bg: 43 115 213; 
-        --nav-active-text: 255 255 255; 
-
-        /* Light row hover in main area (standard look for content) */
-        --row-hover-bg: 248 250 252; /* slate-50 */
-        
-        /* Application Background #F4F6FC */
-        --background: 244 246 252;
-    }
-
-    /* Maintain Deep Themes mapping to standard colors for now, or just same behavior */
-    [data-color="deep/green"] {
-        --nav-active-bg: 220 252 231;
-        --nav-active-text: 22 163 74;
-        --background: 240 253 244; /* green-50 - Very pale green */
-        --row-hover-bg: 220 252 231; /* green-100 (Deep) - slightly darker than light theme */
-        --nav-sidebar-bg: 240 253 244; /* Match background */
-    }
-    
-    [data-color="deep/blue"] {
-        --nav-active-bg: 224 242 254;
-        --nav-active-text: 2 132 199;
-        --background: 240 249 255; /* sky-50 - Very pale blue */
-        --row-hover-bg: 224 242 254; /* sky-100 (Deep) */
-        --nav-sidebar-bg: 240 249 255; /* Match background */
-    }
-    
-    [data-color="deep/pink"] {
-        --nav-active-bg: 255 228 230;
-        --nav-active-text: 225 29 72;
-        --background: 255 241 242; /* rose-50 - Very pale pink */
-        --row-hover-bg: 255 228 230; /* rose-100 (Deep) */
-        --nav-sidebar-bg: 255 241 242; /* Match background */
-    }
-    
-    [data-color="deep/brown"] {
-        --nav-active-bg: 254 243 199;
-        --nav-active-text: 217 119 6;
-        --background: 255 251 235; /* amber-50 - Very pale amber */
-        --row-hover-bg: 254 243 199; /* amber-100 (Deep) */
-        --nav-sidebar-bg: 255 251 235; /* Match background */
-    }
-
-    [data-color="bim"] {
-        --nav-sidebar-bg: 15 23 42;
-        --nav-sidebar-border: 57 202 204;
-        --nav-active-bg: 30 41 59;
-        --nav-active-text: 57 202 204;
-        --background: 15 23 42;
-        --row-hover-bg: 248 250 252;
-    }
-
-    [data-color="deep/bim"] {
-        --nav-sidebar-bg: 15 23 42;
-        --nav-sidebar-border: 57 202 204;
-        --nav-active-bg: 30 41 59;
-        --nav-active-text: 57 202 204;
-        --background: 15 23 42;
-        --row-hover-bg: 248 250 252;
-    }
-
-    [data-color="xispoli"] {
-        --primary: 26 115 232; /* Standard primary blue like Colab */
-        --primary-hover: 21 87 176;
-        --primary-light: 232 240 254;
-        --nav-sidebar-bg: 32 49 73; /* Colab Dark Blue #203149 */
-        --nav-sidebar-border: 45 65 95; /* Colab Sidebar Border */
-        --nav-active-bg: 205 161 76; /* Gold #CDA14C flat active background */
-        --nav-active-text: 255 255 255; /* White text on Gold matching Colab exactly */
-        --background: 87 185 159; /* Mint Green #57B99F as main window backdrop */
-        --row-hover-bg: 248 250 252; /* Colab Row Hover */
-    }
-
-    [data-color="x1"] {
-        --primary: 26 115 232; /* Standard primary blue like Colab */
-        --primary-hover: 21 87 176;
-        --primary-light: 232 240 254;
-        --nav-sidebar-bg: 32 49 73; /* Colab Dark Blue #203149 */
-        --nav-sidebar-border: 45 65 95; /* Colab Sidebar Border */
-        --nav-active-bg: 43 115 213; /* Gold changed to #2B73D5 */
-        --nav-active-text: 255 255 255; /* White text on active blue matching Colab exactly */
-        --background: 86 182 156; /* Mint Green #56B69C */
-        --row-hover-bg: 248 250 252; /* Colab Row Hover */
-    }
-
-    /* Header contrast rules for X1 Theme (green background) */
-    html:not(.dark)[data-color="x1"] header,
-    html:not(.dark)[data-color="x1"] header * {
-        color: rgba(255, 255, 255, 0.95) !important;
-    }
-
-    html:not(.dark)[data-color="x1"] header input {
-        background-color: rgba(255, 255, 255, 0.15) !important;
-        border-color: rgba(255, 255, 255, 0.25) !important;
-        color: #ffffff !important;
-    }
-    
-    html:not(.dark)[data-color="x1"] header input::placeholder {
-        color: rgba(255, 255, 255, 0.6) !important;
-    }
-
-    html:not(.dark)[data-color="x1"] header .bg-gray-50 {
-        background-color: rgba(255, 255, 255, 0.1) !important;
-    }
-
-    /* Sidebar hover background and default link contrast overrides for Colab & X1 Themes */
-    [data-color="colab"] aside a,
-    [data-color="colab"] aside button,
-    [data-color="colab"] aside svg,
-    [data-color="colab"] aside .text-gray-300,
-    [data-color="x1"] aside a,
-    [data-color="x1"] aside button,
-    [data-color="x1"] aside svg,
-    [data-color="x1"] aside .text-gray-300 {
-        color: #e2e8f0 !important; /* Lighter gray-200 for high-contrast readability by default */
-    }
-
-    [data-color="colab"] aside .hover\:bg-\[\#2a4060\]:hover,
-    [data-color="colab"] aside a:hover,
-    [data-color="colab"] aside button:hover,
-    [data-color="x1"] aside .hover\:bg-\[\#2a4060\]:hover,
-    [data-color="x1"] aside a:hover,
-    [data-color="x1"] aside button:hover {
-        background-color: #2B73D5 !important;
-        color: #ffffff !important;
-    }
-    
-    [data-color="colab"] aside a:hover svg,
-    [data-color="colab"] aside button:hover svg,
-    [data-color="x1"] aside a:hover svg,
-    [data-color="x1"] aside button:hover svg {
-        color: #ffffff !important;
-    }
-
-    [data-color="deep/xispoli"] {
-        --primary: 88 185 159; /* Mint #58B99F */
-        --primary-hover: 205 161 76; /* Gold #CDA14C */
-        --primary-light: 32 60 48;
-        --background: 10 20 40;
-        --surface: 18 34 68;
-        --content-text: 241 245 249;
-        --nav-sidebar-bg: 10 20 40;
-        --nav-sidebar-border: 32 52 94;
-        --nav-active-bg: 205 161 76; /* Gold #CDA14C active selection */
-        --nav-active-text: 10 20 40;
-        --row-hover-bg: 32 52 94;
-    }
-
-    /* Flat Gold active selection in the sidebar for deep/xispoli if needed */
-    html[data-color="deep/xispoli"] .bg-nav-active {
-        background-color: rgb(205, 161, 76) !important;
-        color: rgb(10, 20, 40) !important;
-        box-shadow: none !important;
-        border: none !important;
-    }
-
-    /* Apply blueprint gradient background for Deep Xispoli body/bg */
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)),
-    html:not(.dark)[data-color="deep/xispoli"] .min-h-screen:not(.login-page),
-    html:not(.dark)[data-color="deep/xispoli"] .bg-background:not(.login-page) {
-        background: 
-            linear-gradient(rgba(129, 140, 248, 0.02) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(129, 140, 248, 0.02) 1px, transparent 1px),
-            radial-gradient(circle at 50% 10%, rgba(15, 23, 42, 0.9) 0%, transparent 75%),
-            linear-gradient(135deg, #090d16 0%, #0f172a 50%, #1e293b 100%) !important;
-        background-size: 30px 30px, 30px 30px, 100% 100%, 100% 100% !important;
-        background-position: center center, center center, center center, center center !important;
-        background-attachment: fixed !important;
-    }
-
-    /* Modern glow elements for Deep Xispoli main area */
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) main,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .bg-white {
-        background-color: rgba(30, 41, 59, 0.95) !important;
-        border-color: rgba(129, 140, 248, 0.2) !important;
-        color: #f1f5f9 !important;
-        box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.37), inset 0 0 20px rgba(129, 140, 248, 0.02) !important;
-        backdrop-filter: blur(4px) !important;
-        border-radius: 1.5rem !important;
-    }
-
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .text-gray-900,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .text-gray-800,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .text-gray-700,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) h1,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) h2,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) h3 {
-        color: #f8fafc !important;
-    }
-
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .text-gray-500,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .text-gray-600 {
-        color: #94a3b8 !important;
-    }
-
-    html:not(.dark)[data-color="deep/xispoli"] table th,
-    html:not(.dark)[data-color="deep/xispoli"] .bg-gray-50,
-    html:not(.dark)[data-color="deep/xispoli"] thead {
-        background-color: rgba(15, 23, 42, 0.8) !important;
-        border-bottom-color: rgba(129, 140, 248, 0.3) !important;
-        color: #818cf8 !important;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        font-size: 0.75rem !important;
-        box-shadow: 0 4px 10px -2px rgba(129, 140, 248, 0.15) !important;
-    }
-
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) .hover-row:hover,
-    html:not(.dark)[data-color="deep/xispoli"] body:not(:has(.login-page)) tbody tr:hover td {
-        background-color: rgba(129, 140, 248, 0.08) !important;
-        transition: background-color 0.2s ease-in-out;
-    }
-
-    /* Glassmorphism sidebar for BIM themes with Spherical Gradient */
-    html:not(.dark)[data-color="bim"] .bg-nav-sidebar,
-    html:not(.dark)[data-color="deep/bim"] .bg-nav-sidebar {
-        background-color: rgba(10, 15, 30, 0.4) !important;
-        background-image: radial-gradient(circle at bottom right, rgba(57, 202, 204, 0.15) 0%, transparent 60%) !important;
-        backdrop-filter: blur(8px) !important;
-        -webkit-backdrop-filter: blur(8px) !important;
-    }
-    
-    html:not(.dark)[data-color="bim"] .border-nav-sidebar,
-    html:not(.dark)[data-color="deep/bim"] .border-nav-sidebar {
-        border-color: rgba(57, 202, 204, 0.25) !important;
-    }
-
-    /* Apply technological blueprint gradient background only for BIM and Deep BIM body/bg, excluding login */
-    html:not(.dark)[data-color="bim"] body:not(:has(.login-page)),
-    html:not(.dark)[data-color="bim"] .bg-background:not(.login-page),
-    html:not(.dark)[data-color="bim"] .min-h-screen:not(.login-page),
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)),
-    html:not(.dark)[data-color="deep/bim"] .min-h-screen:not(.login-page),
-    html:not(.dark)[data-color="deep/bim"] .bg-background:not(.login-page) {
-        background: 
-            linear-gradient(rgba(57, 202, 204, 0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(57, 202, 204, 0.05) 1px, transparent 1px),
-            radial-gradient(circle at 50% 10%, rgba(28, 32, 76, 0.9) 0%, transparent 70%),
-            linear-gradient(135deg, rgb(10, 15, 30) 0%, #15183b 50%, #1c204c 100%) !important;
-        background-size: 30px 30px, 30px 30px, 100% 100%, 100% 100% !important;
-        background-position: center center, center center, center center, center center !important;
-        background-attachment: fixed !important;
-    }
-
-    /* Technological Elements for the Data Columns / Main Content Area strictly in DEEP BIM Theme */
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) main,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .lg\:col-span-2 > .bg-white,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .space-y-6 > .bg-white,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .bg-white {
-        background-color: rgba(15, 23, 42, 1) !important;
-        background-image: none !important;
-        border-color: rgba(57, 202, 204, 0.2) !important;
-        color: #e2e8f0 !important;
-        box-shadow: inset 0 0 20px rgba(57, 202, 204, 0.05) !important;
-    }
-
-    /* Reduce font size for list titles, headers, and grid names in Deep BIM */
-    html:not(.dark)[data-color="deep/bim"] h2.text-xl,
-    html:not(.dark)[data-color="deep/bim"] h3.font-medium,
-    html:not(.dark)[data-color="deep/bim"] table .text-sm,
-    html:not(.dark)[data-color="deep/bim"] .grid .text-sm {
-        font-size: 0.8rem !important;
-        line-height: 1.25rem !important;
-    }
-    
-    html:not(.dark)[data-color="deep/bim"] h2.text-xl {
-        font-size: 1rem !important; /* Slightly larger for main list titles, but smaller than original */
-    }
-
-    /* Target Tables and inner elements specifically for DEEP BIM Theme */
-    html:not(.dark)[data-color="deep/bim"] table th,
-    html:not(.dark)[data-color="deep/bim"] .bg-gray-50,
-    html:not(.dark)[data-color="deep/bim"] thead {
-        background-color: rgba(10, 15, 30, 0.8) !important;
-        border-bottom-color: rgba(57, 202, 204, 0.3) !important;
-        color: #39CACC !important;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        font-size: 0.7rem !important; /* Smaller size for table headers */
-        box-shadow: 0 4px 10px -2px rgba(57, 202, 204, 0.1) !important;
-    }
-
-    html:not(.dark)[data-color="deep/bim"] tr,
-    html:not(.dark)[data-color="deep/bim"] td {
-        border-color: rgba(57, 202, 204, 0.1) !important;
-    }
-
-    /* Fix text contrast for unselected Quick Filters in DEEP BIM */
-    html:not(.dark)[data-color="deep/bim"] .bim-unselected {
-        color: #648296 !important;
-    }
-    html:not(.dark)[data-color="deep/bim"] .bim-unselected:hover {
-        color: #39CACC !important;
-    }
-
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-gray-900,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-gray-800,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-gray-700,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-slate-900,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-slate-800,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-slate-700,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-google-text,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) h1,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) h2,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) h3 {
-        color: #f8fafc !important;
-    }
-    
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-gray-500,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-gray-600,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .text-slate-500 {
-        color: #94a3b8 !important;
-    }
-
-    /* Input borders and focus styles for Deep BIM */
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) input,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) select,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) textarea,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .border-gray-200,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .border-gray-300 {
-        border-color: rgba(57, 202, 204, 0.15) !important;
-        background-color: rgba(10, 15, 30, 0.5) !important;
-        color: #f8fafc !important;
-    }
-    
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) input:focus,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) select:focus,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) textarea:focus,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .focus\:ring-primary:focus {
-        border-color: #39CACC !important;
-        box-shadow: 0 0 0 1px #39CACC, 0 0 10px rgba(57, 202, 204, 0.2) !important;
-        outline: none !important;
-        ring-color: transparent !important;
-    }
-    
-    /* Neon hover effect on rows in Deep BIM */
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) .hover-row:hover,
-    html:not(.dark)[data-color="deep/bim"] body:not(:has(.login-page)) tbody tr:hover td {
-        background-color: rgba(57, 202, 204, 0.1) !important;
-        transition: background-color 0.2s ease-in-out;
-    }
-
-    html,
-    body {
-        @apply h-full w-full;
-    }
-
-    body {
-        @apply bg-background text-google-text font-sans antialiased;
-    }
-}
-
-/* Custom Scrollbar for Drive look */
-::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-}
-
-::-webkit-scrollbar-track {
-    @apply bg-transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    @apply bg-[#dadce0] rounded-full border-4 border-solid border-transparent bg-clip-content;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    @apply bg-[#b0b3b8];
-}
-
-@layer utilities {
-    .hover-row:hover {
-        background-color: rgb(var(--row-hover-bg));
-    }
 }
 
 /* 
  * ==========================================
- * STRICT LOGIN PAGE ISOLATION
+ * FUNDACAOJM SIDEBAR & CONTROLS COMPONENT STYLES
  * ==========================================
- * Prevents Deep BIM, Dark Mode, or any other global themes
- * from bleeding into the login page during SSR or Hydration.
  */
-#login-page .bg-white *,
-#login-page .bg-surface * {
-    /* Prevent neon shadows and borders from leaking into login cards */
-    box-shadow: none;
+
+.sidebar-container {
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-#login-page {
-    background: #f8fafc !important; /* Force light gray background */
-    color: #202124 !important; /* Force dark text */
+.sidebar-toggle-btn {
+    position: absolute;
+    right: -12px;
+    top: 26px;
+    width: 24px;
+    height: 24px;
+    background: #4285F4;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 50;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    transition: all 0.2s ease;
+    border: none;
+    color: white;
+}
+.sidebar-toggle-btn:hover {
+    filter: brightness(1.15);
+    transform: scale(1.08);
 }
 
-#login-page .bg-white,
-#login-page nav {
-    background-color: #ffffff !important;
-    border-color: #e5e7eb !important;
+.fjm-nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 0 24px 24px 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    margin-bottom: 2px;
+}
+.fjm-nav-item:hover {
+    background: rgba(66, 133, 244, 0.08);
+    color: var(--text);
+}
+.fjm-nav-item.active {
+    background: rgba(66, 133, 244, 0.15) !important;
+    color: #4285F4 !important;
+    font-weight: 600;
+}
+.light .fjm-nav-item.active {
+    background: rgba(26, 115, 232, 0.1) !important;
+    color: #1A73E8 !important;
+}
+.fjm-nav-item.active svg {
+    color: #4285F4 !important;
+}
+.light .fjm-nav-item.active svg {
+    color: #1A73E8 !important;
 }
 
-/* Target specific text colors rather than all tags to avoid breaking dark sections */
-#login-page .bg-white h1,
-#login-page .bg-white h2,
-#login-page .bg-white h3,
-#login-page .bg-white p,
-#login-page .bg-white label,
-#login-page .bg-surface h1,
-#login-page .bg-surface h2,
-#login-page .bg-surface h3,
-#login-page .bg-surface p,
-#login-page .bg-surface label {
-    color: #202124 !important;
+/* Sidebar Footer */
+.fjm-sidebar-footer {
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
 }
 
-#login-page .bg-white .text-gray-500,
-#login-page .bg-white .text-slate-500,
-#login-page .bg-surface .text-gray-500,
-#login-page .bg-surface .text-slate-500 {
-    color: #5f6368 !important;
+/* Theme Toggle Pill (FundacaoJM style) */
+.fjm-theme-toggle {
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+    user-select: none;
+}
+.fjm-theme-toggle:hover {
+    background: var(--bg-input);
+    color: var(--text);
 }
 
-#login-page input,
-#login-page select {
-    background-color: #ffffff !important;
-    border-color: #d1d5db !important;
-    color: #202124 !important;
+.fjm-theme-toggle-switch {
+    width: 36px;
+    height: 20px;
+    background: var(--bg-input);
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+.fjm-theme-toggle-knob {
+    width: 16px;
+    height: 16px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: left 0.2s, background 0.2s;
+}
+.light .fjm-theme-toggle-switch {
+    background: #1A73E8;
+}
+.light .fjm-theme-toggle-knob {
+    left: 18px;
+    background: #FFFFFF;
 }
 
-#login-page input:focus,
-#login-page select:focus {
-    border-color: #1a73e8 !important;
-    box-shadow: 0 0 0 1px #1a73e8 !important;
+/* User Card (FundacaoJM style) */
+.fjm-user-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.2s;
+}
+.fjm-user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #4285F4, #8B5CF6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 13px;
+    color: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    flex-shrink: 0;
+}
+.light .fjm-user-avatar {
+    background: linear-gradient(135deg, #1A73E8, #34A853);
+}
+.fjm-user-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.fjm-user-role {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }

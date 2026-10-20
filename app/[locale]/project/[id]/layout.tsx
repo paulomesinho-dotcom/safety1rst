@@ -7,58 +7,39 @@ import { useParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import Header from '@/components/Header';
 import {
-    LayoutDashboard, Building2, Users, HardHat, Scan, FileText, FileInput, AlertTriangle, GraduationCap, ChevronLeft, ChevronRight, UserCog, PanelLeftClose, PanelLeftOpen, Settings as SettingsIcon,
-    Globe, Bot, Cpu, Activity, FileStack, Shield, BrainCircuit,
-    Component, UserSquare, Wrench, FileCode, Hammer, Scale,
-    Server, Bug, Blocks, Brackets, Network, Boxes, GitMerge,
-    TriangleAlert, Monitor, Fingerprint, Forklift, Presentation, Sliders, ClipboardList
+    LayoutDashboard,
+    Building2,
+    Users,
+    HardHat,
+    Scan,
+    FileText,
+    FileInput,
+    AlertTriangle,
+    GraduationCap,
+    ChevronLeft,
+    ChevronRight,
+    Settings as SettingsIcon,
+    ClipboardList,
+    Folder,
+    LogOut,
+    Sun,
+    Moon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AuthGuard from '@/components/AuthGuard';
-import { BrandLogo } from '@/components/BrandLogo';
 import { useTheme } from '@/providers/ThemeProvider';
 
-
-const iconMaps: Record<string, Record<string, React.FC<any>>> = {
-    'default': {
-        'companies': Building2,
-        'workers': Users,
-        'equipment': HardHat,
-        'access-control': Scan,
-        'accidents': AlertTriangle,
-        'training': GraduationCap,
-        'forms': FileInput,
-        'documents': FileText,
-        'team': UserCog,
-        'dashboard': LayoutDashboard,
-        'settings': SettingsIcon
-    },
-    'future': {
-        'companies': Globe,
-        'workers': Bot,
-        'equipment': Cpu,
-        'access-control': Scan,
-        'accidents': Activity,
-        'training': BrainCircuit,
-        'forms': FileStack,
-        'documents': FileText,
-        'team': Users,
-        'dashboard': LayoutDashboard,
-        'settings': SettingsIcon
-    },
-    'bim': {
-        'companies': Network,
-        'workers': Users, // Pessoas
-        'equipment': Forklift, // Maquinaria pesada (empilhadora)
-        'access-control': Fingerprint, // Impressão digital
-        'accidents': TriangleAlert, // Triangulo com exclamação
-        'training': Presentation, // Formação / Apresentação
-        'forms': Brackets, // Formulários (icone anterior)
-        'documents': Monitor, // PC
-        'team': GitMerge,
-        'dashboard': LayoutDashboard,
-        'settings': Sliders
-    }
+const iconMap: Record<string, React.FC<any>> = {
+    'dashboard': LayoutDashboard,
+    'companies': Building2,
+    'workers': Users,
+    'equipment': HardHat,
+    'access-control': Scan,
+    'accidents': AlertTriangle,
+    'training': GraduationCap,
+    'forms': FileInput,
+    'documents': FileText,
+    'settings': SettingsIcon,
 };
 
 const nameMap: Record<string, string> = {
@@ -72,189 +53,119 @@ const nameMap: Record<string, string> = {
     'documents': 'Documentos',
 };
 
-// Removed colorMap as it's now handled dynamically
-const getColorClass = (id: string) => {
-    switch (id) {
-        case 'companies': return 'text-primary dark:text-gray-300';
-        case 'workers': return 'text-emerald-600 dark:text-gray-300';
-        case 'equipment': return 'text-orange-600 dark:text-gray-300';
-        case 'access-control': return 'text-purple-600 dark:text-gray-300';
-        case 'accidents': return 'text-red-600 dark:text-gray-300';
-        case 'training': return 'text-indigo-600 dark:text-gray-300';
-        case 'forms': return 'text-pink-600 dark:text-gray-300';
-        case 'documents': return 'text-teal-600 dark:text-gray-300';
-        default: return 'text-gray-600 dark:text-gray-300';
-    }
-};
-
-const getBgColorClass = (id: string) => {
-    switch (id) {
-        case 'companies': return 'bg-blue-50 text-primary dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'workers': return 'bg-emerald-50 text-emerald-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'equipment': return 'bg-orange-50 text-orange-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'access-control': return 'bg-purple-50 text-purple-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'accidents': return 'bg-red-50 text-red-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'training': return 'bg-indigo-50 text-indigo-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'forms': return 'bg-pink-50 text-pink-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        case 'documents': return 'bg-teal-50 text-teal-600 dark:bg-[#1e1f20] dark:text-gray-200';
-        default: return 'bg-gray-100 text-gray-600 dark:bg-[#1e1f20] dark:text-gray-200';
-    }
+function getInitials(name?: string) {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ').filter(Boolean);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
-
-const ModuleIcon = ({ id, isActive, theme }: { id: string, isActive: boolean, theme: string }) => {
-    const { color } = useTheme();
-
-    // Determine Icon Component
-    let mapToUse = iconMaps.default;
-    if (theme === 'future') mapToUse = iconMaps.future;
-    if (theme === 'bim') mapToUse = iconMaps.bim;
-
-    const IconComponent = mapToUse[id] || LayoutDashboard;
-
-    // Apply Styles based on Theme
-    if (theme === 'round') {
-        const activeClass = "bg-primary text-white shadow-md";
-        const inactiveClass = getBgColorClass(id); // Pastel background for inactive
-
-        return (
-            <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center transition-all",
-                isActive ? activeClass : inactiveClass
-            )}>
-                <IconComponent size={16} />
-            </div>
-        );
-    }
-
-    if (theme === 'colour') {
-        const colorClass = getColorClass(id);
-        // "Colour": Show colors on inactive state too (opacity-70)
-        return <IconComponent size={18} className={cn("shrink-0 transition-colors", isActive ? colorClass : cn(colorClass, "opacity-70 group-hover:opacity-100"))} />;
-    }
-
-    if (theme === 'real') {
-        // "Real" style: Use default icons but with a filled/solid look approximation via classes or specific icons if available
-        // Improve realism with heavier weight and fill
-        return <IconComponent size={18} className={cn("shrink-0 drop-shadow-sm", isActive ? "text-slate-900 fill-slate-900" : "text-gray-500 fill-gray-300")} strokeWidth={1.5} />;
-    }
-
-    if (theme === 'future') {
-        // Future Theme Icons: Glow effect using the active text color
-        const inactiveColor = color === 'colab' || color === 'x1' ? "text-gray-300" : "text-slate-500";
-        return <IconComponent size={18} className={cn("shrink-0 transition-colors duration-200", isActive ? "text-nav-active drop-shadow-[0_0_8px_currentColor]" : inactiveColor)} />;
-    }
-
-    if (theme === 'bim') {
-        const inactiveColor = (color === 'bim' || color === 'deep/bim') ? "text-slate-400" : color === 'colab' || color === 'x1' ? "text-gray-300" : "text-google-text opacity-70";
-        // BIM Theme Icons: High-tech grey when inactive, dynamic when active
-        return <IconComponent size={18} className={cn("shrink-0 transition-colors duration-200", isActive ? "text-nav-active" : inactiveColor)} strokeWidth={1.5} />;
-    }
-
-    // Default 'safety' and regular variants
-    const colabInactiveColor = color === 'colab' || color === 'x1' ? "text-gray-300" : "text-gray-500 dark:text-gray-400";
-    return <IconComponent size={18} className={cn("shrink-0", isActive ? "text-nav-active" : colabInactiveColor)} />;
-};
 
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
     const params = useParams();
     const id = params?.id as string;
     const pathname = usePathname();
+    const router = useRouter();
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const { projects, modules, currentUser, getUserRoleInProject, canAccessModule, canEditProject } = useStore();
+    const { projects, modules, currentUser, setCurrentUser, getUserRoleInProject, canAccessModule } = useStore();
     const currentProject = projects.find(p => p.id === id);
-    const { iconTheme, color } = useTheme(); // Consume Theme
+    const { isDark, toggleTheme } = useTheme();
 
-    // Auth logic is handled by AuthGuard wrapping
-    // We moved checks inside to ensure AuthGuard runs
     const userRole = currentUser && currentProject ? getUserRoleInProject(currentUser.id, id) : null;
-    const canEdit = currentUser && currentProject ? canEditProject(currentUser.id, id) : false;
+
+    const handleLogout = () => {
+        setCurrentUser(null);
+        router.push('/login');
+    };
 
     return (
         <AuthGuard>
             {!currentProject ? (
-                <div className="flex h-screen items-center justify-center bg-background">
+                <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
                     <div className="text-center">
-                        <h1 className="text-xl font-medium text-gray-900 dark:text-white">Project Not Found</h1>
-                        <Link href="/" className="text-primary hover:underline mt-2 inline-block">Return Home</Link>
+                        <h1 className="text-xl font-medium text-[var(--text)]">Project Not Found</h1>
+                        <Link href="/" className="text-[#4285F4] hover:underline mt-2 inline-block">Return Home</Link>
                     </div>
                 </div>
             ) : !userRole ? (
-                <div className="flex h-screen items-center justify-center bg-background">
+                <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
                     <div className="text-center">
-                        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Access Denied</h1>
-                        <p className="text-gray-500 mb-4">You do not have permission to view this project.</p>
-                        <Link href="/" className="text-primary hover:underline">Return Home</Link>
+                        <h1 className="text-3xl font-bold text-[var(--text)] mb-2">Access Denied</h1>
+                        <p className="text-[var(--text-muted)] mb-4">You do not have permission to view this project.</p>
+                        <Link href="/" className="text-[#4285F4] hover:underline">Return Home</Link>
                     </div>
                 </div>
             ) : (
-                <div className="flex h-screen w-full bg-background overflow-hidden">
-                    {/* Project Sidebar */}
+                <div className="flex h-screen w-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
+                    {/* FundacaoJM Style Sidebar */}
                     <aside className={cn(
-                        "h-full flex flex-col pt-4 pr-4 pb-4 transition-all duration-300 ease-in-out border-r bg-nav-sidebar border-nav-sidebar",
-                        isCollapsed ? "w-20" : "w-64"
+                        "sidebar-container relative h-full flex flex-col pt-5 pb-4 transition-all duration-300 ease-in-out shrink-0 select-none",
+                        isCollapsed ? "w-16 px-2" : "w-64 px-4"
                     )}>
-                        <div className={cn("flex flex-col", isCollapsed ? "items-center px-1" : "pl-6 pr-2")}>
+                        {/* Floating Sidebar Toggle Button (FundacaoJM style) */}
+                        <button
+                            onClick={() => setIsCollapsed(!isCollapsed)}
+                            className="sidebar-toggle-btn"
+                            title={isCollapsed ? "Expandir barra lateral" : "Recolher barra lateral"}
+                        >
+                            {isCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+                        </button>
 
-                            <div className={cn("flex items-center gap-3", isCollapsed ? "justify-center mb-4 mt-4" : "mb-6 mt-4")}>
-                                <img src="/safetyfirst-logo.png" alt="SafetyFirst Logo" className="w-10 h-10 object-contain" />
-                                {!isCollapsed && <BrandLogo className="text-xl" isBim={color === 'bim' || color === 'deep/bim'} isColab={color === 'colab' || color === 'x1'} />}
-                            </div>
-
-                            <div className={cn("flex items-center mb-2 w-full transition-all", isCollapsed ? "justify-center gap-1" : "justify-between")}>
-                                <Link
-                                    href="/"
-                                    className={cn(
-                                        "flex items-center gap-2 text-sm p-1.5 rounded-lg transition-colors",
-                                        isCollapsed && "justify-center",
-                                        (color === 'bim' || color === 'deep/bim')
-                                            ? "text-slate-400 hover:text-[#39CACC] hover:bg-slate-800"
-                                            : color === 'colab' || color === 'x1'
-                                                ? "text-gray-300 hover:text-white hover:bg-[#2a4060]"
-                                                : "text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-surface"
-                                    )}
-                                    title="All Projects"
-                                >
-                                    <ChevronLeft size={20} /> {!isCollapsed && "All Projects"}
-                                </Link>
-
-                                <button
-                                    onClick={() => setIsCollapsed(!isCollapsed)}
-                                    className={cn(
-                                        "p-1.5 rounded-lg transition-colors",
-                                        (color === 'bim' || color === 'deep/bim')
-                                            ? "text-slate-400 hover:text-[#39CACC] hover:bg-slate-800"
-                                            : color === 'colab' || color === 'x1'
-                                                ? "text-gray-300 hover:text-white hover:bg-[#2a4060]"
-                                                : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface"
-                                    )}
-                                    title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-                                >
-                                    {isCollapsed ? <ChevronRight size={20} /> : <PanelLeftClose size={18} />}
-                                </button>
-                            </div>
+                        {/* Top Logo & App Title */}
+                        <div className={cn("flex items-center gap-3 mb-4", isCollapsed ? "justify-center" : "px-2")}>
+                            <img src="/safetyfirst-logo.png" alt="Safety1irst" className="w-8 h-8 object-contain shrink-0" />
+                            {!isCollapsed && (
+                                <span className="font-semibold text-lg tracking-tight text-[var(--text)] whitespace-nowrap">
+                                    Safety<span style={{ color: '#4285F4', fontWeight: 700 }}>1irst</span>
+                                </span>
+                            )}
                         </div>
 
-                        <nav className="flex-1 overflow-y-auto mt-2">
-                            <ul className="space-y-1">
+                        {/* Return to All Projects Button */}
+                        <div className="mb-3">
+                            <Link
+                                href="/"
+                                className={cn(
+                                    "fjm-nav-item",
+                                    isCollapsed && "justify-center px-0"
+                                )}
+                                title="Todos os Projectos"
+                            >
+                                <Folder size={18} className="shrink-0 text-[var(--text-muted)]" />
+                                {!isCollapsed && <span className="truncate">Todos os Projectos</span>}
+                            </Link>
+                        </div>
+
+                        {/* Nav Items List */}
+                        <nav className="flex-1 overflow-y-auto pr-1">
+                            <ul className="space-y-0.5">
+                                {/* Dashboard */}
                                 <li>
-                                    <Link
-                                        href={`/project/${id}/dashboard`}
-                                        className={cn("flex items-center gap-3 py-2 rounded-r-full text-sm font-medium transition-colors group",
-                                            isCollapsed ? "px-0 justify-center" : "px-6",
-                                            (pathname === `/project/${id}/dashboard` || pathname === `/project/${id}` ||
-                                                (params && (pathname === `/${params.locale}/project/${id}/dashboard` || pathname === `/${params.locale}/project/${id}`)))
-                                                ? ((color === 'bim' || color === 'deep/bim') ? "bg-slate-800 text-[#39CACC]" : color === 'colab' || color === 'x1' ? "bg-nav-active text-nav-active" : "bg-nav-active text-nav-active")
-                                                : cn("text-google-text/70 dark:text-content-text/70 hover:bg-gray-100 dark:hover:bg-surface dark:hover:bg-nav-hover-bg hover:text-google-text dark:hover:text-content-text", (color === 'bim' || color === 'deep/bim') && "text-slate-400 hover:bg-slate-800 hover:text-[#39CACC]", color === 'colab' || color === 'x1' && "text-gray-300 hover:bg-[#2a4060] hover:text-white")
-                                        )}
-                                        title={isCollapsed ? "Dashboard" : ""}
-                                    >
-                                        <ModuleIcon id="dashboard" isActive={(pathname === `/project/${id}/dashboard` || pathname === `/project/${id}` ||
-                                            (params && (pathname === `/${params.locale}/project/${id}/dashboard` || pathname === `/${params.locale}/project/${id}`)))} theme={iconTheme || 'safety'} />
-                                        {!isCollapsed && "Dashboard"}
-                                    </Link>
+                                    {(() => {
+                                        const dashPath = `/project/${id}/dashboard`;
+                                        const rootPath = `/project/${id}`;
+                                        const locale = params?.locale;
+                                        const isActive = pathname === dashPath || pathname === rootPath ||
+                                            (!!locale && (pathname === `/${locale}${dashPath}` || pathname === `/${locale}${rootPath}`));
+
+                                        return (
+                                            <Link
+                                                href={dashPath}
+                                                className={cn(
+                                                    "fjm-nav-item",
+                                                    isActive && "active",
+                                                    isCollapsed && "justify-center px-0"
+                                                )}
+                                                title={isCollapsed ? "Dashboard" : undefined}
+                                            >
+                                                <LayoutDashboard size={18} className="shrink-0" />
+                                                {!isCollapsed && <span className="truncate">Dashboard</span>}
+                                            </Link>
+                                        );
+                                    })()}
                                 </li>
 
-                                {/* Modules Filtered by Permission */}
+                                {/* Dynamic Modules */}
                                 {modules.filter(m => m.name !== 'Projects').map((module) => {
                                     if (currentUser && !canAccessModule(currentUser.id, id, module.id)) return null;
 
@@ -264,89 +175,147 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                                     const isActive = pathname === modulePath || pathname?.startsWith(`${modulePath}/`) ||
                                         (!!locale && (pathname === `/${locale}${modulePath}` || pathname?.startsWith(`/${locale}${modulePath}/`)));
 
+                                    const IconComponent = iconMap[module.id] || LayoutDashboard;
+
                                     return (
                                         <li key={module.id}>
                                             <Link
                                                 href={modulePath}
                                                 className={cn(
-                                                    "flex items-center gap-3 py-2 rounded-r-full text-sm font-medium transition-colors group",
-                                                    isCollapsed ? "px-0 justify-center" : "px-6",
-                                                    isActive
-                                                        ? ((color === 'bim' || color === 'deep/bim') ? "bg-slate-800 text-[#39CACC]" : color === 'colab' || color === 'x1' ? "bg-nav-active text-nav-active" : "bg-nav-active text-nav-active")
-                                                        : cn("text-google-text/70 dark:text-content-text/70 hover:bg-gray-100 dark:hover:bg-surface dark:hover:bg-nav-hover-bg hover:text-google-text dark:hover:text-content-text", (color === 'bim' || color === 'deep/bim') && "text-slate-400 hover:bg-slate-800 hover:text-[#39CACC]", color === 'colab' || color === 'x1' && "text-gray-300 hover:bg-[#2a4060] hover:text-white")
+                                                    "fjm-nav-item",
+                                                    isActive && "active",
+                                                    isCollapsed && "justify-center px-0"
                                                 )}
-                                                title={isCollapsed ? label : ""}
+                                                title={isCollapsed ? label : undefined}
                                             >
-                                                <ModuleIcon id={module.id} isActive={isActive} theme={iconTheme || 'safety'} />
-                                                {!isCollapsed && label}
+                                                <IconComponent size={18} className="shrink-0" />
+                                                {!isCollapsed && <span className="truncate">{label}</span>}
                                             </Link>
                                         </li>
                                     );
                                 })}
 
-                                {/* Work Plan — Plano de Trabalhos */}
+                                {/* Work Plan (Plano de Trabalhos) */}
                                 {(() => {
                                     const wpPath = `/project/${id}/workplan`;
                                     const locale = params?.locale;
                                     const isActive = pathname === wpPath || pathname?.startsWith(`${wpPath}/`) ||
                                         (!!locale && (pathname === `/${locale}${wpPath}` || pathname?.startsWith(`/${locale}${wpPath}/`)));
+
                                     return (
                                         <li>
                                             <Link
                                                 href={wpPath}
                                                 className={cn(
-                                                    'flex items-center gap-3 py-2 rounded-r-full text-sm font-medium transition-colors group',
-                                                    isCollapsed ? 'px-0 justify-center' : 'px-6',
-                                                    isActive
-                                                        ? ((color === 'bim' || color === 'deep/bim') ? 'bg-slate-800 text-[#39CACC]' : color === 'colab' || color === 'x1' ? 'bg-nav-active text-nav-active' : 'bg-nav-active text-nav-active')
-                                                        : cn('text-google-text/70 dark:text-content-text/70 hover:bg-gray-100 dark:hover:bg-surface dark:hover:bg-nav-hover-bg hover:text-google-text dark:hover:text-content-text', (color === 'bim' || color === 'deep/bim') && 'text-slate-400 hover:bg-slate-800 hover:text-[#39CACC]', color === 'colab' || color === 'x1' && 'text-gray-300 hover:bg-[#2a4060] hover:text-white')
+                                                    "fjm-nav-item",
+                                                    isActive && "active",
+                                                    isCollapsed && "justify-center px-0"
                                                 )}
-                                                title={isCollapsed ? 'Plano de Trabalhos' : ''}
+                                                title={isCollapsed ? "Plano de Trabalhos" : undefined}
                                             >
-                                                <ClipboardList size={18} className={cn('shrink-0', isActive ? 'text-nav-active' : 'text-gray-500 dark:text-gray-400')} />
-                                                {!isCollapsed && 'Plano de Trabalhos'}
+                                                <ClipboardList size={18} className="shrink-0" />
+                                                {!isCollapsed && <span className="truncate">Plano de Trabalhos</span>}
                                             </Link>
                                         </li>
                                     );
                                 })()}
 
-                                {/* Project Settings - Only for Managers */}
-                                <li className={cn("mt-6 pt-4 border-t border-gray-100 dark:border-[#444746]", !isCollapsed && "mx-4 transition-all")}>
-                                    <div className="flex flex-col gap-1">
-                                        <Link
-                                            href={`/project/${id}/settings`}
-                                            className={cn(
-                                                "flex items-center gap-3 py-1.5 rounded-r-full text-sm font-medium transition-colors group",
-                                                isCollapsed ? "px-0 justify-center" : "px-2",
-                                                (pathname === `/project/${id}/settings` || (params && pathname === `/${params.locale}/project/${id}/settings`))
-                                                    ? ((color === 'bim' || color === 'deep/bim') ? "bg-slate-800 text-[#39CACC]" : color === 'colab' || color === 'x1' ? "bg-nav-active text-nav-active" : "bg-nav-active text-nav-active")
-                                                    : cn("text-google-text/70 dark:text-content-text/70 hover:bg-gray-100 dark:hover:bg-surface dark:hover:bg-nav-hover-bg hover:text-google-text dark:hover:text-content-text", (color === 'bim' || color === 'deep/bim') && "text-slate-400 hover:bg-slate-800 hover:text-[#39CACC]", color === 'colab' || color === 'x1' && "text-gray-300 hover:bg-[#2a4060] hover:text-white")
-                                            )}
-                                            title={isCollapsed ? "Project Settings" : ""}
-                                        >
-                                            <ModuleIcon id="settings" isActive={(pathname === `/project/${id}/settings` || (!!params && pathname === `/${params.locale}/project/${id}/settings`))} theme={iconTheme || 'safety'} />
-                                            {!isCollapsed && "Project Settings"}
-                                        </Link>
-                                    </div>
-                                </li>
+                                {/* Settings (Manager / Admin Only) */}
+                                {(() => {
+                                    const setPath = `/project/${id}/settings`;
+                                    const locale = params?.locale;
+                                    const isActive = pathname === setPath || (!!locale && pathname === `/${locale}${setPath}`);
 
+                                    return (
+                                        <li className="pt-2">
+                                            <Link
+                                                href={setPath}
+                                                className={cn(
+                                                    "fjm-nav-item",
+                                                    isActive && "active",
+                                                    isCollapsed && "justify-center px-0"
+                                                )}
+                                                title={isCollapsed ? "Configurações da Obra" : undefined}
+                                            >
+                                                <SettingsIcon size={18} className="shrink-0" />
+                                                {!isCollapsed && <span className="truncate">Configurações</span>}
+                                            </Link>
+                                        </li>
+                                    );
+                                })()}
                             </ul>
                         </nav>
+
+                        {/* Sidebar Footer: Theme Toggle & User Card (FundacaoJM style) */}
+                        <div className="fjm-sidebar-footer">
+                            {/* Theme Toggle */}
+                            <div
+                                className="fjm-theme-toggle"
+                                onClick={toggleTheme}
+                                title={isDark ? "Mudar para modo claro" : "Mudar para modo escuro"}
+                                style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
+                            >
+                                <div className="fjm-theme-toggle-switch">
+                                    <div className="fjm-theme-toggle-knob" />
+                                </div>
+                                {!isCollapsed && (
+                                    <span className="text-xs font-medium text-[var(--text-muted)] flex items-center gap-1.5 ml-1">
+                                        {isDark ? <Sun size={14} className="text-amber-400 shrink-0" /> : <Moon size={14} className="text-slate-400 shrink-0" />}
+                                        {isDark ? 'Modo Claro' : 'Modo Escuro'}
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* User Card with Logout */}
+                            <div className={cn("fjm-user-card mt-2.5", isCollapsed && "justify-center p-1.5")}>
+                                <div className="fjm-user-avatar" title={currentUser?.name}>
+                                    {getInitials(currentUser?.name)}
+                                </div>
+                                {!isCollapsed && (
+                                    <div className="flex-1 min-w-0">
+                                        <div className="fjm-user-name" title={currentUser?.name}>
+                                            {currentUser?.name || 'Utilizador'}
+                                        </div>
+                                        <div className="fjm-user-role capitalize" title={userRole || currentUser?.role}>
+                                            {userRole || currentUser?.role || 'Utilizador'}
+                                        </div>
+                                    </div>
+                                )}
+                                {!isCollapsed && (
+                                    <button
+                                        onClick={handleLogout}
+                                        title="Terminar Sessão"
+                                        className="p-1.5 rounded-full hover:bg-[var(--bg-input)] hover:text-red-500 text-[var(--text-muted)] transition-colors shrink-0"
+                                    >
+                                        <LogOut size={16} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Collapsed Mode Logout Button */}
+                            {isCollapsed && (
+                                <button
+                                    onClick={handleLogout}
+                                    title="Terminar Sessão"
+                                    className="mt-2 p-1.5 rounded-full hover:bg-[var(--bg-input)] hover:text-red-500 text-[var(--text-muted)] transition-colors flex items-center justify-center w-full"
+                                >
+                                    <LogOut size={16} />
+                                </button>
+                            )}
+                        </div>
                     </aside>
 
-                    {/* Main Content */}
-                    <div className="flex-1 flex flex-col min-w-0">
+                    {/* Main Content Area */}
+                    <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
                         <Header />
-                        <main className="flex-1 bg-white dark:bg-surface ml-2 mt-2 mr-4 mb-4 rounded-2xl shadow-sm border border-gray-100 dark:border-nav-sidebar-border overflow-hidden relative">
+                        <main className="flex-1 bg-[var(--bg-card)] ml-3 mt-3 mr-4 mb-4 rounded-2xl shadow-sm border border-[var(--border)] overflow-hidden relative">
                             <div className="absolute inset-0 overflow-y-auto p-6">
                                 {children}
                             </div>
                         </main>
                     </div>
                 </div>
-            )
-            }
-            {/* Modal for Project Creating/Editing if needed could go here, or remain global */}
+            )}
         </AuthGuard>
     );
-};
+}

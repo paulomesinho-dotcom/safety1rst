@@ -4,12 +4,13 @@ import React, { useState } from 'react';
 import { useRouter } from '@/navigation';
 import { useStore, type AppState } from '@/store/useStore';
 
-import { ChevronDown, Plus, LayoutGrid, List, Search, Filter, Folder, MapPin, Users, Layout, LogOut, ArrowRight } from 'lucide-react';
+import { ChevronDown, Plus, LayoutGrid, List, Search, Filter, Folder, MapPin, Users, Layout, LogOut, ArrowRight, Sun, Moon } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
 import { useShallow } from 'zustand/react/shallow';
 import { Modal, InputGroup, PrimaryButton } from '@/components/Modal';
 import AuthGuard from '@/components/AuthGuard';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { useTheme } from '@/providers/ThemeProvider';
 
 export default function Home() {
     const router = useRouter();
@@ -24,6 +25,7 @@ export default function Home() {
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [isJoinOpen, setIsJoinOpen] = useState(false);
     const [joinCode, setJoinCode] = useState('');
+    const { isDark, toggleTheme } = useTheme();
 
     // New Project State
     const [newProj, setNewProj] = useState({ name: '', address: '', description: '' });
@@ -73,30 +75,39 @@ export default function Home() {
             {/* Allow global theme backgrounds to apply */}
             <div className="min-h-screen bg-background text-content-text flex flex-col">
                 {/* Top Bar */}
-                <div className="bg-white dark:bg-surface border-b border-gray-200 dark:border-[#444746] px-8 py-4 flex items-center justify-between shadow-sm sticky top-0 z-[100]">
-                    <div className="flex items-center gap-2">
-                        <img src="/safetyfirst-logo.png" className="w-10 h-10 object-cover rounded-lg shadow-sm" alt="SafetyFirst Logo" />
-                        <BrandLogo className="text-lg" />
+                <div className="bg-[var(--bg-card)] border-b border-[var(--border)] px-8 py-4 flex items-center justify-between shadow-sm sticky top-0 z-[100] transition-colors">
+                    <div className="flex items-center gap-3">
+                        <img src="/safetyfirst-logo.png" className="w-9 h-9 object-contain shrink-0" alt="Safety1irst Logo" />
+                        <span className="font-semibold text-lg tracking-tight text-[var(--text)]">
+                            Safety<span style={{ color: '#4285F4', fontWeight: 700 }}>1irst</span>
+                        </span>
                     </div>
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-5">
                         <LanguageSwitcher />
+                        <button
+                            onClick={toggleTheme}
+                            className="p-2 rounded-lg hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                            title={isDark ? "Mudar para modo claro" : "Mudar para modo escuro"}
+                        >
+                            {isDark ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className="text-slate-400" />}
+                        </button>
                         <div className="text-right hidden sm:block">
-                            <span className="block text-sm text-gray-900 dark:text-white font-medium">Hello, {currentUser.name}</span>
-                            <span className="block text-xs text-gray-500 uppercase">{currentUser.role}</span>
+                            <span className="block text-sm text-[var(--text)] font-medium">{currentUser.name}</span>
+                            <span className="block text-xs text-[var(--text-muted)] uppercase">{currentUser.role}</span>
                         </div>
                         <div className="flex items-center gap-3">
                             {!isAdmin && (
                                 <button
                                     onClick={() => setIsJoinOpen(true)}
-                                    className="text-sm bg-primary-light text-primary px-3 py-1.5 rounded-lg font-medium hover:bg-primary-light transition-colors"
+                                    className="text-sm bg-blue-500/10 text-[#4285F4] px-3 py-1.5 rounded-lg font-medium hover:bg-blue-500/20 transition-colors"
                                 >
                                     Enter Code
                                 </button>
                             )}
-                            <div className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center text-sm font-medium">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#4285F4] to-[#8B5CF6] text-white flex items-center justify-center text-sm font-semibold shadow-sm">
                                 {currentUser.name.charAt(0)}
                             </div>
-                            <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-600 transition-colors" title="Logout">
+                            <button onClick={handleLogout} className="p-2 text-[var(--text-muted)] hover:text-red-500 transition-colors" title="Logout">
                                 <LogOut size={20} />
                             </button>
                         </div>

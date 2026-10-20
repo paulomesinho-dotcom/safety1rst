@@ -1,47 +1,50 @@
 import React from 'react';
-import { Search } from 'lucide-react';
-import { UserMenu } from './UserMenu';
-import { SettingsMenu } from './SettingsMenu';
 import { HelpButton } from './HelpButton';
 import { FullScreenToggle } from './FullScreenToggle';
+import LanguageSwitcher from './LanguageSwitcher';
 import { useStore } from '@/store/useStore';
 import { useParams } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import { Building2 } from 'lucide-react';
 
 const Header: React.FC = () => {
     const params = useParams();
     const projectId = params?.id as string;
-    const { currentUser, getUserRoleInProject } = useStore();
-
-    const userRole = currentUser && projectId ? getUserRoleInProject(currentUser.id, projectId) : null;
+    const { projects } = useStore();
+    const currentProject = projects.find(p => p.id === projectId);
 
     return (
-        <header className="h-16 px-4 flex items-center justify-between bg-background border-b border-gray-100 dark:border-[#444746] sticky top-0 z-[100]">
-            {/* Search Bar or Breadcrumbs placeholder */}
-            <div className="flex-1 max-w-3xl ml-2">
-                {/* Existing search bar logic or replacement */}
-                <div className="relative group w-96 hidden md:block">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-gray-400 group-focus-within:text-brand transition-colors" />
+        <header className="h-16 px-6 flex items-center justify-between bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-30 transition-colors">
+            {/* Left: Project Context */}
+            <div className="flex items-center gap-3 min-w-0">
+                {currentProject ? (
+                    <>
+                        <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-[var(--primary)] flex items-center justify-center shrink-0 border border-blue-500/20">
+                            <Building2 size={18} />
+                        </div>
+                        <div className="min-w-0">
+                            <h2 className="text-sm font-semibold text-[var(--text)] tracking-tight truncate">
+                                {currentProject.name}
+                            </h2>
+                            {currentProject.address && (
+                                <p className="text-xs text-[var(--text-muted)] truncate">
+                                    {currentProject.address}
+                                </p>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <div className="text-sm font-medium text-[var(--text-muted)]">
+                        Safety1irst
                     </div>
-                    <input
-                        type="text"
-                        placeholder="Search..."
-                        className="block w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-[#444746] rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:bg-white dark:focus:bg-[#1e1f20] focus:ring-2 focus:ring-blue-100 focus:border-brand transition-all outline-none"
-                    />
-                </div>
+                )}
             </div>
 
-            {/* Right Actions */}
-            <div className="flex items-center gap-3 ml-4">
+            {/* Right: Actions (Language, Fullscreen, Help) */}
+            <div className="flex items-center gap-3">
+                <LanguageSwitcher />
+                <div className="h-5 w-px bg-[var(--border)] mx-1" />
                 <FullScreenToggle />
                 <HelpButton />
-                <SettingsMenu />
-
-                {/* Separator just before User Menu if needed, or remove to be cleaner */}
-                <div className="h-6 w-px bg-gray-200 mx-1"></div>
-
-                <UserMenu />
             </div>
         </header>
     );
