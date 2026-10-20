@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from '@/navigation';
 import { useStore, type AppState } from '@/store/useStore';
 
@@ -29,6 +29,12 @@ export default function Home() {
 
     // New Project State
     const [newProj, setNewProj] = useState({ name: '', address: '', description: '' });
+
+    useEffect(() => {
+        if (!currentUser) {
+            router.replace('/login');
+        }
+    }, [currentUser, router]);
 
     const handleCreate = (e: React.FormEvent) => {
         e.preventDefault();
@@ -62,7 +68,13 @@ export default function Home() {
         router.push('/login');
     };
 
-    if (!currentUser) return null;
+    if (!currentUser) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+        );
+    }
 
     const isAdmin = currentUser.role === 'admin' || currentUser.role === 'superadmin';
     const visibleProjects = projects.filter((p: any) => {
