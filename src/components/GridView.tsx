@@ -1,7 +1,7 @@
 import React from 'react';
 import { Worker } from '@/types';
 import { cn } from '@/lib/utils';
-import { Edit2, Shield, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Edit2, Shield, AlertTriangle, CheckCircle, Clock, FileText } from 'lucide-react';
 
 interface GridViewProps {
     workers: Worker[];
@@ -29,10 +29,12 @@ export const GridView: React.FC<GridViewProps> = ({ workers, onEdit }) => {
                         onClick={() => onEdit(worker)}
                     >
                         {/* Status Badge */}
-                        <div className={cn("absolute top-5 right-5 text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1", status.color)}>
+                        <div className={cn("absolute top-5 right-5 text-xs font-medium px-2.5 py-0.5 rounded-full flex items-center gap-1 border shadow-2xs", status.color)}>
                             {status.status === 'valid' && <CheckCircle size={12} />}
                             {status.status === 'expired' && <AlertTriangle size={12} />}
                             {status.status === 'pending' && <Clock size={12} />}
+                            {status.status === 'incomplete' && <Clock size={12} />}
+                            {status.status === 'archived' && <FileText size={12} />}
                             {status.label}
                         </div>
 
@@ -80,7 +82,7 @@ export const GridView: React.FC<GridViewProps> = ({ workers, onEdit }) => {
 };
 
 const getValidationStatus = (worker: Worker) => {
-    if (worker.archived) return { status: 'archived', label: 'Arquivado', color: 'bg-gray-100 dark:bg-surface text-gray-600 dark:text-gray-300' };
+    if (worker.archived) return { status: 'archived', label: 'Arquivado', color: 'bg-gray-100 text-gray-600 border border-gray-200 dark:bg-surface dark:text-gray-300 dark:border-[#444746]' };
 
     // Check expiries
     const now = new Date();
@@ -90,11 +92,11 @@ const getValidationStatus = (worker: Worker) => {
     if (worker.contractExpiry && new Date(worker.contractExpiry) < now) warnings.push('Contrato Expirado');
     if (worker.medicalExpiry && new Date(worker.medicalExpiry) < now) warnings.push('Apto Médico Expirado');
 
-    if (warnings.length > 0) return { status: 'expired', label: warnings[0], color: 'bg-red-100 text-red-700' };
-    if (worker.workflowStatus === 'validated') return { status: 'valid', label: 'Válido', color: 'bg-green-100 text-green-700' };
-    if (worker.workflowStatus === 'validation_pending') return { status: 'pending', label: 'Validação Pendente', color: 'bg-orange-100 text-orange-700' };
+    if (warnings.length > 0) return { status: 'expired', label: warnings[0], color: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800' };
+    if (worker.workflowStatus === 'validated') return { status: 'valid', label: 'Validado', color: 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800' };
+    if (worker.workflowStatus === 'validation_pending') return { status: 'pending', label: 'Validação Pendente', color: 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800' };
 
-    return { status: 'incomplete', label: 'Incompleto', color: 'bg-primary-light text-primary' };
+    return { status: 'incomplete', label: 'Em Validação', color: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800' };
 };
 
 const isExpired = (dateStr?: string) => {

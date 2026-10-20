@@ -97,12 +97,14 @@ export const ListView: React.FC<ListViewProps> = ({
                                 </td>
                                 <td className="px-6 py-4 text-center">
                                     <span className={cn(
-                                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border",
-                                        validation.color.replace('bg-', 'border-').replace('text-', 'bg-').replace('700', '50') + ' ' + validation.color
+                                        "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs",
+                                        validation.color
                                     )}>
                                         {validation.status === 'valid' && <CheckCircle size={12} />}
                                         {validation.status === 'expired' && <AlertTriangle size={12} />}
                                         {validation.status === 'pending' && <Clock size={12} />}
+                                        {validation.status === 'incomplete' && <Clock size={12} />}
+                                        {validation.status === 'archived' && <FileText size={12} />}
                                         {validation.label}
                                     </span>
                                 </td>

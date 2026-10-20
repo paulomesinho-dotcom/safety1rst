@@ -476,7 +476,8 @@ const WorkersPage: React.FC = () => {
 
     // Computed
     const getValidationStatus = (worker: Worker) => {
-        if (worker.archived) return { status: 'archived', label: 'Arquivado', color: 'bg-gray-100 dark:bg-surface text-gray-600 dark:text-gray-300' };
+        if (!worker) return { status: 'incomplete' as const, label: 'Em Validação', color: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800' };
+        if (worker.archived) return { status: 'archived' as const, label: 'Arquivado', color: 'bg-gray-100 text-gray-600 border border-gray-200 dark:bg-surface dark:text-gray-300 dark:border-[#444746]' };
 
         // Check expiries
         const now = new Date();
@@ -486,11 +487,13 @@ const WorkersPage: React.FC = () => {
         if (worker.contractExpiry && new Date(worker.contractExpiry) < now) warnings.push('Contrato Expirado');
         if (worker.medicalExpiry && new Date(worker.medicalExpiry) < now) warnings.push('Apto Médico Expirado');
 
-        if (warnings.length > 0) return { status: 'expired', label: warnings[0], color: 'bg-red-100 text-red-700' };
-        if (worker.workflowStatus === 'validated') return { status: 'valid', label: 'Válido', color: 'bg-green-100 text-green-700' };
-        if (worker.workflowStatus === 'validation_pending') return { status: 'pending', label: 'Validação Pendente', color: 'bg-orange-100 text-orange-700' };
+        if (warnings.length > 0) return { status: 'expired' as const, label: warnings[0], color: 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800' };
+        if (worker.workflowStatus === 'validated') return { status: 'valid' as const, label: 'Validado', color: 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800' };
+        if (worker.workflowStatus === 'approved') return { status: 'valid' as const, label: 'Aprovado', color: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800' };
+        if (worker.workflowStatus === 'validation_pending') return { status: 'pending' as const, label: 'Validação Pendente', color: 'bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 dark:border-orange-800' };
+        if (worker.workflowStatus === 'approval_pending') return { status: 'pending' as const, label: 'Pendente Aprovação', color: 'bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800' };
 
-        return { status: 'incomplete', label: 'Incompleto', color: 'bg-primary-light text-primary' };
+        return { status: 'incomplete' as const, label: 'Em Validação', color: 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800' };
     };
 
     const filteredWorkers = workers.filter(worker => {
@@ -636,16 +639,15 @@ const WorkersPage: React.FC = () => {
 
     const drawerActions = (
         <div className="flex items-center gap-2">
-            {/* Badge: modo de visualização */}
+            {/* Badge: modo de visualização / edição discreto */}
             {!isEditing && (
-                <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-primary bg-primary/10 border border-primary/20 uppercase rounded-lg tracking-wider animate-in fade-in zoom-in-95">
-                    <Eye size={12} /> Visualização
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-surface border border-gray-200 dark:border-[#444746] rounded shrink-0">
+                    <Eye size={10} className="text-gray-400" /> Visualização
                 </span>
             )}
-            {/* Badge: modo de edição */}
             {isEditing && (
-                <span className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 uppercase rounded-lg tracking-wider animate-in fade-in zoom-in-95">
-                    <Edit2 size={12} /> Edição
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded shrink-0">
+                    <Edit2 size={10} /> Edição
                 </span>
             )}
 
@@ -760,9 +762,9 @@ const WorkersPage: React.FC = () => {
                 <button
                     type="button"
                     onClick={() => setIsEditing(true)}
-                    className="px-3 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5"
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] hover:text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
-                    <Edit2 size={14} /> Editar
+                    <Edit2 size={13} className="text-white" /> Editar
                 </button>
             )}
             {/* Botão Cancelar — só em modo de edição (sai do modo) */}
@@ -770,7 +772,7 @@ const WorkersPage: React.FC = () => {
                 <button
                     type="button"
                     onClick={handleCancelWithRollback}
-                    className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-sm"
+                    className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-xs cursor-pointer shrink-0"
                 >
                     Cancelar
                 </button>
@@ -783,12 +785,12 @@ const WorkersPage: React.FC = () => {
                         handleSubmit();
                         setIsEditing(false);
                     }}
-                    className="px-3 py-1.5 text-sm font-semibold text-white bg-primary rounded-lg hover:bg-primary-hover transition-colors shadow-sm flex items-center gap-1.5"
+                    className="px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] hover:text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                     {showSavedMessage && (
-                        <span className="text-xs font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
+                        <span className="text-[11px] font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
                     )}
-                    <Save size={14} /> Guardar
+                    <Save size={13} className="text-white" /> Guardar
                 </button>
             )}
         </div>
@@ -2186,25 +2188,15 @@ const WorkersPage: React.FC = () => {
                                     {currentWorker.name}
                                 </h2>
                                 {(() => {
-                                    const ws = (currentWorker.workflowStatus || 'draft') as string;
-                                    const color = getWorkflowStatusColors(ws);
-                                    const Icon = ws === 'validated' || ws === 'approved' ? Shield
-                                        : ws === 'validation_pending' ? AlertCircle
-                                            : ws === 'approval_pending' ? CheckCircle
-                                                : ws === 'data_update' || ws === 'approval_data_update' ? AlertTriangle
-                                                    : FileText;
-                                    const label = ws === 'draft' ? (currentWorker.id ? 'Em Validação' : 'Rascunho')
-                                        : ws === 'data_requested' ? 'Dados Pedidos'
-                                            : ws === 'data_update' ? 'Atualização'
-                                                : ws === 'validation_pending' ? 'Pendente Validação'
-                                                    : ws === 'validated' ? 'Validado'
-                                                        : ws === 'approval_pending' ? 'Pendente Aprovação'
-                                                            : ws === 'approved' ? 'Aprovado'
-                                                                : ws === 'approval_data_update' ? 'Atualização'
-                                                                    : ws;
+                                    const validation = getValidationStatus(currentWorker as Worker);
                                     return (
-                                        <span className={cn('flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shadow-2xs shrink-0', color)}>
-                                            <Icon size={12} /> {label}
+                                        <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs shrink-0', validation.color)}>
+                                            {validation.status === 'valid' && <CheckCircle size={12} />}
+                                            {validation.status === 'expired' && <AlertTriangle size={12} />}
+                                            {validation.status === 'pending' && <Clock size={12} />}
+                                            {validation.status === 'incomplete' && <Clock size={12} />}
+                                            {validation.status === 'archived' && <FileText size={12} />}
+                                            {validation.label}
                                         </span>
                                     );
                                 })()}
@@ -2251,8 +2243,8 @@ const WorkersPage: React.FC = () => {
                     </div>
                 }
                 actions={
-                    <div className="flex items-center gap-2">
-                        {/* Compact Team Avatars */}
+                    <div className="flex items-center gap-3">
+                        {/* Project Team Stack - Google Style adapted from Organization Header */}
                         {(() => {
                             let dataUserId = currentWorker.assignedDataUserId;
                             if (!dataUserId && currentWorker.companyId) {
@@ -2263,28 +2255,88 @@ const WorkersPage: React.FC = () => {
                             const projectManagers = (users || []).filter(u =>
                                 u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'manager')
                             );
-
-                            if (!dataUser && projectManagers.length === 0) return null;
+                            const approvalUsers = (users || []).filter(u =>
+                                u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'approval_user')
+                            );
 
                             return (
-                                <div className="hidden lg:flex items-center -space-x-1.5 mr-1" title="Equipa atribuída">
-                                    {dataUser && (
-                                        <div
-                                            className="w-7 h-7 rounded-full bg-orange-100 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-bold text-orange-700 shadow-2xs"
-                                            title={`Data User: ${dataUser.name}`}
-                                        >
-                                            {dataUser.name.charAt(0)}
+                                <div className="hidden md:flex items-center gap-3">
+                                    {/* 1. Data User */}
+                                    <div className="flex flex-col items-start gap-0.5">
+                                        <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
+                                            Data User
+                                        </span>
+                                        {dataUser ? (
+                                            <div
+                                                className="w-6 h-6 rounded-full bg-orange-100 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-medium text-orange-700 relative z-30 ring-1 ring-white dark:ring-[#1E293B]"
+                                                title={`Data User: ${dataUser.name}`}
+                                            >
+                                                {dataUser.name.charAt(0)}
+                                            </div>
+                                        ) : (
+                                            <div
+                                                className="w-6 h-6 rounded-full bg-gray-100 dark:bg-surface border-2 border-[var(--bg-card)] flex items-center justify-center text-[9px] text-gray-400 relative z-30 ring-1 ring-white dark:ring-[#1E293B]"
+                                                title="Sem Data User"
+                                            >
+                                                <User size={12} />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="h-6 w-px bg-gray-200 dark:bg-[#334155]" />
+
+                                    {/* 2. Managers */}
+                                    <div className="flex flex-col items-start gap-0.5">
+                                        <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
+                                            Managers
+                                        </span>
+                                        <div className="flex items-center -space-x-1.5">
+                                            {projectManagers.slice(0, 3).map((mgr) => (
+                                                <div
+                                                    key={mgr.id}
+                                                    className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/40 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-medium text-[#1A73E8] dark:text-blue-300 relative z-20 ring-1 ring-white dark:ring-[#1E293B]"
+                                                    title={`Manager: ${mgr.name}`}
+                                                >
+                                                    {mgr.name.charAt(0)}
+                                                </div>
+                                            ))}
+                                            {projectManagers.length > 3 && (
+                                                <div className="w-6 h-6 rounded-full bg-gray-50 dark:bg-[#131314] border-2 border-[var(--bg-card)] flex items-center justify-center text-[9px] font-medium text-gray-500 relative z-10 ring-1 ring-white dark:ring-[#1E293B]">
+                                                    +{projectManagers.length - 3}
+                                                </div>
+                                            )}
                                         </div>
+                                    </div>
+
+                                    {/* 3. Approvers (If Enabled) */}
+                                    {currentProject?.approvalWorkflow?.workers && approvalUsers.length > 0 && (
+                                        <>
+                                            <div className="h-6 w-px bg-gray-200 dark:bg-[#334155]" />
+                                            <div className="flex flex-col items-start gap-0.5">
+                                                <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
+                                                    Approvers
+                                                </span>
+                                                <div className="flex items-center -space-x-1.5">
+                                                    {approvalUsers.slice(0, 3).map((usr) => (
+                                                        <div
+                                                            key={usr.id}
+                                                            className="w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900/40 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-medium text-purple-700 dark:text-purple-300 relative z-10 ring-1 ring-white dark:ring-[#1E293B]"
+                                                            title={`Approver: ${usr.name}`}
+                                                        >
+                                                            {usr.name.charAt(0)}
+                                                        </div>
+                                                    ))}
+                                                    {approvalUsers.length > 3 && (
+                                                        <div className="w-6 h-6 rounded-full bg-gray-50 dark:bg-[#131314] border-2 border-[var(--bg-card)] flex items-center justify-center text-[9px] font-medium text-gray-500 relative z-0 ring-1 ring-white dark:ring-[#1E293B]">
+                                                            +{approvalUsers.length - 3}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </>
                                     )}
-                                    {projectManagers.slice(0, 2).map(mgr => (
-                                        <div
-                                            key={mgr.id}
-                                            className="w-7 h-7 rounded-full bg-blue-100 border-2 border-[var(--bg-card)] flex items-center justify-center text-[10px] font-bold text-[#1A73E8] shadow-2xs"
-                                            title={`Manager: ${mgr.name}`}
-                                        >
-                                            {mgr.name.charAt(0)}
-                                        </div>
-                                    ))}
+
+                                    <div className="h-6 w-px bg-gray-200 dark:bg-[#334155]" />
                                 </div>
                             );
                         })()}
