@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
 
 // POST /api/platform/requests/[id]/reject
 export async function POST(
@@ -12,6 +12,7 @@ export async function POST(
         const { reason } = body;
 
         try {
+            await ensureSubscriptionTable();
             await prisma.subscriptionRequest.update({
                 where: { id },
                 data: {

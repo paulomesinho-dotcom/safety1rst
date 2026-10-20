@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
 
 // GET /api/platform/requests - Listar todos os pedidos de subscrição
 export async function GET(req: NextRequest) {
     try {
+        await ensureSubscriptionTable();
         const requests = await prisma.subscriptionRequest.findMany({
             orderBy: { createdAt: 'desc' },
         });

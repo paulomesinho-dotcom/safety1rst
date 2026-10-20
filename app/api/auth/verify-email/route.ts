@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
 import { sendAdminNewRequestNotification } from '@/lib/email';
 
 // GET ou POST /api/auth/verify-email?token=...
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
         let requestData: any = null;
 
         try {
+            await ensureSubscriptionTable();
             const subRequest = await prisma.subscriptionRequest.findUnique({
                 where: { verificationToken: token },
             });

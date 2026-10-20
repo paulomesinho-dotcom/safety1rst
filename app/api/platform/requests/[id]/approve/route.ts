@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
 import { sendAccountApprovedEmail } from '@/lib/email';
 
 // POST /api/platform/requests/[id]/approve
@@ -17,6 +17,7 @@ export async function POST(
         let requestData: any = null;
 
         try {
+            await ensureSubscriptionTable();
             const subRequest = await prisma.subscriptionRequest.findUnique({
                 where: { id },
             });

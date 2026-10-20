@@ -18,6 +18,7 @@ export default function PlatformDashboardPage() {
     const addUser = useStore(state => state.addUser);
     const updateAccount = useStore(state => state.updateAccount);
     const currentUser = useStore(state => state.currentUser);
+    const isInitialized = useStore(state => state.isInitialized);
 
     const storeRequests = useStore(state => state.subscriptionRequests);
     const approveSubscriptionRequest = useStore(state => state.approveSubscriptionRequest);
@@ -129,14 +130,43 @@ export default function PlatformDashboardPage() {
     };
 
     // Safe permission check rendered inside UI without breaking hook rules
-    if (!currentUser || currentUser.role !== 'superadmin') {
+    if (!isInitialized) {
+        return (
+            <div className="min-h-screen bg-background flex flex-col justify-center items-center p-8">
+                <Shield className="w-12 h-12 text-primary animate-pulse mb-3" />
+                <p className="text-sm text-gray-500">A carregar plataforma...</p>
+            </div>
+        );
+    }
+
+    if (!currentUser) {
         return (
             <AuthGuard>
                 <div className="min-h-screen bg-background flex flex-col justify-center items-center p-8">
                     <Shield className="w-12 h-12 text-primary animate-pulse mb-3" />
-                    <p className="text-sm text-gray-500">A verificar credenciais de administrador da plataforma...</p>
+                    <p className="text-sm text-gray-500">A verificar sessão...</p>
                 </div>
             </AuthGuard>
+        );
+    }
+
+    if (currentUser.role !== 'superadmin') {
+        return (
+            <div className="min-h-screen bg-background flex flex-col justify-center items-center p-8 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center text-amber-600 mb-4 border border-amber-200 dark:border-amber-900/50">
+                    <Shield className="w-8 h-8" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Acesso Restrito</h2>
+                <p className="text-sm text-gray-500 max-w-sm mt-1 mb-6">
+                    Esta área é reservada exclusivamente para o Super Administrador da plataforma.
+                </p>
+                <button
+                    onClick={() => router.push('/')}
+                    className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+                >
+                    Voltar ao Painel Principal
+                </button>
+            </div>
         );
     }
 

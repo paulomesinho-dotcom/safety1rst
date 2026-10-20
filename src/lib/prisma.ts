@@ -40,4 +40,40 @@ export const prisma: PrismaClient =
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
+let tableEnsured = false;
+export async function ensureSubscriptionTable() {
+    if (tableEnsured) return;
+    if (!process.env.DATABASE_URL) return;
+    try {
+        await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "subscription_requests" (
+                "id" TEXT NOT NULL PRIMARY KEY,
+                "companyName" TEXT NOT NULL,
+                "nif" TEXT NOT NULL,
+                "contactName" TEXT NOT NULL,
+                "email" TEXT NOT NULL,
+                "phone" TEXT,
+                "password" TEXT,
+                "plan" TEXT NOT NULL DEFAULT 'basic',
+                "status" TEXT NOT NULL DEFAULT 'pending_email',
+                "verificationToken" TEXT NOT NULL,
+                "emailVerifiedAt" TIMESTAMP(3),
+                "reviewedBy" TEXT,
+                "reviewedAt" TIMESTAMP(3),
+                "rejectionReason" TEXT,
+                "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        await prisma.$executeRawUnsafe(`
+            CREATE UNIQUE INDEX IF NOT EXISTS "subscription_requests_verificationToken_key" 
+            ON "subscription_requests"("verificationToken");
+        `);
+        tableEnsured = true;
+    } catch (e: any) {
+        console.warn('[Prisma] ensureSubscriptionTable warning:', e?.message || e);
+    }
+}
+
 export default prisma;
+

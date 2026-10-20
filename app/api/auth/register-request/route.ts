@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { prisma } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
 import { sendVerificationEmail } from '@/lib/email';
 import { nanoid } from 'nanoid';
 
@@ -38,9 +38,11 @@ export async function POST(req: NextRequest) {
         const hashedPassword = await bcrypt.hash(password, 10);
         const selectedPlan = plan || 'basic';
 
-        // 1. Tentar guardar na base de dados Prisma (se configurada e acessível)
+        // 1. Guardar na base de dados Prisma
         try {
-            // Verificar se utilizador ou pedido pendente já existe
+            await ensureSubscriptionTable();
+
+            // Verificar se utilizador já existe
             const existingUser = await prisma.user.findUnique({ where: { email: cleanEmail } });
             if (existingUser) {
                 return NextResponse.json(
@@ -49,7 +51,12 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            // Criar ou atualizar pedido de subscrição
+            // Remover pedidos anteriores pendentes com o mesmo email para evitar duplicados
+            await prisma.subscriptionRequest.deleteMany({
+                where: { email: cleanEmail, status: 'pending_email' }
+            }).catch(() => {});
+
+            // Criar pedido de subscrição
             await prisma.subscriptionRequest.create({
                 data: {
                     companyName,
@@ -63,8 +70,9 @@ export async function POST(req: NextRequest) {
                     verificationToken,
                 },
             });
+            console.log(`[Register-Request] Pedido de ${cleanEmail} (${companyName}) gravado na base de dados Prisma com sucesso.`);
         } catch (dbErr: any) {
-            console.warn('[Register-Request DB Warning] Erro Prisma (a funcionar com fallback local):', dbErr.message);
+            console.error('[Register-Request DB Error]:', dbErr);
         }
 
         // 2. Enviar email de verificação via Resend

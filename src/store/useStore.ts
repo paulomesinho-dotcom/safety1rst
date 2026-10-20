@@ -273,7 +273,7 @@ const MOCK_PROJECTS: Project[] = [
     },
 ];
 
-// Super Admin User
+// Super Admin Users
 const MOCK_USERS: User[] = [
     {
         id: 'user_super',
@@ -282,6 +282,18 @@ const MOCK_USERS: User[] = [
         role: 'superadmin',
         accountId: 'platform_admin',
         password: 'Pferreira.Xispoli@1914',
+        createdAt: new Date().toISOString(),
+        projectAccess: [
+            { projectId: 'proj_1', role: 'manager', allowedModules: MOCK_MODULES.map(m => m.id) }
+        ]
+    },
+    {
+        id: 'user_super_safesite',
+        email: 'super@safesite.pt',
+        name: 'Super Admin',
+        role: 'superadmin',
+        accountId: 'platform_admin',
+        password: 'SuperAdmin2026!',
         createdAt: new Date().toISOString(),
         projectAccess: [
             { projectId: 'proj_1', role: 'manager', allowedModules: MOCK_MODULES.map(m => m.id) }
@@ -664,29 +676,30 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 await executeQuery(`DELETE FROM project_members WHERE user_id IN (SELECT id FROM users WHERE LOWER(email) = ?)`, [demoEmail.toLowerCase()]).catch(() => {});
             }
 
-            const superUser = MOCK_USERS[0];
-            const existingSuper = safeUsers.find((u: any) => u.email?.toLowerCase() === superUser.email.toLowerCase());
-            if (!existingSuper) {
-                console.log('[Store] Seeding Super User...');
-                await insert('users', [superUser]);
-                if (superUser.projectAccess) {
-                    for (const pa of superUser.projectAccess) {
-                        await executeQuery(`INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, allowed_modules, company_id) VALUES (?, ?, ?, ?, ?, ?)`,
-                            [nanoid(), pa.projectId, superUser.id, pa.role, JSON.stringify(pa.allowedModules), pa.companyIds ? JSON.stringify(pa.companyIds) : null]);
-                        safeMembers.push({
-                            userId: superUser.id,
-                            projectId: pa.projectId,
-                            role: pa.role,
-                            allowedModules: pa.allowedModules,
-                            companyIds: pa.companyIds
-                        });
+            for (const superUser of MOCK_USERS) {
+                const existingSuper = safeUsers.find((u: any) => u.email?.toLowerCase() === superUser.email.toLowerCase());
+                if (!existingSuper) {
+                    console.log(`[Store] Seeding Super User (${superUser.email})...`);
+                    await insert('users', [superUser]);
+                    if (superUser.projectAccess) {
+                        for (const pa of superUser.projectAccess) {
+                            await executeQuery(`INSERT OR IGNORE INTO project_members (id, project_id, user_id, role, allowed_modules, company_id) VALUES (?, ?, ?, ?, ?, ?)`,
+                                [nanoid(), pa.projectId, superUser.id, pa.role, JSON.stringify(pa.allowedModules), pa.companyIds ? JSON.stringify(pa.companyIds) : null]);
+                            safeMembers.push({
+                                userId: superUser.id,
+                                projectId: pa.projectId,
+                                role: pa.role,
+                                allowedModules: pa.allowedModules,
+                                companyIds: pa.companyIds
+                            });
+                        }
                     }
+                    safeUsers.push(superUser as any);
+                } else {
+                    await executeQuery(`UPDATE users SET password = ?, role = 'superadmin' WHERE LOWER(email) = ?`, [superUser.password, superUser.email.toLowerCase()]).catch(() => {});
+                    existingSuper.password = superUser.password;
+                    existingSuper.role = 'superadmin';
                 }
-                safeUsers.push(superUser as any);
-            } else {
-                await executeQuery(`UPDATE users SET password = ?, role = 'superadmin' WHERE LOWER(email) = ?`, [superUser.password, superUser.email.toLowerCase()]).catch(() => {});
-                existingSuper.password = superUser.password;
-                existingSuper.role = 'superadmin';
             }
 
             // Exclude demo accounts
@@ -765,11 +778,17 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 }
             }
 
+            const activeUser = get().currentUser || state.currentUser;
+            let resolvedUser: User | null = null;
+            if (activeUser) {
+                resolvedUser = usersWithAccess.find((u: any) => u.id === activeUser.id || (u.email && activeUser.email && u.email.toLowerCase() === activeUser.email.toLowerCase())) || activeUser;
+            }
+
             set({
                 isInitialized: true,
                 accounts,
                 users: usersWithAccess,
-                currentUser: usersWithAccess.find((u: any) => u.id === state.currentUser?.id) || null,
+                currentUser: resolvedUser,
                 projects,
                 companies,
                 workers,
@@ -800,7 +819,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     login: async (email: string, password?: string) => {
         const users = get().users;
         const cleanEmail = email.trim().toLowerCase();
-        const user = users.find(u => u.email.trim().toLowerCase() === cleanEmail);
+        let user = users.find(u => u.email.trim().toLowerCase() === cleanEmail);
+        if (!user) {
+            user = MOCK_USERS.find(u => u.email.trim().toLowerCase() === cleanEmail);
+        }
         if (user) {
             if (user.password) {
                 if (!password || user.password !== password) {
@@ -906,16 +928,20 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
 
     ensureSuperAdmin: () => set((state) => {
-        const superUser = MOCK_USERS[0];
-        const existing = state.users.find(u => u.email?.toLowerCase() === superUser.email.toLowerCase());
-        if (existing) {
-            return {
-                users: state.users.map(u => u.email?.toLowerCase() === superUser.email.toLowerCase() ? { ...u, password: superUser.password, role: 'superadmin' as const } : u)
-            };
+        let updatedUsers = [...state.users];
+        for (const superUser of MOCK_USERS) {
+            const existing = updatedUsers.find(u => u.email?.toLowerCase() === superUser.email.toLowerCase());
+            if (existing) {
+                updatedUsers = updatedUsers.map(u => 
+                    u.email?.toLowerCase() === superUser.email.toLowerCase() 
+                        ? { ...u, password: superUser.password, role: 'superadmin' as const } 
+                        : u
+                );
+            } else {
+                updatedUsers.push(superUser);
+            }
         }
-        return {
-            users: [...state.users, superUser]
-        };
+        return { users: updatedUsers };
     }),
 
     addProject: (project) => set((state) => {
