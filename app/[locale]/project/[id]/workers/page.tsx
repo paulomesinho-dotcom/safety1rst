@@ -713,7 +713,7 @@ const WorkersPage: React.FC = () => {
                             );
                         })()}
 
-                        {isManagerForThis && (cw.workflowStatus === 'validation_pending' || cw.workflowStatus === 'validated' || cw.workflowStatus === 'in_training_process') && (
+                        {isManagerForThis && cw.workflowStatus === 'validation_pending' && (
                             <>
                                 <button
                                     type="button"
@@ -726,31 +726,17 @@ const WorkersPage: React.FC = () => {
                                     <AlertTriangle size={13} /> Rever
                                 </button>
                                 
-                                {isCompliant ? (
-                                    <button
-                                        type="button"
-                                        disabled={!isAllValidated}
-                                        onClick={() => validateWorker(cw.id!)}
-                                        className={cn(
-                                            "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5",
-                                            !isAllValidated && "opacity-50 cursor-not-allowed"
-                                        )}
-                                    >
-                                        <Check size={13} /> Validar
-                                    </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        disabled={!isAllValidated}
-                                        onClick={() => updateWorker(cw.id!, { workflowStatus: 'in_training_process' })}
-                                        className={cn(
-                                            "px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors shadow-xs flex items-center gap-1.5",
-                                            !isAllValidated && "opacity-50 cursor-not-allowed"
-                                        )}
-                                    >
-                                        <GraduationCap size={13} /> Formação
-                                    </button>
-                                )}
+                                <button
+                                    type="button"
+                                    disabled={!isAllValidated}
+                                    onClick={() => validateWorker(cw.id!)}
+                                    className={cn(
+                                        "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5",
+                                        !isAllValidated && "opacity-50 cursor-not-allowed"
+                                    )}
+                                >
+                                    <Check size={13} /> Validar
+                                </button>
                             </>
                         )}
 
