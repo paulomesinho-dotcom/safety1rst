@@ -40,7 +40,8 @@ export default function Home() {
         addSubscriptionRequest,
         approveSubscriptionRequest,
         rejectSubscriptionRequest,
-        addNotification
+        addNotification,
+        syncFromServer
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
         currentUser: state.currentUser,
@@ -59,13 +60,15 @@ export default function Home() {
         addSubscriptionRequest: state.addSubscriptionRequest,
         approveSubscriptionRequest: state.approveSubscriptionRequest,
         rejectSubscriptionRequest: state.rejectSubscriptionRequest,
-        addNotification: state.addNotification
+        addNotification: state.addNotification,
+        syncFromServer: state.syncFromServer
     })));
 
     // Active Navigation Tab
     const [activeTab, setActiveTab] = useState<WorkplaceTab>('projects');
     const [searchQuery, setSearchQuery] = useState('');
     const [copiedCode, setCopiedCode] = useState<string | null>(null);
+    const [clientPlanFilter, setClientPlanFilter] = useState<'all' | 'paid' | 'free'>('all');
 
     // Modals
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -95,11 +98,24 @@ export default function Home() {
         }
     }, [currentUser, router]);
 
+    useEffect(() => {
+        syncFromServer?.().catch(() => {});
+    }, [syncFromServer]);
+
     // Active Account & Subscription Details
     const userAccount = useMemo(() => {
         if (!currentUser) return null;
         return accounts.find(a => a.id === currentUser.accountId) || accounts.find(a => a.id === account?.id) || account || null;
     }, [accounts, currentUser, account]);
+
+    // Paid & Free Accounts Split for SuperAdmin
+    const paidAccounts = useMemo(() => accounts.filter(a => a.plan !== 'free'), [accounts]);
+    const freeAccounts = useMemo(() => accounts.filter(a => a.plan === 'free'), [accounts]);
+    const filteredAccounts = useMemo(() => {
+        if (clientPlanFilter === 'paid') return paidAccounts;
+        if (clientPlanFilter === 'free') return freeAccounts;
+        return accounts;
+    }, [accounts, paidAccounts, freeAccounts, clientPlanFilter]);
 
     const isSuperAdmin = currentUser?.role === 'superadmin';
     const currentPlan: PlanType = isSuperAdmin ? 'enterprise' : (userAccount?.plan || 'free');
@@ -1187,16 +1203,71 @@ export default function Home() {
                                             Altere o plano de qualquer cliente de forma imediata através do seletor em tempo real.
                                         </p>
                                     </div>
-                                    <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200">
-                                        Total: {accounts.length} contas
-                                    </span>
+                                    <div className="flex items-center gap-2 text-xs">
+                                        <span className="font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
+                                            Pagas: {paidAccounts.length}
+                                        </span>
+                                        <span className="font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200">
+                                            Gratuitas: {freeAccounts.length}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Filter Tabs: All, Paid, Free */}
+                                <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-[var(--border)]">
+                                    <button
+                                        type="button"
+                                        onClick={() => setClientPlanFilter('all')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                            clientPlanFilter === 'all'
+                                                ? 'bg-primary text-white shadow-sm'
+                                                : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
+                                        }`}
+                                    >
+                                        <span>Todas as Contas</span>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'all' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                                            {accounts.length}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setClientPlanFilter('paid')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                            clientPlanFilter === 'paid'
+                                                ? 'bg-amber-600 text-white shadow-sm'
+                                                : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-amber-600 dark:hover:text-amber-400 border border-[var(--border)]'
+                                        }`}
+                                    >
+                                        <Crown size={13} className={clientPlanFilter === 'paid' ? 'text-white' : 'text-amber-500'} />
+                                        <span>Subscrições Pagas</span>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'paid' ? 'bg-white/20 text-white' : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200'}`}>
+                                            {paidAccounts.length}
+                                        </span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setClientPlanFilter('free')}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                            clientPlanFilter === 'free'
+                                                ? 'bg-slate-700 text-white shadow-sm'
+                                                : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
+                                        }`}
+                                    >
+                                        <span>Utilizadores Gratuitos</span>
+                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'free' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                                            {freeAccounts.length}
+                                        </span>
+                                    </button>
                                 </div>
 
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left text-xs border-collapse">
                                         <thead>
                                             <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
-                                                <th className="py-3 px-3">Empresa / Cliente</th>
+                                                <th className="py-3 px-3">Empresa / Registo</th>
+                                                <th className="py-3 px-3">Categoria</th>
                                                 <th className="py-3 px-3">NIF / NIPC</th>
                                                 <th className="py-3 px-3">Contacto</th>
                                                 <th className="py-3 px-3">Plano Atual (Alteração Ágil)</th>
@@ -1206,53 +1277,83 @@ export default function Home() {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-[var(--border)]">
-                                            {accounts.map(acc => {
-                                                const accProjectsCount = projects.filter(p => p.accountId === acc.id).length;
-                                                const accMembersCount = users.filter(u => u.accountId === acc.id).length;
+                                            {filteredAccounts.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={8} className="py-8 text-center text-xs text-[var(--text-muted)]">
+                                                        Nenhuma conta encontrada nesta categoria.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredAccounts.map(acc => {
+                                                    const accProjectsCount = projects.filter(p => p.accountId === acc.id).length;
+                                                    const accMembersCount = users.filter(u => u.accountId === acc.id).length;
+                                                    const registeredName = acc.registeredUserName || users.find(u => u.accountId === acc.id || (u.email && acc.contactEmail && u.email.toLowerCase() === acc.contactEmail.toLowerCase()))?.name;
+                                                    const isPaid = acc.plan !== 'free';
 
-                                                return (
-                                                    <tr key={acc.id} className="hover:bg-primary/5 transition-colors">
-                                                        <td className="py-3 px-3 font-bold text-[var(--text)]">
-                                                            {acc.name}
-                                                        </td>
-                                                        <td className="py-3 px-3 text-[var(--text-muted)] font-mono">
-                                                            {acc.vatNumber || '—'}
-                                                        </td>
-                                                        <td className="py-3 px-3 text-[var(--text-muted)]">
-                                                            <div>{acc.contactEmail || '—'}</div>
-                                                            {acc.contactPhone && <div className="text-[10px] text-gray-400">{acc.contactPhone}</div>}
-                                                        </td>
-                                                        <td className="py-3 px-3">
-                                                            {/* Agile Instant Plan Switcher Dropdown */}
-                                                            <select
-                                                                value={acc.plan}
-                                                                onChange={(e) => {
-                                                                    const newPlan = e.target.value as PlanType;
-                                                                    changeAccountPlan(acc.id, newPlan);
-                                                                    addNotification('success', `Plano da empresa "${acc.name}" atualizado para ${newPlan.toUpperCase()}!`);
-                                                                }}
-                                                                className="px-2.5 py-1 text-xs font-bold rounded-lg border border-primary/30 bg-primary/5 text-primary outline-none focus:ring-2 focus:ring-primary cursor-pointer hover:bg-primary/10 transition-colors"
-                                                            >
-                                                                <option value="free">Gratuito (0 obras | 1 user)</option>
-                                                                <option value="basic">Básico (1 obra | 5 users)</option>
-                                                                <option value="premium">Premium (3 obras | 10 users)</option>
-                                                                <option value="enterprise">Enterprise (Ilimitado | 50 users)</option>
-                                                            </select>
-                                                        </td>
-                                                        <td className="py-3 px-3 font-semibold text-[var(--text)]">
-                                                            {accProjectsCount} / {acc.maxProjects === -1 ? '∞' : (acc.maxProjects ?? 0)}
-                                                        </td>
-                                                        <td className="py-3 px-3 text-[var(--text-muted)]">
-                                                            {accMembersCount} / {acc.maxCompanyUsers || 1}
-                                                        </td>
-                                                        <td className="py-3 px-3 text-right">
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                                {acc.status || 'Ativo'}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
+                                                    return (
+                                                        <tr key={acc.id} className="hover:bg-primary/5 transition-colors">
+                                                            <td className="py-3 px-3">
+                                                                <div className="font-bold text-[var(--text)] text-sm">{acc.name}</div>
+                                                                {registeredName ? (
+                                                                    <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
+                                                                        <Users size={12} className="text-primary/70 shrink-0" />
+                                                                        <span>Utilizador: <strong className="text-[var(--text)] font-semibold">{registeredName}</strong></span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="text-[10px] text-gray-400 italic">Sem utilizador associado</div>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-3 whitespace-nowrap">
+                                                                {isPaid ? (
+                                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                        <Crown size={11} className="text-amber-600" />
+                                                                        Subscrição Paga
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                        Conta Gratuita
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-3 text-[var(--text-muted)] font-mono">
+                                                                {acc.vatNumber || '—'}
+                                                            </td>
+                                                            <td className="py-3 px-3 text-[var(--text-muted)]">
+                                                                <div>{acc.contactEmail || '—'}</div>
+                                                                {acc.contactPhone && <div className="text-[10px] text-gray-400">{acc.contactPhone}</div>}
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                {/* Agile Instant Plan Switcher Dropdown */}
+                                                                <select
+                                                                    value={acc.plan}
+                                                                    onChange={(e) => {
+                                                                        const newPlan = e.target.value as PlanType;
+                                                                        changeAccountPlan(acc.id, newPlan);
+                                                                        addNotification('success', `Plano da empresa "${acc.name}" atualizado para ${newPlan.toUpperCase()}!`);
+                                                                    }}
+                                                                    className="px-2.5 py-1 text-xs font-bold rounded-lg border border-primary/30 bg-primary/5 text-primary outline-none focus:ring-2 focus:ring-primary cursor-pointer hover:bg-primary/10 transition-colors"
+                                                                >
+                                                                    <option value="free">Gratuito (0 obras | 1 user)</option>
+                                                                    <option value="basic">Básico (1 obra | 5 users)</option>
+                                                                    <option value="premium">Premium (3 obras | 10 users)</option>
+                                                                    <option value="enterprise">Enterprise (Ilimitado | 50 users)</option>
+                                                                </select>
+                                                            </td>
+                                                            <td className="py-3 px-3 font-semibold text-[var(--text)]">
+                                                                {accProjectsCount} / {acc.maxProjects === -1 ? '∞' : (acc.maxProjects ?? 0)}
+                                                            </td>
+                                                            <td className="py-3 px-3 text-[var(--text-muted)]">
+                                                                {accMembersCount} / {acc.maxCompanyUsers || 1}
+                                                            </td>
+                                                            <td className="py-3 px-3 text-right">
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                                    {acc.status || 'Ativo'}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
                                         </tbody>
                                     </table>
                                 </div>

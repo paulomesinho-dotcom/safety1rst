@@ -89,6 +89,7 @@ export interface AppState {
     updateUser: (id: string, updates: Partial<User>) => void;
     deleteUser: (userId: string) => void;
     ensureSuperAdmin: () => void;
+    syncFromServer: () => Promise<void>;
     addAccessLog: (log: Omit<AccessLog, 'id' | 'timestamp'>) => { success: boolean; message?: string };
 
     // Subscription Requests (Client Onboarding)
@@ -818,6 +819,9 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
             // Trigger routine expiration checks immediately
             get().checkExpirations();
+
+            // Sincronizar utilizadores e clientes registados da base de dados central PostgreSQL
+            get().syncFromServer().catch(() => {});
         } catch (e) {
             console.error("Failed to initialize store from DB", e);
         }
@@ -832,14 +836,118 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }
         if (user) {
             if (user.password) {
-                if (!password || user.password !== password) {
-                    return false;
+                if (password && user.password === password) {
+                    set({ currentUser: user });
+                    return true;
+                }
+            } else {
+                set({ currentUser: user });
+                return true;
+            }
+        }
+
+        // Validação de fallback contra o PostgreSQL no servidor (garante login após deploy ou em novos navegadores)
+        try {
+            if (password) {
+                const res = await fetch('/api/auth/login-verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: cleanEmail, password }),
+                });
+                const data = await res.json();
+                if (res.ok && data.success && data.user) {
+                    const authenticatedUser = data.user;
+                    if (data.account) {
+                        const existingAcc = get().accounts.find(a => a.id === data.account.id);
+                        if (!existingAcc) {
+                            get().addAccount(data.account);
+                        }
+                    }
+                    const existingUser = get().users.find(u => u.id === authenticatedUser.id || u.email.toLowerCase() === cleanEmail);
+                    if (!existingUser) {
+                        get().addUser(authenticatedUser);
+                    }
+                    set({ currentUser: authenticatedUser });
+                    return true;
                 }
             }
-            set({ currentUser: user });
-            return true;
+        } catch (serverErr) {
+            console.warn('[Store] Fallback de autenticação no servidor falhou:', serverErr);
         }
+
         return false;
+    },
+
+    syncFromServer: async () => {
+        try {
+            const res = await fetch('/api/platform/clients');
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs } = data;
+
+                set((state) => {
+                    // Sincronizar Accounts
+                    const existingAccIds = new Set(state.accounts.map(a => a.id));
+                    const mergedAccounts = [...state.accounts];
+                    if (Array.isArray(srvAccounts)) {
+                        for (const acc of srvAccounts) {
+                            if (!existingAccIds.has(acc.id)) {
+                                mergedAccounts.push(acc);
+                                existingAccIds.add(acc.id);
+                            } else {
+                                const idx = mergedAccounts.findIndex(a => a.id === acc.id);
+                                if (idx !== -1) {
+                                    mergedAccounts[idx] = { ...mergedAccounts[idx], ...acc };
+                                }
+                            }
+                        }
+                    }
+
+                    // Sincronizar Users
+                    const existingUserEmails = new Set(state.users.map(u => u.email.toLowerCase()));
+                    const mergedUsers = [...state.users];
+                    if (Array.isArray(srvUsers)) {
+                        for (const u of srvUsers) {
+                            if (!existingUserEmails.has(u.email.toLowerCase())) {
+                                mergedUsers.push(u);
+                                existingUserEmails.add(u.email.toLowerCase());
+                            } else {
+                                const idx = mergedUsers.findIndex(usr => usr.email.toLowerCase() === u.email.toLowerCase());
+                                if (idx !== -1) {
+                                    mergedUsers[idx] = { ...mergedUsers[idx], ...u };
+                                }
+                            }
+                        }
+                    }
+
+                    // Sincronizar Subscription Requests
+                    const existingReqIds = new Set(state.subscriptionRequests.map(r => r.id));
+                    const mergedReqs = [...state.subscriptionRequests];
+                    if (Array.isArray(srvReqs)) {
+                        for (const r of srvReqs) {
+                            if (!existingReqIds.has(r.id)) {
+                                mergedReqs.push(r);
+                                existingReqIds.add(r.id);
+                            } else {
+                                const idx = mergedReqs.findIndex(req => req.id === r.id);
+                                if (idx !== -1) {
+                                    mergedReqs[idx] = { ...mergedReqs[idx], ...r };
+                                }
+                            }
+                        }
+                    }
+
+                    return {
+                        accounts: mergedAccounts,
+                        users: mergedUsers,
+                        subscriptionRequests: mergedReqs,
+                    };
+                });
+                console.log(`[Store] Sincronização com o servidor concluída: ${srvAccounts?.length || 0} contas, ${srvUsers?.length || 0} utilizadores.`);
+            }
+        } catch (e) {
+            console.warn('[Store] Falha ao sincronizar com servidor (offline fallback ativo):', e);
+        }
     },
 
     setCurrentUser: (user: User | null) => set({ currentUser: user }),
@@ -1573,6 +1681,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         };
 
         dbUpdate('accounts', accountId, updates).catch(() => {});
+
+        // Sincronizar alteração com o PostgreSQL no servidor
+        fetch('/api/platform/clients', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId, plan: newPlan }),
+        }).catch(() => {});
 
         return {
             accounts: state.accounts.map(a => a.id === accountId ? { ...a, ...updates } : a)

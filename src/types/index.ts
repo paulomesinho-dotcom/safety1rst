@@ -59,6 +59,7 @@ export interface Account {
     accessControlLimit: number; // 1200, 3600, or unlimited (-1) per month
     maxCompanyUsers?: number; // 1, 5, 10, or 50
     modules: string[]; // List of enabled module IDs
+    registeredUserName?: string;
     createdAt: string;
 }
 

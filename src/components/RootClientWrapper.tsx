@@ -29,7 +29,8 @@ export default function RootClientWrapper({ children }: { children: React.ReactN
                 // Proceed with normal Init
                 initialize().then(async () => {
                     ensureSuperAdmin();
-                    console.log('[SafetyFirst] App Initialized');
+                    await useStore.getState().syncFromServer().catch(() => {});
+                    console.log('[SafetyFirst] App Initialized & Server Synced');
 
                     // ONE-TIME CLEANUP (For "Seguros e Apólices" migration) - Bumped to v2
                     const hasCleaned = localStorage.getItem('safesite_cleanup_20250126_v2_force');
