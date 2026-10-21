@@ -1,6 +1,6 @@
 
 
-export type SystemRole = 'superadmin' | 'admin' | 'user' | 'manager' | 'editor' | 'data_user' | 'approval_user';
+export type SystemRole = 'superadmin' | 'admin' | 'user' | 'manager' | 'editor' | 'data_user' | 'approval_user' | 'client_admin';
 export type ProjectRole = 'manager' | 'editor' | 'viewer' | 'data_user' | 'approval_user'; // Advanced, Basic, Preview, Data Provider (Company specific), Approval
 
 export interface ProjectAccess {
@@ -15,6 +15,7 @@ export interface User {
     email: string;
     name: string;
     role: SystemRole;
+    phone?: string;
     accountId: string; // Tenant ID
     projectAccess?: ProjectAccess[]; // Permissions per project
     avatarUrl?: string;
@@ -24,7 +25,7 @@ export interface User {
 
 export type PlanType = 'free' | 'basic' | 'premium' | 'enterprise';
 
-export type SubscriptionRequestStatus = 'pending_email' | 'pending_approval' | 'approved' | 'rejected';
+export type SubscriptionRequestStatus = 'pending_email' | 'pending_approval' | 'pending' | 'approved' | 'rejected';
 
 export interface SubscriptionRequest {
     id: string;
@@ -36,7 +37,7 @@ export interface SubscriptionRequest {
     password?: string;
     plan: PlanType;
     status: SubscriptionRequestStatus;
-    verificationToken: string;
+    verificationToken?: string;
     emailVerifiedAt?: string;
     reviewedBy?: string;
     reviewedAt?: string;
@@ -49,9 +50,14 @@ export interface Account {
     id: string;
     name: string;
     plan: PlanType;
+    vatNumber?: string;
+    contactEmail?: string;
+    contactPhone?: string;
     subscriptionStatus: 'active' | 'suspended' | 'canceled';
+    status?: 'active' | 'suspended' | 'canceled';
     maxProjects: number; // 1, 3, or unlimited (-1)
     accessControlLimit: number; // 1200, 3600, or unlimited (-1) per month
+    maxCompanyUsers?: number; // 1, 5, 10, or 50
     modules: string[]; // List of enabled module IDs
     createdAt: string;
 }

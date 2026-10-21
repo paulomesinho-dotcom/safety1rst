@@ -11,7 +11,7 @@ import { nanoid } from 'nanoid';
 
 export default function LoginPage() {
     const router = useRouter();
-    const { users, setCurrentUser, login, addSubscriptionRequest } = useStore();
+    const { users, setCurrentUser, login, addSubscriptionRequest, addAccount, addUser } = useStore();
     const [isLogin, setIsLogin] = useState(true);
 
     // Login State
@@ -27,12 +27,10 @@ export default function LoginPage() {
         email: '',
         phone: '',
         password: '',
-        plan: 'basic' as PlanType,
     });
     const [consentRgpd, setConsentRgpd] = useState(false);
     const [showPrivacyModal, setShowPrivacyModal] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [regSuccess, setRegSuccess] = useState(false);
     const [regError, setRegError] = useState('');
 
     // PWA Install State
@@ -164,58 +162,77 @@ export default function LoginPage() {
         }
 
         if (!consentRgpd) {
-            setRegError('É necessário autorizar o tratamento de dados pessoais (RGPD) para submeter o pedido.');
+            setRegError('É necessário autorizar o tratamento de dados pessoais (RGPD) para criar a sua conta.');
+            return;
+        }
+
+        const emailClean = regData.email.trim().toLowerCase();
+        const existing = users.find(u => u.email?.trim().toLowerCase() === emailClean);
+        if (existing) {
+            setRegError('Já existe um utilizador registado com este endereço de email.');
             return;
         }
 
         setIsSubmitting(true);
-        const verificationToken = nanoid(32);
+        const newAccountId = `acc_${nanoid(8)}`;
+        const newUserId = `usr_${nanoid(8)}`;
 
         try {
-            // Guardar no client store (garante reatividade local/WASM)
-            addSubscriptionRequest({
-                companyName: regData.companyName.trim(),
-                nif: regData.nif.trim(),
-                contactName: regData.name.trim(),
-                email: regData.email.trim().toLowerCase(),
+            // 1. Criar a conta / tenant com plano inicial gratuito
+            addAccount({
+                id: newAccountId,
+                name: regData.companyName.trim(),
+                vatNumber: regData.nif.trim(),
+                contactEmail: emailClean,
+                contactPhone: regData.phone.trim() || undefined,
+                plan: 'free',
+                status: 'active',
+                subscriptionStatus: 'active',
+                maxProjects: 0,
+                accessControlLimit: 600,
+                maxCompanyUsers: 1,
+                modules: ['companies', 'workers', 'equipment', 'access-control'],
+            });
+
+            // 2. Criar o utilizador associado à conta
+            addUser({
+                id: newUserId,
+                accountId: newAccountId,
+                name: regData.name.trim(),
+                email: emailClean,
                 phone: regData.phone.trim() || undefined,
                 password: regData.password,
-                plan: regData.plan,
-                status: 'pending_email',
-                verificationToken,
+                role: 'client_admin',
+                projectAccess: [],
             });
 
-            // Enviar pedido à API (que envia o email por Resend)
-            const res = await fetch('/api/auth/register-request', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    companyName: regData.companyName.trim(),
-                    nif: regData.nif.trim(),
-                    contactName: regData.name.trim(),
-                    name: regData.name.trim(),
-                    email: regData.email.trim().toLowerCase(),
-                    phone: regData.phone.trim() || undefined,
-                    password: regData.password,
-                    plan: regData.plan,
-                    consentRgpd: true,
-                    verificationToken,
-                }),
-            });
-
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok && !data?.success) {
-                if (data?.error) {
-                    setRegError(data.error);
-                    setIsSubmitting(false);
-                    return;
-                }
+            // 3. Sincronizar com a API em background (com fallback graceful)
+            try {
+                await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: regData.name.trim(),
+                        email: emailClean,
+                        password: regData.password,
+                        tenantName: regData.companyName.trim(),
+                    }),
+                });
+            } catch (apiErr) {
+                console.warn('[Auth] Server sync fallback:', apiErr);
             }
 
-            setRegSuccess(true);
+            // 4. Iniciar sessão imediatamente e avançar para o Workplace
+            const loggedIn = await login(emailClean, regData.password);
+            if (loggedIn) {
+                router.push('/');
+            } else {
+                setIsLogin(true);
+                setEmail(emailClean);
+            }
         } catch (err: any) {
-            // Fallback para dev local
-            setRegSuccess(true);
+            console.error('[Register] Error:', err);
+            setRegError('Ocorreu um erro ao criar a conta. Por favor tente novamente.');
         } finally {
             setIsSubmitting(false);
         }
@@ -351,81 +368,15 @@ export default function LoginPage() {
                                     </PrimaryButton>
 
                                     <p className="text-center text-sm text-gray-500 mt-4">
-                                        Não tem conta? <button type="button" onClick={() => setIsLogin(false)} className="font-semibold text-primary hover:text-primary hover:underline">Pedir acesso</button>
+                                        Não tem conta? <button type="button" onClick={() => setIsLogin(false)} className="font-semibold text-primary hover:text-primary hover:underline">Criar conta</button>
                                     </p>
                                 </form>
-                            ) : regSuccess ? (
-                                <div className="space-y-6 py-4 text-center animate-in fade-in duration-300">
-                                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
-                                        <CheckCircle2 size={36} />
-                                    </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold text-gray-900 dark:text-white">Pedido Submetido com Sucesso!</h3>
-                                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 leading-relaxed">
-                                            Enviámos um link de confirmação para:<br />
-                                            <strong className="text-primary font-semibold">{regData.email}</strong>
-                                        </p>
-                                    </div>
-
-                                    <div className="bg-blue-50 dark:bg-blue-950/30 p-4 rounded-xl border border-blue-200 dark:border-blue-800 text-left text-xs text-blue-900 dark:text-blue-200 space-y-2">
-                                        <div className="flex items-start gap-2">
-                                            <Mail className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                                            <span>Abra o email que lhe enviámos e clique em <strong>"Confirmar o meu E-mail"</strong>.</span>
-                                        </div>
-                                        <div className="flex items-start gap-2">
-                                            <Shield className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                                            <span>Assim que confirmar, o pedido é revisto e ativado pelo administrador da plataforma.</span>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setRegSuccess(false);
-                                            setIsLogin(true);
-                                        }}
-                                        className="w-full py-2.5 px-4 bg-gray-900 dark:bg-zinc-800 hover:bg-gray-800 text-white font-medium rounded-lg text-sm transition-all shadow-sm"
-                                    >
-                                        Voltar ao Início de Sessão
-                                    </button>
-                                </div>
                             ) : (
-                                <div className="space-y-5 animate-in fade-in duration-300">
-                                    {/* Plan Selector */}
-                                    <div>
-                                        <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">
-                                            Escolha a sua Subscrição:
-                                        </label>
-                                        <div className="grid grid-cols-3 gap-2">
-                                            {[
-                                                { id: 'basic' as PlanType, name: 'Básico', tag: '1 Obra', desc: 'Até 1.200 acessos' },
-                                                { id: 'premium' as PlanType, name: 'Premium', tag: '3 Obras', desc: 'Até 3.600 acessos', popular: true },
-                                                { id: 'enterprise' as PlanType, name: 'Enterprise', tag: 'Ilimitado', desc: 'Personalizado' },
-                                            ].map((p) => {
-                                                const isSelected = regData.plan === p.id;
-                                                return (
-                                                    <button
-                                                        key={p.id}
-                                                        type="button"
-                                                        onClick={() => setRegData({ ...regData, plan: p.id })}
-                                                        className={`relative p-2.5 rounded-xl text-left border transition-all text-xs flex flex-col justify-between ${
-                                                            isSelected
-                                                                ? 'border-primary bg-primary/5 text-primary shadow-sm ring-1 ring-primary'
-                                                                : 'border-gray-200 hover:border-gray-300 text-gray-700 bg-white'
-                                                        }`}
-                                                    >
-                                                        {p.popular && (
-                                                            <span className="absolute -top-2 right-1.5 px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-primary text-white uppercase tracking-wider">
-                                                                Recomendado
-                                                            </span>
-                                                        )}
-                                                        <div className="font-semibold text-gray-900 text-xs">{p.name}</div>
-                                                        <div className="text-[11px] font-medium text-primary mt-0.5">{p.tag}</div>
-                                                        <div className="text-[10px] text-gray-500 mt-1">{p.desc}</div>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                <div className="space-y-4 animate-in fade-in duration-300">
+                                    <div className="text-center pb-1">
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            Preencha os dados da sua empresa para criar a sua conta de acesso ao Workplace.
+                                        </p>
                                     </div>
 
                                     {/* Register Form */}
@@ -527,7 +478,7 @@ export default function LoginPage() {
                                                     className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary h-4 w-4 shrink-0"
                                                 />
                                                 <span className="leading-tight text-[11px]">
-                                                    Autorizo a recolha e o tratamento dos meus dados pessoais (nome, email e telefone) pela <strong>XISPOLI / SafetyFirst</strong> para efeitos de análise do pedido de subscrição, ativação da conta e esclarecimentos.{' '}
+                                                    Autorizo a recolha e o tratamento dos meus dados pessoais (nome, email e telefone) pela <strong>XISPOLI / Safety1irst</strong> para efeitos de criação de conta, gestão de acessos e suporte aos utilizadores.{' '}
                                                     <button
                                                         type="button"
                                                         onClick={() => setShowPrivacyModal(true)}
@@ -553,11 +504,11 @@ export default function LoginPage() {
                                         >
                                             {isSubmitting ? (
                                                 <span className="flex items-center gap-2">
-                                                    <Loader2 size={16} className="animate-spin" /> A enviar pedido...
+                                                    <Loader2 size={16} className="animate-spin" /> A criar conta...
                                                 </span>
                                             ) : (
                                                 <span className="flex items-center gap-1.5">
-                                                    Submeter Pedido de Subscrição <ArrowRight size={16} />
+                                                    Criar Conta e Aceder ao Workplace <ArrowRight size={16} />
                                                 </span>
                                             )}
                                         </PrimaryButton>

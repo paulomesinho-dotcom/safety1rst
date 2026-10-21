@@ -1,11 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType } from '../types';
 
 export interface ProjectRequest {
     id: string;
     userId: string;
+    userName?: string;
+    userEmail?: string;
     projectId: string;
+    projectName?: string;
+    companyId?: string;
+    companyName?: string;
     status: 'pending' | 'approved' | 'rejected';
     createdAt: string;
 }
@@ -78,8 +83,8 @@ export interface AppState {
 
     // Users
     login: (email: string, password?: string) => Promise<boolean>;
-    addUser: (user: Omit<User, 'id' | 'createdAt'>) => void;
-    addAccount: (account: Omit<Account, 'id' | 'createdAt'>) => void;
+    addUser: (user: Omit<User, 'id' | 'createdAt'> & { id?: string }) => void;
+    addAccount: (account: Omit<Account, 'id' | 'createdAt'> & { id?: string }) => void;
     updateAccount: (id: string, updates: Partial<Account>) => void;
     updateUser: (id: string, updates: Partial<User>) => void;
     deleteUser: (userId: string) => void;
@@ -136,8 +141,10 @@ export interface AppState {
     removeProjectAccess: (userId: string, projectId: string) => void;
 
     // Requests
-    addProjectRequest: (userId: string, projectId: string) => void;
+    addProjectRequest: (userId: string, projectId: string, companyId?: string, companyName?: string) => void;
     resolveProjectRequest: (requestId: string, status: 'approved' | 'rejected', role?: ProjectRole) => void;
+    changeAccountPlan: (accountId: string, newPlan: PlanType) => void;
+    associateCompanyUser: (companyAccountId: string, userEmail: string, userName?: string) => { success: boolean; message: string };
 
     // Company Requests
     addCompanyRequest: (userId: string, companyId: string, projectId: string, updates: Partial<Company>) => void;
@@ -945,12 +952,21 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
 
     addProject: (project) => set((state) => {
-        const account = state.accounts.find(a => a.id === MOCK_ACCOUNT_ID) || state.account;
-        if (account && account.maxProjects !== -1) {
-            const currentCount = state.projects.filter(p => p.accountId === account.id).length;
-            if (currentCount >= account.maxProjects) {
-                alert(`Upgrade Required: You have reached the limit of ${account.maxProjects} projects for the ${account.plan} plan.`);
+        const isSuper = state.currentUser?.role === 'superadmin';
+        const userAccountId = state.currentUser?.accountId;
+        const account = state.accounts.find(a => a.id === userAccountId) || state.accounts.find(a => a.id === MOCK_ACCOUNT_ID) || state.account;
+
+        if (!isSuper) {
+            if (!account || account.plan === 'free' || account.maxProjects === 0) {
+                alert('Para criar novos projetos é necessária uma subscrição ativa (Básico, Premium ou Enterprise). Solicite a sua subscrição no Workplace.');
                 return state;
+            }
+            if (account.maxProjects !== -1) {
+                const currentCount = state.projects.filter(p => p.accountId === account.id).length;
+                if (currentCount >= account.maxProjects) {
+                    alert(`Limite atingido: O seu plano ${account.plan.toUpperCase()} permite até ${account.maxProjects} obra(s). Faça upgrade para criar mais projetos.`);
+                    return state;
+                }
             }
         }
         const projectId = nanoid();
@@ -994,7 +1010,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const newProject = {
             ...project,
             id: projectId,
-            accountId: MOCK_ACCOUNT_ID,
+            accountId: account?.id || userAccountId || MOCK_ACCOUNT_ID,
             createdAt,
             defaultCompanyProfileId: stdCompanyId,
             defaultWorkerProfileId: stdWorkerId,
@@ -1002,8 +1018,33 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         };
         dbInsert('projects', newProject).catch(console.error);
 
+        // Garantir acesso do criador como gestor ao novo projeto
+        const creatorId = state.currentUser?.id;
+        let updatedUsers = state.users;
+        let updatedCurrentUser = state.currentUser;
+        if (creatorId) {
+            updatedUsers = state.users.map(u => {
+                if (u.id !== creatorId) return u;
+                const newAccess = {
+                    projectId,
+                    role: 'manager' as ProjectRole,
+                    allowedModules: MOCK_MODULES.map(m => m.id)
+                };
+                const updated = {
+                    ...u,
+                    projectAccess: [...(u.projectAccess || []), newAccess]
+                };
+                if (updatedCurrentUser?.id === creatorId) {
+                    updatedCurrentUser = updated;
+                }
+                return updated;
+            });
+        }
+
         return {
             projects: [...state.projects, newProject],
+            users: updatedUsers,
+            currentUser: updatedCurrentUser,
             companyProfiles: [...state.companyProfiles, compProfile],
             workerProfiles: [...state.workerProfiles, workProfile],
             equipmentProfiles: [...state.equipmentProfiles, equipProfile]
@@ -1046,38 +1087,62 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const req = state.subscriptionRequests.find(r => r.id === id);
         if (!req) return;
 
-        const accountId = nanoid();
-        let maxProjects = 1;
-        let accessLimit = 1200;
-        if (req.plan === 'premium') {
-            maxProjects = 3;
-            accessLimit = 3600;
-        } else if (req.plan === 'enterprise') {
-            maxProjects = -1;
-            accessLimit = -1;
+        const cleanEmail = req.email.toLowerCase().trim();
+        const existingAccount = state.accounts.find(a => 
+            a.contactEmail?.toLowerCase().trim() === cleanEmail || 
+            (req.nif && a.vatNumber?.trim() === req.nif.trim()) ||
+            a.name.toLowerCase().trim() === req.companyName.toLowerCase().trim()
+        );
+
+        if (existingAccount) {
+            state.changeAccountPlan(existingAccount.id, req.plan);
+        } else {
+            const accountId = nanoid();
+            let maxProjects = 1;
+            let accessLimit = 1200;
+            let maxCompanyUsers = 5;
+            if (req.plan === 'premium') {
+                maxProjects = 3;
+                accessLimit = 3600;
+                maxCompanyUsers = 10;
+            } else if (req.plan === 'enterprise') {
+                maxProjects = -1;
+                accessLimit = -1;
+                maxCompanyUsers = 50;
+            }
+
+            // 1. Create client Account / Tenant
+            state.addAccount({
+                // @ts-ignore
+                id: accountId,
+                name: req.companyName,
+                vatNumber: req.nif,
+                contactEmail: cleanEmail,
+                contactPhone: req.phone,
+                plan: req.plan,
+                maxProjects,
+                accessControlLimit: accessLimit,
+                maxCompanyUsers,
+                subscriptionStatus: 'active',
+                modules: state.modules.map(m => m.id),
+            });
+
+            // 2. Create or link Company Administrator User
+            const existingUser = state.users.find(u => u.email.toLowerCase().trim() === cleanEmail);
+            if (existingUser) {
+                state.updateUser(existingUser.id, { accountId, role: 'admin' });
+            } else {
+                state.addUser({
+                    name: req.contactName,
+                    email: req.email,
+                    phone: req.phone,
+                    role: 'admin',
+                    accountId: accountId,
+                    password: req.password || '123456',
+                    projectAccess: []
+                });
+            }
         }
-
-        // 1. Create client Account / Tenant
-        state.addAccount({
-            // @ts-ignore
-            id: accountId,
-            name: req.companyName,
-            plan: req.plan,
-            maxProjects,
-            accessControlLimit: accessLimit,
-            subscriptionStatus: 'active',
-            modules: state.modules.map(m => m.id),
-        });
-
-        // 2. Create Company Administrator User
-        state.addUser({
-            name: req.contactName,
-            email: req.email,
-            role: 'admin',
-            accountId: accountId,
-            password: req.password || '123456',
-            projectAccess: []
-        });
 
         // 3. Mark request as approved
         state.updateSubscriptionRequest(id, {
@@ -1419,33 +1484,145 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
 
 
-    addProjectRequest: (userId, projectId) => set((state) => ({
-        projectRequests: [...state.projectRequests, { id: nanoid(), userId, projectId, status: 'pending', createdAt: new Date().toISOString() }]
-    })),
+    addProjectRequest: (userId, projectId, companyId, companyName) => set((state) => {
+        const user = state.users.find(u => u.id === userId) || state.currentUser;
+        const proj = state.projects.find(p => p.id === projectId);
+        const comp = companyId ? state.companies.find(c => c.id === companyId) : undefined;
+        const newReq: ProjectRequest = {
+            id: nanoid(),
+            userId,
+            userName: user?.name,
+            userEmail: user?.email,
+            projectId,
+            projectName: proj?.name,
+            companyId,
+            companyName: companyName || comp?.name,
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        };
+        dbInsert('project_requests', newReq).catch(() => {});
+        return {
+            projectRequests: [newReq, ...state.projectRequests]
+        };
+    }),
 
-    resolveProjectRequest: (requestId, status, role = 'viewer') => set((state) => {
+    resolveProjectRequest: (requestId, status, role = 'data_user') => set((state) => {
         const req = state.projectRequests.find(r => r.id === requestId);
         if (!req || req.status !== 'pending') return state; // No op
 
         let newUsers = state.users;
+        let updatedCurrentUser = state.currentUser;
+
         if (status === 'approved') {
-            // Grant Access
+            // Grant Access with requested company linked
             newUsers = state.users.map(u => {
                 if (u.id !== req.userId) return u;
                 const existing = u.projectAccess?.find(pa => pa.projectId === req.projectId);
                 if (existing) return u; // Already has access
-                return {
-                    ...u,
-                    projectAccess: [...(u.projectAccess || []), { projectId: req.projectId, role, allowedModules: [] }]
+                const newAccess = {
+                    projectId: req.projectId,
+                    role: (role || 'data_user') as ProjectRole,
+                    allowedModules: MOCK_MODULES.map(m => m.id),
+                    companyIds: req.companyId ? [req.companyId] : undefined
                 };
+                const updatedUser = {
+                    ...u,
+                    projectAccess: [...(u.projectAccess || []), newAccess]
+                };
+                if (state.currentUser?.id === u.id) {
+                    updatedCurrentUser = updatedUser;
+                }
+                return updatedUser;
             });
         }
 
+        dbUpdate('project_requests', requestId, { status }).catch(() => {});
+
         return {
             users: newUsers,
+            currentUser: updatedCurrentUser,
             projectRequests: state.projectRequests.map(r => r.id === requestId ? { ...r, status } : r)
         };
     }),
+
+    changeAccountPlan: (accountId, newPlan) => set((state) => {
+        let maxProjects = 0;
+        let accessLimit = 600;
+        let maxCompanyUsers = 1;
+
+        if (newPlan === 'basic') {
+            maxProjects = 1;
+            accessLimit = 1200;
+            maxCompanyUsers = 5;
+        } else if (newPlan === 'premium') {
+            maxProjects = 3;
+            accessLimit = 3600;
+            maxCompanyUsers = 10;
+        } else if (newPlan === 'enterprise') {
+            maxProjects = -1;
+            accessLimit = -1;
+            maxCompanyUsers = 50;
+        }
+
+        const updates = {
+            plan: newPlan,
+            maxProjects,
+            accessControlLimit: accessLimit,
+            maxCompanyUsers,
+            subscriptionStatus: 'active' as const
+        };
+
+        dbUpdate('accounts', accountId, updates).catch(() => {});
+
+        return {
+            accounts: state.accounts.map(a => a.id === accountId ? { ...a, ...updates } : a)
+        };
+    }),
+
+    associateCompanyUser: (companyAccountId, userEmail, userName) => {
+        const state = get();
+        const account = state.accounts.find(a => a.id === companyAccountId);
+        if (!account) return { success: false, message: 'Conta de empresa não encontrada.' };
+
+        const plan = account.plan;
+        let maxUsers = 1;
+        if (plan === 'basic') maxUsers = 5;
+        else if (plan === 'premium') maxUsers = 10;
+        else if (plan === 'enterprise') maxUsers = 50;
+
+        const currentMembers = state.users.filter(u => u.accountId === companyAccountId);
+        if (currentMembers.length >= maxUsers) {
+            return {
+                success: false,
+                message: `Limite de utilizadores atingido (${currentMembers.length}/${maxUsers}) para o plano ${plan.toUpperCase()}. Faça upgrade para associar mais membros.`
+            };
+        }
+
+        const cleanEmail = userEmail.trim().toLowerCase();
+        const targetUser = state.users.find(u => u.email.trim().toLowerCase() === cleanEmail);
+
+        if (targetUser) {
+            dbUpdate('users', targetUser.id, { accountId: companyAccountId }).catch(() => {});
+            set((s) => ({
+                users: s.users.map(u => u.id === targetUser.id ? { ...u, accountId: companyAccountId } : u)
+            }));
+            return { success: true, message: `Utilizador ${targetUser.name} associado com sucesso à sua empresa!` };
+        } else {
+            const newUser: User = {
+                id: nanoid(),
+                email: cleanEmail,
+                name: userName || cleanEmail.split('@')[0],
+                role: 'user',
+                accountId: companyAccountId,
+                createdAt: new Date().toISOString()
+            };
+            dbInsert('users', newUser).catch(() => {});
+            set((s) => ({
+                users: [...s.users, newUser]
+            }));
+            return { success: true, message: `Convite registado e utilizador ${newUser.name} associado à sua empresa!` };
+        }
+    },
 
     addCompanyRequest: (userId, companyId, projectId, updates) => set((state) => ({
         companyRequests: [...state.companyRequests, {
