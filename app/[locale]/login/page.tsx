@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { Shield, Mail, Lock, Building2, ArrowRight, Box, Smartphone, CheckCircle, FileText, HardHat, Truck, Check, Sparkles, Phone, User, CheckCircle2, AlertCircle, Loader2, Download, Share2, PlusSquare, Laptop, HelpCircle } from 'lucide-react';
+import { Shield, Mail, Lock, Building2, ArrowRight, Box, Smartphone, CheckCircle, FileText, HardHat, Truck, Check, Sparkles, User, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { PrimaryButton, Modal } from '@/components/Modal';
 import { BrandLogo } from '@/components/BrandLogo';
 import type { PlanType } from '@/types';
@@ -19,79 +19,25 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
 
+    // Forgot Password State
+    const [showForgotModal, setShowForgotModal] = useState(false);
+    const [forgotEmail, setForgotEmail] = useState('');
+    const [forgotSent, setForgotSent] = useState(false);
+    const [forgotLoading, setForgotLoading] = useState(false);
+    const [forgotError, setForgotError] = useState('');
+
     // Register State
     const [regData, setRegData] = useState({
         name: '',
         companyName: '',
         nif: '',
         email: '',
-        phone: '',
         password: '',
     });
     const [consentRgpd, setConsentRgpd] = useState(false);
     const [showPrivacyModal, setShowPrivacyModal] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [regError, setRegError] = useState('');
-
-    // PWA Install State
-    const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-    const [isInstalled, setIsInstalled] = useState(false);
-    const [isIos, setIsIos] = useState(false);
-    const [showInstallModal, setShowInstallModal] = useState(false);
-
-    // Monitor PWA installation status & beforeinstallprompt event
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-
-        // Check if running in standalone mode (already installed)
-        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
-        if (isStandalone) {
-            setIsInstalled(true);
-        }
-
-        // Detect iOS
-        const userAgent = window.navigator.userAgent.toLowerCase();
-        const isIosDevice = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
-        setIsIos(isIosDevice);
-
-        const handleBeforeInstall = (e: Event) => {
-            e.preventDefault();
-            setDeferredPrompt(e);
-        };
-
-        const handleAppInstalled = () => {
-            setIsInstalled(true);
-            setDeferredPrompt(null);
-        };
-
-        window.addEventListener('beforeinstallprompt', handleBeforeInstall);
-        window.addEventListener('appinstalled', handleAppInstalled);
-
-        return () => {
-            window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
-            window.removeEventListener('appinstalled', handleAppInstalled);
-        };
-    }, []);
-
-    const handleInstallClick = async () => {
-        if (isInstalled) {
-            alert('A aplicação Safety1irst já se encontra instalada no seu dispositivo.');
-            return;
-        }
-
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            if (outcome === 'accepted') {
-                setIsInstalled(true);
-            }
-            setDeferredPrompt(null);
-            return;
-        }
-
-        // If beforeinstallprompt hasn't fired or on iOS/Safari, show the instructions modal
-        setShowInstallModal(true);
-    };
 
     // Force safety theme on login page regardless of global ThemeProvider state
     useEffect(() => {
@@ -184,7 +130,7 @@ export default function LoginPage() {
                 name: regData.companyName.trim(),
                 vatNumber: regData.nif.trim(),
                 contactEmail: emailClean,
-                contactPhone: regData.phone.trim() || undefined,
+                contactPhone: undefined,
                 plan: 'free',
                 status: 'active',
                 subscriptionStatus: 'active',
@@ -200,7 +146,7 @@ export default function LoginPage() {
                 accountId: newAccountId,
                 name: regData.name.trim(),
                 email: emailClean,
-                phone: regData.phone.trim() || undefined,
+                phone: undefined,
                 password: regData.password,
                 role: 'client_admin',
                 projectAccess: [],
@@ -238,6 +184,20 @@ export default function LoginPage() {
         }
     };
 
+    const handleForgotPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setForgotError('');
+        if (!forgotEmail.trim()) {
+            setForgotError('Por favor insira o seu endereço de email.');
+            return;
+        }
+        setForgotLoading(true);
+        setTimeout(() => {
+            setForgotLoading(false);
+            setForgotSent(true);
+        }, 600);
+    };
+
     return (
         <div id="login-page" className="login-page min-h-screen bg-background flex flex-col" style={{
             '--primary': '26 115 232',
@@ -255,25 +215,7 @@ export default function LoginPage() {
                         {/* Logo removed from header as requested */}
                     </div>
                     <div className="flex items-center gap-3">
-                        <button
-                            type="button"
-                            onClick={handleInstallClick}
-                            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-primary text-white hover:bg-primary-hover shadow-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
-                            title="Instalar Safety1irst como aplicação no seu dispositivo"
-                        >
-                            {isInstalled ? (
-                                <>
-                                    <CheckCircle2 size={14} className="text-emerald-300" />
-                                    <span>App Instalada</span>
-                                </>
-                            ) : (
-                                <>
-                                    <Download size={14} />
-                                    <span>Instalar WebApp</span>
-                                </>
-                            )}
-                        </button>
-                        <div className="text-xs font-medium text-gray-500 hidden sm:block">
+                        <div className="text-xs font-medium text-gray-500">
                             Safety Management Platform v2.0
                         </div>
                     </div>
@@ -341,13 +283,26 @@ export default function LoginPage() {
                                                 type="email" required
                                                 className="block w-full pl-10 sm:text-sm border-gray-300 dark:border-[#444746] rounded-lg py-2.5 border focus:ring-2 focus:ring-primary focus:border-blue-500 transition-all outline-none"
                                                 value={email} onChange={e => setEmail(e.target.value)}
-                                                placeholder="exemplo@empresa.com"
                                             />
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Palavra-passe</label>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">Palavra-passe</label>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setForgotEmail(email);
+                                                    setForgotSent(false);
+                                                    setForgotError('');
+                                                    setShowForgotModal(true);
+                                                }}
+                                                className="text-xs text-primary hover:underline font-medium"
+                                            >
+                                                Esqueceu-se da palavra-passe?
+                                            </button>
+                                        </div>
                                         <div className="relative">
                                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                                                 <Lock className="h-5 w-5 text-gray-400" />
@@ -356,7 +311,6 @@ export default function LoginPage() {
                                                 type="password" required
                                                 className="block w-full pl-10 sm:text-sm border-gray-300 dark:border-[#444746] rounded-lg py-2.5 border focus:ring-2 focus:ring-primary focus:border-blue-500 transition-all outline-none"
                                                 value={password} onChange={e => setPassword(e.target.value)}
-                                                placeholder="••••••••"
                                             />
                                         </div>
                                     </div>
@@ -388,7 +342,6 @@ export default function LoginPage() {
                                                     <Building2 className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                                     <input
                                                         type="text" required
-                                                        placeholder="Nome da Empresa"
                                                         className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                                         value={regData.companyName}
                                                         onChange={e => setRegData({ ...regData, companyName: e.target.value })}
@@ -401,7 +354,6 @@ export default function LoginPage() {
                                                     <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                                     <input
                                                         type="text" required
-                                                        placeholder="NIF / NIPC"
                                                         className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                                         value={regData.nif}
                                                         onChange={e => setRegData({ ...regData, nif: e.target.value })}
@@ -411,12 +363,11 @@ export default function LoginPage() {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">Nome do Responsável *</label>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Nome *</label>
                                             <div className="relative">
                                                 <User className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                                 <input
                                                     type="text" required
-                                                    placeholder="Nome completo"
                                                     className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                                     value={regData.name}
                                                     onChange={e => setRegData({ ...regData, name: e.target.value })}
@@ -424,42 +375,25 @@ export default function LoginPage() {
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">Email Corporativo *</label>
-                                                <div className="relative">
-                                                    <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                                                    <input
-                                                        type="email" required
-                                                        placeholder="email@empresa.pt"
-                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                                        value={regData.email}
-                                                        onChange={e => setRegData({ ...regData, email: e.target.value })}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">Telefone</label>
-                                                <div className="relative">
-                                                    <Phone className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                                                    <input
-                                                        type="tel"
-                                                        placeholder="9xxxxxxxx"
-                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                                        value={regData.phone}
-                                                        onChange={e => setRegData({ ...regData, phone: e.target.value })}
-                                                    />
-                                                </div>
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Email *</label>
+                                            <div className="relative">
+                                                <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                <input
+                                                    type="email" required
+                                                    className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                    value={regData.email}
+                                                    onChange={e => setRegData({ ...regData, email: e.target.value })}
+                                                />
                                             </div>
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">Palavra-passe pretendida * (min. 8 car.)</label>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Palavra-passe *</label>
                                             <div className="relative">
                                                 <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                                 <input
                                                     type="password" required
-                                                    placeholder="••••••••"
                                                     className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                                     value={regData.password}
                                                     onChange={e => setRegData({ ...regData, password: e.target.value })}
@@ -478,7 +412,7 @@ export default function LoginPage() {
                                                     className="mt-0.5 rounded border-gray-300 text-primary focus:ring-primary h-4 w-4 shrink-0"
                                                 />
                                                 <span className="leading-tight text-[11px]">
-                                                    Autorizo a recolha e o tratamento dos meus dados pessoais (nome, email e telefone) pela <strong>XISPOLI / Safety1irst</strong> para efeitos de criação de conta, gestão de acessos e suporte aos utilizadores.{' '}
+                                                    Autorizo a recolha e o tratamento dos meus dados pessoais (nome e email) pela <strong>XISPOLI / Safety1irst</strong> para efeitos de criação de conta, gestão de acessos e suporte aos utilizadores.{' '}
                                                     <button
                                                         type="button"
                                                         onClick={() => setShowPrivacyModal(true)}
@@ -529,36 +463,6 @@ export default function LoginPage() {
                                     </p>
                                 </div>
                             )}
-                        </div>
-
-                        {/* PWA Install Card */}
-                        <div className="mt-4 p-4 bg-white/95 dark:bg-surface/95 backdrop-blur-md rounded-2xl border border-gray-200 dark:border-[#444746] shadow-sm flex items-center justify-between gap-3 animate-in fade-in duration-500">
-                            <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-primary flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900/50">
-                                    <Smartphone className="w-5 h-5" />
-                                </div>
-                                <div className="min-w-0">
-                                    <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate">Instalar a aplicação Safety1irst</h4>
-                                    <p className="text-[11px] text-gray-500 truncate">Acesso rápido no telemóvel e PC, com suporte offline</p>
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleInstallClick}
-                                className="shrink-0 px-3.5 py-2 bg-gray-900 hover:bg-gray-800 dark:bg-white dark:hover:bg-gray-100 dark:text-gray-900 text-white rounded-xl text-xs font-semibold transition-all shadow-sm flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98]"
-                            >
-                                {isInstalled ? (
-                                    <>
-                                        <CheckCircle2 size={13} className="text-emerald-400" />
-                                        <span>Instalada</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Download size={13} />
-                                        <span>Instalar App</span>
-                                    </>
-                                )}
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -690,11 +594,11 @@ export default function LoginPage() {
 
                     <div>
                         <h4 className="font-bold text-gray-900 dark:text-white mb-1">2. Finalidade e Base de Licitude</h4>
-                        <p>Os dados recolhidos (Nome, Empresa, NIF, Email e Telefone) destinam-se exclusivamente a:</p>
+                        <p>Os dados recolhidos (Nome, Empresa, NIF e Email) destinam-se exclusivamente a:</p>
                         <ul className="list-disc pl-5 mt-1 space-y-1">
-                            <li>Processar e validar o seu pedido de adesão/subscrição (diligências pré-contratuais — Art. 6.º, n.º 1, al. b) do RGPD);</li>
-                            <li>Verificação de legitimidade da empresa e contacto direto para apoio à ativação do acesso (consentimento — Art. 6.º, n.º 1, al. a) do RGPD);</li>
-                            <li>Envio de notificações de ativação e link de confirmação do email corporativo.</li>
+                            <li>Processar e validar a sua conta e acesso ao Workplace (diligências pré-contratuais — Art. 6.º, n.º 1, al. b) do RGPD);</li>
+                            <li>Comunicação e suporte direto aos utilizadores da plataforma (consentimento — Art. 6.º, n.º 1, al. a) do RGPD);</li>
+                            <li>Envio de notificações de segurança, recuperação de conta e validação de acessos.</li>
                         </ul>
                     </div>
 
@@ -725,96 +629,86 @@ export default function LoginPage() {
                 </div>
             </Modal>
 
-            {/* Modal de Instalação PWA */}
+            {/* Modal de Recuperação de Palavra-passe */}
             <Modal
-                title="Instalar Aplicação Safety1irst"
-                isOpen={showInstallModal}
-                onClose={() => setShowInstallModal(false)}
+                title="Recuperar Palavra-passe"
+                isOpen={showForgotModal}
+                onClose={() => setShowForgotModal(false)}
             >
-                <div className="space-y-5 text-xs text-gray-700 dark:text-gray-300">
-                    <div className="flex items-center gap-3 p-3 bg-blue-50 dark:bg-blue-950/40 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200">
-                        <Smartphone className="w-6 h-6 text-primary shrink-0" />
+                {forgotSent ? (
+                    <div className="space-y-4 py-2 text-center">
+                        <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                            <CheckCircle2 size={24} />
+                        </div>
                         <div>
-                            <p className="font-semibold text-xs">Instale a plataforma diretamente no seu dispositivo</p>
-                            <p className="text-[11px] text-blue-700 dark:text-blue-300">Sem necessidade de recorrer a lojas de apps. Funciona mais rápido e com suporte offline.</p>
+                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">Instruções enviadas</h3>
+                            <p className="text-xs text-gray-600 dark:text-gray-300 mt-1.5 leading-relaxed">
+                                Se o email <strong>{forgotEmail}</strong> estiver registado na plataforma, enviámos uma mensagem com as instruções para redefinir a sua palavra-passe.
+                            </p>
+                            <p className="text-[11px] text-gray-500 mt-2">
+                                Por favor verifique a sua caixa de entrada e pasta de correio não solicitado (spam).
+                            </p>
+                        </div>
+                        <div className="pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowForgotModal(false)}
+                                className="w-full py-2 bg-primary text-white rounded-lg text-xs font-semibold hover:bg-primary-hover transition-colors"
+                            >
+                                Voltar ao Início de Sessão
+                            </button>
                         </div>
                     </div>
-
-                    {isIos ? (
-                        /* Instruções iOS (iPhone / iPad) */
-                        <div className="space-y-3">
-                            <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-[10px]">iOS</span>
-                                Como instalar no iPhone ou iPad (Safari):
-                            </h4>
-                            <div className="space-y-2.5 pl-2">
-                                <div className="flex items-start gap-3">
-                                    <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                                    <p className="leading-tight">Toque no botão <strong>Partilhar</strong> na barra inferior do Safari (<Share2 className="inline w-3.5 h-3.5 mx-1 text-primary" /> quadrado com seta para cima).</p>
-                                </div>
-                                <div className="flex items-start gap-3">
-                                    <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                                    <p className="leading-tight">Deslize pelas opções e selecione <strong>"Adicionar ao Ecrã Principal"</strong> (<PlusSquare className="inline w-3.5 h-3.5 mx-1 text-primary" />).</p>
-                                </div>
-                                <div className="flex items-start gap-3">
-                                    <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                                    <p className="leading-tight">Toque em <strong>"Adicionar"</strong> no canto superior direito.</p>
-                                </div>
+                ) : (
+                    <form onSubmit={handleForgotPassword} className="space-y-4 py-1">
+                        <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                            Insira o seu endereço de email associado à sua conta. Receberá uma mensagem com as instruções para definir uma nova palavra-passe.
+                        </p>
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                            <div className="relative">
+                                <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                <input
+                                    type="email"
+                                    required
+                                    className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                    value={forgotEmail}
+                                    onChange={e => setForgotEmail(e.target.value)}
+                                />
                             </div>
                         </div>
-                    ) : (
-                        /* Instruções Android & Desktop */
-                        <div className="space-y-4">
-                            <div className="space-y-2.5">
-                                <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                    <Smartphone className="w-4 h-4 text-primary" />
-                                    No Android (Chrome / Edge / Samsung):
-                                </h4>
-                                <div className="space-y-2 pl-2">
-                                    <div className="flex items-start gap-3">
-                                        <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                                        <p className="leading-tight">Toque no menu de três pontos (<strong>⋮</strong>) no topo direito do navegador.</p>
-                                    </div>
-                                    <div className="flex items-start gap-3">
-                                        <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                                        <p className="leading-tight">Selecione <strong>"Instalar aplicação"</strong> ou <strong>"Adicionar ao ecrã inicial"</strong>.</p>
-                                    </div>
-                                    <div className="flex items-start gap-3">
-                                        <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                                        <p className="leading-tight">Confirme no botão <strong>"Instalar"</strong>.</p>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <div className="space-y-2.5 pt-2 border-t border-gray-100 dark:border-zinc-800">
-                                <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                                    <Laptop className="w-4 h-4 text-primary" />
-                                    No Computador (Windows / Mac / Linux):
-                                </h4>
-                                <div className="space-y-2 pl-2">
-                                    <div className="flex items-start gap-3">
-                                        <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                                        <p className="leading-tight">Clique no ícone de instalação (<Download className="inline w-3.5 h-3.5 mx-1 text-primary" />) na barra de endereços do browser, à direita do URL.</p>
-                                    </div>
-                                    <div className="flex items-start gap-3">
-                                        <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-zinc-800 text-gray-800 dark:text-gray-200 flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                                        <p className="leading-tight">Ou abra o menu (<strong>⋮</strong>) do Chrome/Edge e selecione <strong>"Instalar Safety1irst..."</strong>.</p>
-                                    </div>
-                                </div>
+                        {forgotError && (
+                            <div className="text-red-600 text-xs bg-red-50 p-2 rounded-lg border border-red-200 flex items-center gap-1.5">
+                                <AlertCircle size={14} className="shrink-0" />
+                                <span>{forgotError}</span>
                             </div>
+                        )}
+
+                        <div className="flex items-center justify-end gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowForgotModal(false)}
+                                className="px-3.5 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <PrimaryButton
+                                type="submit"
+                                disabled={forgotLoading}
+                                className="text-xs py-2 px-4"
+                            >
+                                {forgotLoading ? (
+                                    <span className="flex items-center gap-1.5">
+                                        <Loader2 size={13} className="animate-spin" /> A enviar...
+                                    </span>
+                                ) : (
+                                    'Enviar Instruções'
+                                )}
+                            </PrimaryButton>
                         </div>
-                    )}
-
-                    <div className="pt-2 text-right">
-                        <button
-                            type="button"
-                            onClick={() => setShowInstallModal(false)}
-                            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition-colors"
-                        >
-                            Entendido
-                        </button>
-                    </div>
-                </div>
+                    </form>
+                )}
             </Modal>
         </div>
     );
