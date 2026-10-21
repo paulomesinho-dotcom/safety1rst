@@ -94,15 +94,20 @@
  */
 
 .sidebar-container {
+    width: 270px;
     background: var(--bg-card);
     border-right: 1px solid var(--border);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.sidebar-container.collapsed {
+    width: 60px;
 }
 
 .sidebar-toggle-btn {
     position: absolute;
     right: -12px;
-    top: 26px;
+    top: 70px;
     width: 24px;
     height: 24px;
     background: #4285F4;
@@ -112,14 +117,27 @@
     justify-content: center;
     cursor: pointer;
     z-index: 50;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
     transition: all 0.2s ease;
     border: none;
     color: white;
 }
 .sidebar-toggle-btn:hover {
-    filter: brightness(1.15);
-    transform: scale(1.08);
+    background: #3367D6;
+    transform: scale(1.05);
+}
+
+.fjm-nav-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    letter-spacing: 0.8px;
+    padding-left: 16px;
+}
+.light .fjm-nav-label {
+    color: #5F6368 !important;
 }
 
 .fjm-nav-item {
@@ -136,18 +154,26 @@
     font-weight: 500;
     text-decoration: none;
     margin-bottom: 2px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 .fjm-nav-item:hover {
-    background: rgba(66, 133, 244, 0.08);
+    background: rgba(66, 133, 244, 0.1);
     color: var(--text);
 }
+.light .fjm-nav-item {
+    color: #202124 !important;
+}
+.light .fjm-nav-item:hover {
+    background: #F1F3F4 !important;
+    color: #202124 !important;
+}
 .fjm-nav-item.active {
-    background: rgba(66, 133, 244, 0.15) !important;
-    color: #4285F4 !important;
-    font-weight: 600;
+    background: rgba(66, 133, 244, 0.2) !important;
+    color: #F1F5F9 !important;
+    font-weight: 500;
 }
 .light .fjm-nav-item.active {
-    background: rgba(26, 115, 232, 0.1) !important;
+    background: rgba(66, 133, 244, 0.1) !important;
     color: #1A73E8 !important;
 }
 .fjm-nav-item.active svg {
@@ -156,12 +182,19 @@
 .light .fjm-nav-item.active svg {
     color: #1A73E8 !important;
 }
+.light .fjm-nav-item svg {
+    color: #5F6368;
+}
+.light .fjm-nav-item:hover svg {
+    color: #202124;
+}
 
 /* Sidebar Footer */
 .fjm-sidebar-footer {
     margin-top: auto;
-    padding-top: 14px;
+    padding-top: 10px;
     border-top: 1px solid var(--border);
+    width: 100%;
 }
 
 /* Theme Toggle Pill (FundacaoJM style) */
@@ -172,15 +205,27 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 8px;
+    padding: 4px 8px;
+    margin-bottom: 6px;
     border-radius: 8px;
     color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
     transition: all 0.2s;
     user-select: none;
 }
 .fjm-theme-toggle:hover {
     background: var(--bg-input);
     color: var(--text);
+}
+.light .fjm-theme-toggle {
+    background: #F8F9FA;
+    border-color: #E8EAED;
+    color: #5F6368;
+}
+.light .fjm-theme-toggle:hover {
+    background: #F1F3F4;
+    color: #202124;
 }
 
 .fjm-theme-toggle-switch {
@@ -215,37 +260,42 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px;
+    padding: 8px 10px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
     transition: all 0.2s;
 }
+.light .fjm-user-card {
+    background: #F8F9FA !important;
+    border: 1px solid #E8EAED !important;
+}
 .fjm-user-avatar {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #4285F4, #8B5CF6);
+    background: linear-gradient(135deg, #4285F4, #34A853) !important;
+    color: white !important;
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    font-size: 13px;
-    color: white;
+    font-size: 12px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
     flex-shrink: 0;
 }
-.light .fjm-user-avatar {
-    background: linear-gradient(135deg, #1A73E8, #34A853);
-}
 .fjm-user-name {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500 !important;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.light .fjm-user-name {
+    color: #202124 !important;
+    font-weight: 500 !important;
 }
 .fjm-user-role {
     font-size: 11px;
@@ -253,6 +303,9 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.light .fjm-user-role {
+    color: #5F6368 !important;
 }
 
 /* Custom Scrollbar */

@@ -99,8 +99,8 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                 <div className="flex h-screen w-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
                     {/* FundacaoJM Style Sidebar */}
                     <aside className={cn(
-                        "sidebar-container relative h-full flex flex-col pt-5 pb-4 transition-all duration-300 ease-in-out shrink-0 select-none",
-                        isCollapsed ? "w-16 px-2" : "w-64 px-4"
+                        "sidebar-container relative h-full flex flex-col transition-all duration-300 ease-in-out shrink-0 select-none",
+                        isCollapsed ? "w-[60px] py-5 px-2.5 collapsed" : "w-[270px] p-5"
                     )}>
                         {/* Floating Sidebar Toggle Button (FundacaoJM style) */}
                         <button
@@ -112,10 +112,10 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                         </button>
 
                         {/* Top Logo & App Title */}
-                        <div className={cn("flex items-center gap-3 mb-4", isCollapsed ? "justify-center" : "px-2")}>
+                        <div className={cn("flex items-center gap-3 mb-4 pb-4 border-b border-[var(--border)]", isCollapsed ? "justify-center" : "px-1")}>
                             <img src="/safetyfirst-logo.png" alt="Safety1irst" className="w-8 h-8 object-contain shrink-0" />
                             {!isCollapsed && (
-                                <span className="font-semibold text-lg tracking-tight text-[var(--text)] whitespace-nowrap">
+                                <span className="text-[20px] font-medium tracking-[-0.5px] text-[var(--text)] whitespace-nowrap">
                                     Safety<span style={{ color: '#4285F4', fontWeight: 700 }}>1irst</span>
                                 </span>
                             )}
@@ -138,6 +138,9 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
 
                         {/* Nav Items List */}
                         <nav className="flex-1 overflow-y-auto pr-1">
+                            {!isCollapsed && (
+                                <div className="fjm-nav-label">Menu</div>
+                            )}
                             <ul className="space-y-0.5">
                                 {/* Dashboard */}
                                 <li>
@@ -308,7 +311,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                     {/* Main Content Area */}
                     <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
                         <Header />
-                        <main className="flex-1 bg-[var(--bg-card)] ml-3 mt-3 mr-4 mb-4 rounded-2xl shadow-sm border border-[var(--border)] overflow-hidden relative">
+                        <main className="flex-1 bg-[var(--bg-card)] ml-3 mt-3 mr-4 mb-4 rounded-lg shadow-sm border border-[var(--border)] overflow-hidden relative">
                             <div className="absolute inset-0 overflow-y-auto p-6">
                                 {children}
                             </div>
