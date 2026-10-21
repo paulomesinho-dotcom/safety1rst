@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable, ensureUserColumns } from '@/lib/prisma';
 
 // GET /api/platform/clients
 // Retorna todos os Tenants, Users e SubscriptionRequests da base de dados PostgreSQL
 export async function GET() {
     try {
         await ensureSubscriptionTable();
+        await ensureUserColumns();
 
         const [tenants, dbUsers, requests] = await Promise.all([
             prisma.tenant.findMany({
@@ -51,6 +52,11 @@ export async function GET() {
             password: u.password || undefined,
             role: (u.role || 'client_admin') as any,
             avatar: u.avatarUrl || u.image || undefined,
+            status: (u.status || 'active') as any,
+            lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
+            suspendedAt: u.suspendedAt ? u.suspendedAt.toISOString() : undefined,
+            suspensionReason: u.suspensionReason || undefined,
+            deletedAt: u.deletedAt ? u.deletedAt.toISOString() : undefined,
             emailVerified: u.emailVerified ? u.emailVerified.toISOString() : undefined,
             createdAt: u.createdAt.toISOString(),
             projectAccess: [],

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { prisma, ensureSubscriptionTable } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable, ensureUserColumns } from '@/lib/prisma';
 
 // POST /api/auth/login-verify
 // Validação de credenciais contra a base de dados central PostgreSQL
@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
         }
 
         await ensureSubscriptionTable();
+        await ensureUserColumns();
 
         // 1. Verificar se existe utilizador no PostgreSQL
         const dbUser = await prisma.user.findUnique({
@@ -52,6 +53,26 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // 1.1 Verificar se a conta está suspensa temporariamente ou eliminada (RGPD)
+        if (dbUser.status === 'suspended') {
+            return NextResponse.json(
+                {
+                    error: 'account_suspended',
+                    message: dbUser.suspensionReason
+                        ? `A sua conta encontra-se temporariamente suspensa pelo administrador (Motivo: ${dbUser.suspensionReason}).`
+                        : 'A sua conta encontra-se temporariamente suspensa pelo administrador. Por favor contacte o suporte.'
+                },
+                { status: 403 }
+            );
+        }
+
+        if (dbUser.status === 'deleted') {
+            return NextResponse.json(
+                { error: 'account_deleted', message: 'Esta conta foi removida em conformidade com o RGPD.' },
+                { status: 403 }
+            );
+        }
+
         // 2. Verificar password com bcrypt
         let isPasswordValid = false;
         if (dbUser.password) {
@@ -69,7 +90,14 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // 3. Montar dados do utilizador e da conta/tenant
+        // 3. Registar último login no PostgreSQL
+        const now = new Date();
+        await prisma.user.update({
+            where: { id: dbUser.id },
+            data: { lastLoginAt: now },
+        }).catch(() => {});
+
+        // 4. Montar dados do utilizador e da conta/tenant
         const tenant = dbUser.tenant;
         const account = tenant ? {
             id: tenant.id,
@@ -93,6 +121,12 @@ export async function POST(req: NextRequest) {
             password: password,
             role: (dbUser.role || 'client_admin') as any,
             avatar: dbUser.avatarUrl || dbUser.image || undefined,
+            status: (dbUser.status || 'active') as any,
+            lastLoginAt: now.toISOString(),
+            suspendedAt: dbUser.suspendedAt ? dbUser.suspendedAt.toISOString() : undefined,
+            suspensionReason: dbUser.suspensionReason || undefined,
+            deletedAt: dbUser.deletedAt ? dbUser.deletedAt.toISOString() : undefined,
+            createdAt: dbUser.createdAt ? dbUser.createdAt.toISOString() : now.toISOString(),
             projectAccess: [],
         };
 

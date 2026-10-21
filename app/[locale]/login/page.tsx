@@ -103,12 +103,12 @@ export default function LoginPage() {
             return;
         }
 
-        const success = await login(cleanEmail, password);
+        const res = await login(cleanEmail, password);
 
-        if (success) {
+        if (res.success) {
             router.push('/');
         } else {
-            setError('E-mail ou palavra-passe incorretos.');
+            setError(res.error || 'E-mail ou palavra-passe incorretos.');
         }
     };
 

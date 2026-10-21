@@ -101,6 +101,24 @@ export async function ensureVerificationTokenTable() {
     }
 }
 
+let userColumnsEnsured = false;
+export async function ensureUserColumns() {
+    if (userColumnsEnsured) return;
+    if (!process.env.DATABASE_URL) return;
+    try {
+        await prisma.$executeRawUnsafe(`
+            ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "status" TEXT NOT NULL DEFAULT 'active';
+            ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "lastLoginAt" TIMESTAMP(3);
+            ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "suspendedAt" TIMESTAMP(3);
+            ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "suspensionReason" TEXT;
+            ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3);
+        `);
+        userColumnsEnsured = true;
+    } catch (e: any) {
+        console.warn('[Prisma] ensureUserColumns warning:', e?.message || e);
+    }
+}
+
 export default prisma;
 
 

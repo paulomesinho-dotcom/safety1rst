@@ -10,6 +10,8 @@ export interface ProjectAccess {
     companyIds?: string[]; // For Data Users: ID of the companies they can access
 }
 
+export type UserStatus = 'active' | 'suspended' | 'deleted';
+
 export interface User {
     id: string;
     email: string;
@@ -20,6 +22,12 @@ export interface User {
     projectAccess?: ProjectAccess[]; // Permissions per project
     avatarUrl?: string;
     password?: string;
+    status?: UserStatus;
+    lastLoginAt?: string;
+    suspendedAt?: string;
+    suspensionReason?: string;
+    deletedAt?: string;
+    gdprAnonymized?: boolean;
     createdAt: string;
 }
 

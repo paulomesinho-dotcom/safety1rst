@@ -82,12 +82,16 @@ export interface AppState {
     setFieldPermission: (entityId: string, entityType: 'company' | 'worker' | 'equipment', field: string, allowEdit: boolean) => void;
 
     // Users
-    login: (email: string, password?: string) => Promise<boolean>;
+    login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
     addUser: (user: Omit<User, 'id' | 'createdAt'> & { id?: string }) => void;
     addAccount: (account: Omit<Account, 'id' | 'createdAt'> & { id?: string }) => void;
     updateAccount: (id: string, updates: Partial<Account>) => void;
     updateUser: (id: string, updates: Partial<User>) => void;
     deleteUser: (userId: string) => void;
+    suspendUser: (userId: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
+    reactivateUser: (userId: string) => Promise<{ success: boolean; message?: string }>;
+    deleteUserGdpr: (userId: string, mode?: 'anonymize' | 'purge', reason?: string) => Promise<{ success: boolean; message?: string }>;
+    cleanupInactiveUsers: (thresholdDays: number, mode?: 'suspend' | 'anonymize') => Promise<{ success: boolean; count: number; message: string }>;
     ensureSuperAdmin: () => void;
     syncFromServer: () => Promise<void>;
     addAccessLog: (log: Omit<AccessLog, 'id' | 'timestamp'>) => { success: boolean; message?: string };
@@ -835,14 +839,36 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             user = MOCK_USERS.find(u => u.email.trim().toLowerCase() === cleanEmail);
         }
         if (user) {
+            // Verificar suspensão temporária ou eliminação RGPD
+            if (user.status === 'suspended') {
+                return {
+                    success: false,
+                    error: user.suspensionReason
+                        ? `A sua conta encontra-se temporariamente suspensa pelo administrador (Motivo: ${user.suspensionReason}).`
+                        : 'A sua conta encontra-se temporariamente suspensa pelo administrador. Por favor contacte o suporte.'
+                };
+            }
+            if (user.status === 'deleted') {
+                return {
+                    success: false,
+                    error: 'Esta conta foi removida em conformidade com o RGPD.'
+                };
+            }
+
             if (user.password) {
                 if (password && user.password === password) {
-                    set({ currentUser: user });
-                    return true;
+                    const now = new Date().toISOString();
+                    const updatedUser = { ...user, lastLoginAt: now };
+                    set({ currentUser: updatedUser });
+                    get().updateUser(user.id, { lastLoginAt: now });
+                    return { success: true };
                 }
             } else {
-                set({ currentUser: user });
-                return true;
+                const now = new Date().toISOString();
+                const updatedUser = { ...user, lastLoginAt: now };
+                set({ currentUser: updatedUser });
+                get().updateUser(user.id, { lastLoginAt: now });
+                return { success: true };
             }
         }
 
@@ -866,16 +892,22 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     const existingUser = get().users.find(u => u.id === authenticatedUser.id || u.email.toLowerCase() === cleanEmail);
                     if (!existingUser) {
                         get().addUser(authenticatedUser);
+                    } else {
+                        get().updateUser(existingUser.id, authenticatedUser);
                     }
                     set({ currentUser: authenticatedUser });
-                    return true;
+                    return { success: true };
+                }
+
+                if (!res.ok && data.message) {
+                    return { success: false, error: data.message };
                 }
             }
         } catch (serverErr) {
             console.warn('[Store] Fallback de autenticação no servidor falhou:', serverErr);
         }
 
-        return false;
+        return { success: false, error: 'E-mail ou palavra-passe incorretos.' };
     },
 
     syncFromServer: async () => {
@@ -1546,6 +1578,137 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbRemove('users', userId).catch(console.error);
         return { users: state.users.filter(u => u.id !== userId) };
     }),
+
+    suspendUser: async (userId: string, reason?: string) => {
+        try {
+            const res = await fetch('/api/platform/users', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'suspend', userId, reason }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const now = new Date().toISOString();
+                set((state) => ({
+                    users: state.users.map(u => u.id === userId ? {
+                        ...u,
+                        status: 'suspended',
+                        suspendedAt: now,
+                        suspensionReason: reason || 'Suspensão temporária por decisão administrativa.'
+                    } : u)
+                }));
+                get().addNotification('info', 'Utilizador suspenso temporariamente com sucesso.');
+                return { success: true };
+            }
+            return { success: false, message: data.error };
+        } catch (e: any) {
+            const now = new Date().toISOString();
+            set((state) => ({
+                users: state.users.map(u => u.id === userId ? {
+                    ...u,
+                    status: 'suspended',
+                    suspendedAt: now,
+                    suspensionReason: reason || 'Suspensão temporária.'
+                } : u)
+            }));
+            return { success: true };
+        }
+    },
+
+    reactivateUser: async (userId: string) => {
+        try {
+            const res = await fetch('/api/platform/users', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reactivate', userId }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                set((state) => ({
+                    users: state.users.map(u => u.id === userId ? {
+                        ...u,
+                        status: 'active',
+                        suspendedAt: undefined,
+                        suspensionReason: undefined
+                    } : u)
+                }));
+                get().addNotification('success', 'Acesso do utilizador reativado com sucesso.');
+                return { success: true };
+            }
+            return { success: false, message: data.error };
+        } catch (e: any) {
+            set((state) => ({
+                users: state.users.map(u => u.id === userId ? {
+                    ...u,
+                    status: 'active',
+                    suspendedAt: undefined,
+                    suspensionReason: undefined
+                } : u)
+            }));
+            return { success: true };
+        }
+    },
+
+    deleteUserGdpr: async (userId: string, mode: 'anonymize' | 'purge' = 'anonymize', reason?: string) => {
+        try {
+            const res = await fetch(`/api/platform/users?userId=${encodeURIComponent(userId)}&mode=${mode}&reason=${encodeURIComponent(reason || '')}`, {
+                method: 'DELETE',
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (mode === 'purge') {
+                    set((state) => ({
+                        users: state.users.filter(u => u.id !== userId)
+                    }));
+                    dbRemove('users', userId).catch(console.error);
+                } else {
+                    const now = new Date().toISOString();
+                    const anonEmail = `anonimizado_${userId.substring(0, 8)}@rgpd.safe`;
+                    set((state) => ({
+                        users: state.users.map(u => u.id === userId ? {
+                            ...u,
+                            name: 'Utilizador Removido (RGPD)',
+                            email: anonEmail,
+                            password: '',
+                            status: 'deleted',
+                            deletedAt: now,
+                            suspensionReason: reason,
+                            gdprAnonymized: true,
+                            projectAccess: []
+                        } : u)
+                    }));
+                }
+                get().addNotification('success', mode === 'purge' ? 'Utilizador eliminado definitivamente.' : 'Dados do utilizador anonimizados ao abrigo do RGPD.');
+                return { success: true };
+            }
+            return { success: false, message: data.error };
+        } catch (e: any) {
+            set((state) => ({
+                users: state.users.filter(u => u.id !== userId)
+            }));
+            dbRemove('users', userId).catch(console.error);
+            return { success: true };
+        }
+    },
+
+    cleanupInactiveUsers: async (thresholdDays: number, mode: 'suspend' | 'anonymize' = 'suspend') => {
+        try {
+            const res = await fetch('/api/platform/users', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'cleanup_inactive', thresholdDays, cleanupMode: mode }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                await get().syncFromServer();
+                get().addNotification('info', data.message || 'Limpeza por inatividade concluída.');
+                return { success: true, count: data.count || 0, message: data.message };
+            }
+            return { success: false, count: 0, message: data.error || 'Erro ao executar limpeza.' };
+        } catch (e: any) {
+            return { success: false, count: 0, message: e?.message || 'Falha na comunicação com o servidor.' };
+        }
+    },
 
     getProjectResources: (projectId: string) => {
         const state = get();

@@ -8,7 +8,8 @@ import {
     Folder, MapPin, Users, Layout, LogOut, ArrowRight, Sun, Moon, 
     Plus, Check, Shield, Building2, CheckCircle2, Clock, AlertCircle, 
     Copy, Search, Sparkles, UserPlus, Crown, CheckCheck, 
-    XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound
+    XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound,
+    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter
 } from 'lucide-react';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import AuthGuard from '@/components/AuthGuard';
@@ -16,7 +17,7 @@ import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useTheme } from '@/providers/ThemeProvider';
 import type { PlanType, ProjectRole, User, Account, Project } from '@/types';
 
-type WorkplaceTab = 'projects' | 'requests' | 'company' | 'subscriptions' | 'client_management';
+type WorkplaceTab = 'projects' | 'requests' | 'company' | 'subscriptions' | 'client_management' | 'users_management';
 
 export default function Home() {
     const router = useRouter();
@@ -41,7 +42,11 @@ export default function Home() {
         approveSubscriptionRequest,
         rejectSubscriptionRequest,
         addNotification,
-        syncFromServer
+        syncFromServer,
+        suspendUser,
+        reactivateUser,
+        deleteUserGdpr,
+        cleanupInactiveUsers
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
         currentUser: state.currentUser,
@@ -61,7 +66,11 @@ export default function Home() {
         approveSubscriptionRequest: state.approveSubscriptionRequest,
         rejectSubscriptionRequest: state.rejectSubscriptionRequest,
         addNotification: state.addNotification,
-        syncFromServer: state.syncFromServer
+        syncFromServer: state.syncFromServer,
+        suspendUser: state.suspendUser,
+        reactivateUser: state.reactivateUser,
+        deleteUserGdpr: state.deleteUserGdpr,
+        cleanupInactiveUsers: state.cleanupInactiveUsers
     })));
 
     // Active Navigation Tab
@@ -69,6 +78,20 @@ export default function Home() {
     const [searchQuery, setSearchQuery] = useState('');
     const [copiedCode, setCopiedCode] = useState<string | null>(null);
     const [clientPlanFilter, setClientPlanFilter] = useState<'all' | 'paid' | 'free'>('all');
+
+    // User Management & GDPR State
+    const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'suspended' | 'inactive' | 'deleted'>('all');
+    const [userSearchTerm, setUserSearchTerm] = useState('');
+    const [selectedUserForAction, setSelectedUserForAction] = useState<User | null>(null);
+    const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
+    const [suspensionReasonInput, setSuspensionReasonInput] = useState('');
+    const [isDeleteGdprModalOpen, setIsDeleteGdprModalOpen] = useState(false);
+    const [deleteGdprMode, setDeleteGdprMode] = useState<'anonymize' | 'purge'>('anonymize');
+    const [deleteGdprReason, setDeleteGdprReason] = useState('Exercício do Direito ao Apagamento (Art. 17.º RGPD)');
+    const [isCleanupModalOpen, setIsCleanupModalOpen] = useState(false);
+    const [cleanupThresholdDays, setCleanupThresholdDays] = useState<number>(180);
+    const [cleanupMode, setCleanupMode] = useState<'suspend' | 'anonymize'>('suspend');
+    const [isProcessingAction, setIsProcessingAction] = useState(false);
 
     // Modals
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -116,6 +139,44 @@ export default function Home() {
         if (clientPlanFilter === 'free') return freeAccounts;
         return accounts;
     }, [accounts, paidAccounts, freeAccounts, clientPlanFilter]);
+
+    // User Categorization & Inactivity Metrics for SuperAdmin
+    const activeUsers = useMemo(() => users.filter(u => u.status !== 'suspended' && u.status !== 'deleted'), [users]);
+    const suspendedUsers = useMemo(() => users.filter(u => u.status === 'suspended'), [users]);
+    const deletedUsers = useMemo(() => users.filter(u => u.status === 'deleted'), [users]);
+    const inactiveUsers = useMemo(() => users.filter(u => {
+        if (u.status === 'deleted') return false;
+        const date = u.lastLoginAt ? new Date(u.lastLoginAt) : new Date(u.createdAt);
+        const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+        return days >= 90;
+    }), [users]);
+
+    const filteredManagedUsers = useMemo(() => {
+        return users.filter(u => {
+            // Status filter
+            if (userStatusFilter === 'active' && (u.status === 'suspended' || u.status === 'deleted')) return false;
+            if (userStatusFilter === 'suspended' && u.status !== 'suspended') return false;
+            if (userStatusFilter === 'deleted' && u.status !== 'deleted') return false;
+            if (userStatusFilter === 'inactive') {
+                if (u.status === 'deleted') return false;
+                const date = u.lastLoginAt ? new Date(u.lastLoginAt) : new Date(u.createdAt);
+                const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+                if (days < 90) return false;
+            }
+
+            // Search filter
+            if (userSearchTerm.trim()) {
+                const query = userSearchTerm.toLowerCase();
+                const matchName = (u.name || '').toLowerCase().includes(query);
+                const matchEmail = (u.email || '').toLowerCase().includes(query);
+                const acc = accounts.find(a => a.id === u.accountId);
+                const matchAccount = (acc?.name || '').toLowerCase().includes(query);
+                return matchName || matchEmail || matchAccount;
+            }
+
+            return true;
+        });
+    }, [users, userStatusFilter, userSearchTerm, accounts]);
 
     const isSuperAdmin = currentUser?.role === 'superadmin';
     const currentPlan: PlanType = isSuperAdmin ? 'enterprise' : (userAccount?.plan || 'free');
@@ -344,6 +405,42 @@ export default function Home() {
         addNotification('success', `Pedido de subscrição para o plano ${selectedUpgradePlan.toUpperCase()} enviado à administração!`);
     };
 
+    // Handle User Management Actions (Suspend, Reactivate, GDPR Delete, Inactivity Cleanup)
+    const handleConfirmSuspend = async () => {
+        if (!selectedUserForAction) return;
+        setIsProcessingAction(true);
+        try {
+            await suspendUser(selectedUserForAction.id, suspensionReasonInput.trim() || undefined);
+            setIsSuspendModalOpen(false);
+            setSelectedUserForAction(null);
+            setSuspensionReasonInput('');
+        } finally {
+            setIsProcessingAction(false);
+        }
+    };
+
+    const handleConfirmDeleteGdpr = async () => {
+        if (!selectedUserForAction) return;
+        setIsProcessingAction(true);
+        try {
+            await deleteUserGdpr(selectedUserForAction.id, deleteGdprMode, deleteGdprReason.trim() || undefined);
+            setIsDeleteGdprModalOpen(false);
+            setSelectedUserForAction(null);
+        } finally {
+            setIsProcessingAction(false);
+        }
+    };
+
+    const handleConfirmCleanup = async () => {
+        setIsProcessingAction(true);
+        try {
+            await cleanupInactiveUsers(cleanupThresholdDays, cleanupMode);
+            setIsCleanupModalOpen(false);
+        } finally {
+            setIsProcessingAction(false);
+        }
+    };
+
     const handleLogout = () => {
         setCurrentUser(null);
         router.push('/login');
@@ -521,16 +618,28 @@ export default function Home() {
                         </button>
 
                         {isSuperAdmin && (
-                            <button
-                                onClick={() => setActiveTab('client_management')}
-                                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                                    activeTab === 'client_management'
-                                        ? 'bg-indigo-600 text-white shadow-sm'
-                                        : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50'
-                                }`}
-                            >
-                                <Shield size={16} /> Gestão de Clientes (SuperAdmin)
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => setActiveTab('client_management')}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                        activeTab === 'client_management'
+                                            ? 'bg-indigo-600 text-white shadow-sm'
+                                            : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50'
+                                    }`}
+                                >
+                                    <Shield size={16} /> Gestão de Clientes & Subscrições
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('users_management')}
+                                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                                        activeTab === 'users_management'
+                                            ? 'bg-purple-700 text-white shadow-sm'
+                                            : 'text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 border border-purple-200 dark:border-purple-900/50'
+                                    }`}
+                                >
+                                    <UserCheck size={16} /> Gestão de Utilizadores & RGPD ({users.length})
+                                </button>
+                            </>
                         )}
                     </div>
 
@@ -849,36 +958,75 @@ export default function Home() {
                                                 <th className="py-2.5 px-3">Email</th>
                                                 <th className="py-2.5 px-3">Perfil</th>
                                                 <th className="py-2.5 px-3">Obras Associadas</th>
-                                                <th className="py-2.5 px-3 text-right">Limite de Acesso</th>
+                                                <th className="py-2.5 px-3">Estado</th>
+                                                <th className="py-2.5 px-3 text-right">Ação</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-[var(--border)]">
-                                            {companyMembers.map(member => (
-                                                <tr key={member.id} className="hover:bg-primary/5">
-                                                    <td className="py-3 px-3 font-semibold text-[var(--text)]">
-                                                        <div className="flex items-center gap-2.5">
-                                                            <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 text-[var(--text)] font-bold flex items-center justify-center text-xs">
-                                                                {member.name.charAt(0).toUpperCase()}
+                                            {companyMembers.map(member => {
+                                                const isSuspended = member.status === 'suspended';
+                                                const canManage = (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin') && member.id !== currentUser.id;
+
+                                                return (
+                                                    <tr key={member.id} className="hover:bg-primary/5">
+                                                        <td className="py-3 px-3 font-semibold text-[var(--text)]">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 text-[var(--text)] font-bold flex items-center justify-center text-xs">
+                                                                    {member.name.charAt(0).toUpperCase()}
+                                                                </div>
+                                                                <span>{member.name}</span>
                                                             </div>
-                                                            <span>{member.name}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-3 text-[var(--text-muted)]">{member.email}</td>
-                                                    <td className="py-3 px-3">
-                                                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 dark:bg-surface text-gray-700 dark:text-gray-300">
-                                                            {member.role === 'admin' || member.role === 'client_admin' ? 'Administrador' : 'Colaborador'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-3 px-3 font-medium text-[var(--text)]">
-                                                        {member.projectAccess?.length || 0} obra(s)
-                                                    </td>
-                                                    <td className="py-3 px-3 text-right">
-                                                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                                            {currentPlan === 'free' ? '5 obras' : (currentPlan === 'enterprise' ? 'Ilimitado' : '15 obras (+10 bónus)')}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-[var(--text-muted)]">{member.email}</td>
+                                                        <td className="py-3 px-3">
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 dark:bg-surface text-gray-700 dark:text-gray-300">
+                                                                {member.role === 'admin' || member.role === 'client_admin' ? 'Administrador' : 'Colaborador'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="py-3 px-3 font-medium text-[var(--text)]">
+                                                            {member.projectAccess?.length || 0} obra(s)
+                                                        </td>
+                                                        <td className="py-3 px-3">
+                                                            {isSuspended ? (
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300">
+                                                                    Suspenso
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                                    Ativo
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-right">
+                                                            {canManage ? (
+                                                                isSuspended ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => reactivateUser(member.id)}
+                                                                        className="px-2.5 py-1 rounded text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
+                                                                    >
+                                                                        Reativar
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setSelectedUserForAction(member);
+                                                                            setSuspensionReasonInput('');
+                                                                            setIsSuspendModalOpen(true);
+                                                                        }}
+                                                                        className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200"
+                                                                    >
+                                                                        Suspender
+                                                                    </button>
+                                                                )
+                                                            ) : (
+                                                                <span className="text-[10px] text-gray-400">—</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>
@@ -1360,6 +1508,319 @@ export default function Home() {
                             </div>
                         </div>
                     )}
+
+                    {/* ════════ TAB 6: GESTÃO DE UTILIZADORES & RGPD (SUPERADMIN) ════════ */}
+                    {activeTab === 'users_management' && isSuperAdmin && (
+                        <div className="space-y-6">
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                <div className="bg-[var(--bg-card)] p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Total Registados</span>
+                                    <div className="text-2xl font-black text-[var(--text)] mt-1">{users.length}</div>
+                                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Utilizadores globais</div>
+                                </div>
+                                <div className="bg-[var(--bg-card)] p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Ativos</span>
+                                    <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{activeUsers.length}</div>
+                                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Acesso operacional</div>
+                                </div>
+                                <div className="bg-[var(--bg-card)] p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Suspensos</span>
+                                    <div className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">{suspendedUsers.length}</div>
+                                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Acesso impedido</div>
+                                </div>
+                                <div className="bg-[var(--bg-card)] p-4 rounded-xl border border-[var(--border)] shadow-sm">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">Inativos &gt; 90d</span>
+                                    <div className="text-2xl font-black text-red-600 dark:text-red-400 mt-1">{inactiveUsers.length}</div>
+                                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Alerta de retenção RGPD</div>
+                                </div>
+                            </div>
+
+                            {/* Users Table Card */}
+                            <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                                    <div>
+                                        <h3 className="text-base font-bold text-[var(--text)] flex items-center gap-2">
+                                            <Users size={18} className="text-purple-600" />
+                                            Utilizadores Registados & Conformidade RGPD
+                                        </h3>
+                                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                            Controlo de acessos, suspensão temporária, apagamento manual e política de retenção por inatividade.
+                                        </p>
+                                    </div>
+                                    
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCleanupModalOpen(true)}
+                                        className="px-3.5 py-2 rounded-lg bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-2 shrink-0 self-start sm:self-auto"
+                                    >
+                                        <RotateCcw size={14} />
+                                        <span>Auditoria & Limpeza por Inatividade RGPD</span>
+                                    </button>
+                                </div>
+
+                                {/* Filters and Search Bar */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-[var(--border)]">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setUserStatusFilter('all')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                userStatusFilter === 'all'
+                                                    ? 'bg-purple-700 text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <span>Todos</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${userStatusFilter === 'all' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                                                {users.length}
+                                            </span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setUserStatusFilter('active')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                userStatusFilter === 'active'
+                                                    ? 'bg-emerald-600 text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-emerald-600 border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <span>Ativos</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${userStatusFilter === 'active' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                                                {activeUsers.length}
+                                            </span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setUserStatusFilter('suspended')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                userStatusFilter === 'suspended'
+                                                    ? 'bg-amber-600 text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-amber-600 border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <span>Suspensos</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${userStatusFilter === 'suspended' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                                                {suspendedUsers.length}
+                                            </span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setUserStatusFilter('inactive')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                userStatusFilter === 'inactive'
+                                                    ? 'bg-rose-600 text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-rose-600 border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <span>Inativos (&gt;90d)</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${userStatusFilter === 'inactive' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'}`}>
+                                                {inactiveUsers.length}
+                                            </span>
+                                        </button>
+
+                                        {deletedUsers.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setUserStatusFilter('deleted')}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                    userStatusFilter === 'deleted'
+                                                        ? 'bg-slate-700 text-white shadow-sm'
+                                                        : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
+                                                }`}
+                                            >
+                                                <span>Eliminados (RGPD)</span>
+                                                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${userStatusFilter === 'deleted' ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                                                    {deletedUsers.length}
+                                                </span>
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <div className="relative w-full sm:w-64">
+                                        <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                                        <input
+                                            type="text"
+                                            placeholder="Pesquisar por nome ou e-mail..."
+                                            value={userSearchTerm}
+                                            onChange={(e) => setUserSearchTerm(e.target.value)}
+                                            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:ring-1 focus:ring-purple-600 outline-none"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Table */}
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs border-collapse">
+                                        <thead>
+                                            <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
+                                                <th className="py-3 px-3">Utilizador</th>
+                                                <th className="py-3 px-3">Empresa Associada</th>
+                                                <th className="py-3 px-3">Perfil</th>
+                                                <th className="py-3 px-3">Última Atividade / Inatividade</th>
+                                                <th className="py-3 px-3">Estado</th>
+                                                <th className="py-3 px-3 text-right">Ações de Gestão & RGPD</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-[var(--border)]">
+                                            {filteredManagedUsers.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={6} className="py-8 text-center text-xs text-[var(--text-muted)]">
+                                                        Nenhum utilizador encontrado com os filtros selecionados.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                filteredManagedUsers.map(u => {
+                                                    const userAcc = accounts.find(a => a.id === u.accountId);
+                                                    const lastActDate = u.lastLoginAt ? new Date(u.lastLoginAt) : new Date(u.createdAt);
+                                                    const daysInactive = Math.floor((Date.now() - lastActDate.getTime()) / (1000 * 60 * 60 * 24));
+                                                    const isDeleted = u.status === 'deleted';
+                                                    const isSuspended = u.status === 'suspended';
+                                                    const isUserSuperAdmin = u.role === 'superadmin';
+
+                                                    let inactivityBadge = null;
+                                                    if (!isDeleted) {
+                                                        if (daysInactive < 30) {
+                                                            inactivityBadge = <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Ativo recentemente</span>;
+                                                        } else if (daysInactive < 90) {
+                                                            inactivityBadge = <span className="text-[10px] text-[var(--text-muted)]">Inativo há {daysInactive}d</span>;
+                                                        } else if (daysInactive < 180) {
+                                                            inactivityBadge = <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200">Inativo ({daysInactive}d)</span>;
+                                                        } else if (daysInactive < 365) {
+                                                            inactivityBadge = <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200">Inatividade Prolongada ({daysInactive}d)</span>;
+                                                        } else {
+                                                            inactivityBadge = <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200">Retenção RGPD Excedida (&gt;1 ano)</span>;
+                                                        }
+                                                    }
+
+                                                    return (
+                                                        <tr key={u.id} className="hover:bg-primary/5 transition-colors">
+                                                            <td className="py-3 px-3">
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 text-[var(--text)] font-bold flex items-center justify-center text-xs shrink-0">
+                                                                        {u.name ? u.name.charAt(0).toUpperCase() : 'U'}
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="font-bold text-[var(--text)]">{u.name}</div>
+                                                                        <div className="text-[11px] text-[var(--text-muted)] font-mono">{u.email}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <div className="font-semibold text-[var(--text)]">{userAcc?.name || '—'}</div>
+                                                                <div className="text-[10px] text-[var(--text-muted)] uppercase">Plano: {userAcc?.plan || 'free'}</div>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                                                    isUserSuperAdmin 
+                                                                        ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                                                                        : (u.role === 'admin' || u.role === 'client_admin') 
+                                                                        ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                                                                        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                                                                }`}>
+                                                                    {isUserSuperAdmin ? 'SuperAdmin' : (u.role === 'admin' || u.role === 'client_admin') ? 'Administrador' : 'Colaborador'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <div className="text-[11px] font-medium text-[var(--text)]">
+                                                                    {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Nunca acedeu'}
+                                                                </div>
+                                                                <div className="mt-0.5">{inactivityBadge}</div>
+                                                            </td>
+                                                            <td className="py-3 px-3 whitespace-nowrap">
+                                                                {isDeleted ? (
+                                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-300">
+                                                                        Anonimizado RGPD
+                                                                    </span>
+                                                                ) : isSuspended ? (
+                                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300" title={u.suspensionReason || 'Suspensão temporária'}>
+                                                                        Suspenso Temporariamente
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                                        Ativo
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3 px-3 text-right">
+                                                                {isUserSuperAdmin ? (
+                                                                    <span className="text-[10px] text-gray-400 italic">Protegido</span>
+                                                                ) : isDeleted ? (
+                                                                    <span className="text-[10px] text-gray-400 italic">Direito ao Esquecimento Exercido</span>
+                                                                ) : (
+                                                                    <div className="flex items-center justify-end gap-1.5">
+                                                                        {isSuspended ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={async () => {
+                                                                                    await reactivateUser(u.id);
+                                                                                }}
+                                                                                className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors"
+                                                                                title="Reativar acesso do utilizador à plataforma"
+                                                                            >
+                                                                                Reativar Acesso
+                                                                            </button>
+                                                                        ) : (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setSelectedUserForAction(u);
+                                                                                    setSuspensionReasonInput('');
+                                                                                    setIsSuspendModalOpen(true);
+                                                                                }}
+                                                                                className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-colors"
+                                                                                title="Impedir temporariamente o acesso do utilizador"
+                                                                            >
+                                                                                Suspender
+                                                                            </button>
+                                                                        )}
+
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setSelectedUserForAction(u);
+                                                                                setDeleteGdprMode('anonymize');
+                                                                                setDeleteGdprReason('Exercício do Direito ao Apagamento (Artigo 17.º RGPD)');
+                                                                                setIsDeleteGdprModalOpen(true);
+                                                                            }}
+                                                                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors"
+                                                                            title="Eliminar dados pessoais ao abrigo do RGPD"
+                                                                        >
+                                                                            Eliminar (RGPD)
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* Informative GDPR & Safety Legislation Card */}
+                            <div className="bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-200 dark:border-slate-800 p-5 text-xs text-[var(--text-muted)] space-y-2">
+                                <h4 className="font-bold text-[var(--text)] flex items-center gap-2">
+                                    <ShieldAlert size={16} className="text-purple-600" />
+                                    Enquadramento Legal: RGPD & Conservação de Dados de SST
+                                </h4>
+                                <p>
+                                    <strong>Princípio da Limitação da Conservação (Art. 5.º, n.º 1, al. e) do RGPD):</strong> Os dados pessoais de utilizadores que permaneçam sem atividade prolongada (&gt; 1 ano) e sem obras em curso devem ser propostos para expurgo ou anonimização.
+                                </p>
+                                <p>
+                                    <strong>Direito ao Apagamento (Art. 17.º do RGPD):</strong> O titular dos dados pode solicitar o apagamento dos seus dados a qualquer momento.
+                                </p>
+                                <p>
+                                    <strong>Salvaguarda Jurídica em Obra (Art. 17.º, n.º 3, al. b) do RGPD &amp; Lei n.º 102/2009):</strong> Para cumprimento de obrigações legais no âmbito da Segurança e Saúde no Trabalho e fiscalização da ACT, relatórios de acidentes, termos de abertura e registos de controlo de acessos devem ser mantidos durante o prazo legal obrigatório (5 a 10 anos). Nestes casos, a opção <em>Anonimizar</em> remove os dados identificativos pessoais sem invalidar a conformidade técnica dos registos históricos da obra.
+                                </p>
+                            </div>
+                        </div>
+                    )}
                 </main>
 
                 {/* ════════ MODAL: SOLICITAR PROJETO ════════ */}
@@ -1671,6 +2132,259 @@ export default function Home() {
                             <PrimaryButton onClick={submitUpgradeRequest} className="text-xs font-bold">
                                 Confirmar e Enviar Pedido
                             </PrimaryButton>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* ════════ MODAL: SUSPENDER ACESSO TEMPORÁRIO ════════ */}
+                <Modal
+                    title="Suspender Acesso Temporário"
+                    isOpen={isSuspendModalOpen}
+                    onClose={() => {
+                        setIsSuspendModalOpen(false);
+                        setSelectedUserForAction(null);
+                    }}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-start gap-3">
+                            <Ban className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-amber-950 dark:text-amber-200">
+                                <strong>Atenção:</strong> O utilizador <strong>{selectedUserForAction?.name}</strong> ({selectedUserForAction?.email}) ficará imediatamente impedido de iniciar sessão na plataforma até que seja reativado.
+                            </div>
+                        </div>
+
+                        <InputGroup label="Motivo da Suspensão Temporária (Opcional)">
+                            <textarea
+                                className="w-full p-2.5 text-xs border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                                rows={3}
+                                placeholder="ex: Auditoria interna, pagamento pendente, ausência temporária..."
+                                value={suspensionReasonInput}
+                                onChange={e => setSuspensionReasonInput(e.target.value)}
+                            />
+                        </InputGroup>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton
+                                onClick={() => {
+                                    setIsSuspendModalOpen(false);
+                                    setSelectedUserForAction(null);
+                                }}
+                                className="text-xs"
+                            >
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={isProcessingAction}
+                                onClick={handleConfirmSuspend}
+                                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50"
+                            >
+                                {isProcessingAction ? 'A processar...' : 'Confirmar Suspensão'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* ════════ MODAL: ELIMINAR UTILIZADOR (RGPD) ════════ */}
+                <Modal
+                    title="Eliminar Utilizador (Direito ao Esquecimento RGPD)"
+                    isOpen={isDeleteGdprModalOpen}
+                    onClose={() => {
+                        setIsDeleteGdprModalOpen(false);
+                        setSelectedUserForAction(null);
+                    }}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex items-start gap-3">
+                            <Trash2 className="text-rose-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-rose-950 dark:text-rose-200">
+                                Está prestes a aplicar o direito ao apagamento ao utilizador <strong>{selectedUserForAction?.name}</strong> ({selectedUserForAction?.email}).
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-[var(--text)] block">
+                                Método de Apagamento:
+                            </label>
+
+                            <div 
+                                onClick={() => setDeleteGdprMode('anonymize')}
+                                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                    deleteGdprMode === 'anonymize'
+                                        ? 'border-purple-600 bg-purple-50/50 dark:bg-purple-950/30 ring-1 ring-purple-600'
+                                        : 'border-[var(--border)] hover:bg-[var(--bg-input)]'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
+                                        <CheckCircle2 size={14} className={deleteGdprMode === 'anonymize' ? 'text-purple-600' : 'text-gray-400'} />
+                                        Anonimização Segura (Recomendado SST)
+                                    </span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
+                                        Art. 17.º, n.º 3, al. b) RGPD
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-[var(--text-muted)] mt-1 pl-5 leading-relaxed">
+                                    Substitui nome por &quot;Utilizador Removido (RGPD)&quot;, anonimiza o e-mail, apaga credenciais e remove acessos. Preserva a validade de relatórios de acidentes e segurança de obra obrigatórios por lei (Lei n.º 102/2009).
+                                </p>
+                            </div>
+
+                            <div 
+                                onClick={() => setDeleteGdprMode('purge')}
+                                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                    deleteGdprMode === 'purge'
+                                        ? 'border-rose-600 bg-rose-50/50 dark:bg-rose-950/30 ring-1 ring-rose-600'
+                                        : 'border-[var(--border)] hover:bg-[var(--bg-input)]'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
+                                        <CheckCircle2 size={14} className={deleteGdprMode === 'purge' ? 'text-rose-600' : 'text-gray-400'} />
+                                        Purga Total Definitiva (Hard Delete)
+                                    </span>
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">
+                                        Eliminação Total
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-[var(--text-muted)] mt-1 pl-5 leading-relaxed">
+                                    Elimina de forma permanente o registo do utilizador da base de dados. (Aplicável apenas se o utilizador não tiver relatórios legais vinculados).
+                                </p>
+                            </div>
+                        </div>
+
+                        <InputGroup label="Motivo / Fundamento do Pedido">
+                            <input
+                                type="text"
+                                className="w-full p-2.5 text-xs border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                                value={deleteGdprReason}
+                                onChange={e => setDeleteGdprReason(e.target.value)}
+                            />
+                        </InputGroup>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton
+                                onClick={() => {
+                                    setIsDeleteGdprModalOpen(false);
+                                    setSelectedUserForAction(null);
+                                }}
+                                className="text-xs"
+                            >
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={isProcessingAction}
+                                onClick={handleConfirmDeleteGdpr}
+                                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50"
+                            >
+                                {isProcessingAction ? 'A processar...' : 'Confirmar Apagamento RGPD'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* ════════ MODAL: LIMPEZA POR INATIVIDADE RGPD ════════ */}
+                <Modal
+                    title="Auditoria & Limpeza por Inatividade (RGPD)"
+                    isOpen={isCleanupModalOpen}
+                    onClose={() => setIsCleanupModalOpen(false)}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800 flex items-start gap-3">
+                            <Info className="text-purple-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-purple-950 dark:text-purple-200 leading-relaxed">
+                                <strong>Princípio da Limitação da Conservação:</strong> O Artigo 5.º, n.º 1, al. e) do RGPD determina que os dados pessoais não devem ser retidos por períodos excessivos sem utilidade contratual ou legal.
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-[var(--text)] block">
+                                Ponto de Corte de Inatividade:
+                            </label>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setCleanupThresholdDays(90)}
+                                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                                        cleanupThresholdDays === 90
+                                            ? 'border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold'
+                                            : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'
+                                    }`}
+                                >
+                                    <div className="text-xs">90 dias</div>
+                                    <div className="text-[10px] opacity-75">3 meses</div>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setCleanupThresholdDays(180)}
+                                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                                        cleanupThresholdDays === 180
+                                            ? 'border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold'
+                                            : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'
+                                    }`}
+                                >
+                                    <div className="text-xs">180 dias</div>
+                                    <div className="text-[10px] opacity-75">6 meses</div>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setCleanupThresholdDays(365)}
+                                    className={`p-2.5 rounded-xl border text-center transition-all ${
+                                        cleanupThresholdDays === 365
+                                            ? 'border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold'
+                                            : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]'
+                                    }`}
+                                >
+                                    <div className="text-xs">365 dias</div>
+                                    <div className="text-[10px] opacity-75">1 ano (RGPD)</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs font-bold text-[var(--text)] block">
+                                Ação a Aplicar aos Inativos:
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setCleanupMode('suspend')}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                        cleanupMode === 'suspend'
+                                            ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-bold'
+                                            : 'border-[var(--border)] text-[var(--text-muted)]'
+                                    }`}
+                                >
+                                    <div className="text-xs font-bold">Suspender Acesso</div>
+                                    <div className="text-[10px] font-normal opacity-80 mt-0.5">Impedir acesso temporário mas manter dados</div>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setCleanupMode('anonymize')}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                        cleanupMode === 'anonymize'
+                                            ? 'border-purple-600 bg-purple-50 dark:bg-purple-950/40 text-purple-900 dark:text-purple-200 font-bold'
+                                            : 'border-[var(--border)] text-[var(--text-muted)]'
+                                    }`}
+                                >
+                                    <div className="text-xs font-bold">Anonimizar RGPD</div>
+                                    <div className="text-[10px] font-normal opacity-80 mt-0.5">Remover dados pessoais identificáveis</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton onClick={() => setIsCleanupModalOpen(false)} className="text-xs">
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={isProcessingAction}
+                                onClick={handleConfirmCleanup}
+                                className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50"
+                            >
+                                {isProcessingAction ? 'A processar limpeza...' : `Executar Limpeza (${cleanupThresholdDays}d)`}
+                            </button>
                         </div>
                     </div>
                 </Modal>

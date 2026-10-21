@@ -119,11 +119,16 @@ model User {
   password      String? // bcrypt hash (null for OAuth-only users)
 
   // App-specific
-  role      String   @default("user") // superadmin | admin | user
-  tenantId  String?
-  avatarUrl String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role             String    @default("user") // superadmin | admin | user
+  status           String    @default("active") // active | suspended | deleted
+  lastLoginAt      DateTime?
+  suspendedAt      DateTime?
+  suspensionReason String?
+  deletedAt        DateTime?
+  tenantId         String?
+  avatarUrl        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // NextAuth relations
   accounts Account[]
