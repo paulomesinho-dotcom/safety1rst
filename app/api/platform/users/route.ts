@@ -2,33 +2,48 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma, ensureUserColumns } from '@/lib/prisma';
 
 // GET /api/platform/users
-// Devolve todos os utilizadores da plataforma com detalhes de estado e RGPD
+// Devolve todos os utilizadores da plataforma com detalhes de estado, projetos ativos e proteções RGPD
 export async function GET() {
     try {
         await ensureUserColumns();
 
         const dbUsers = await prisma.user.findMany({
             include: {
-                tenant: { select: { id: true, name: true, plan: true } },
+                tenant: { 
+                    select: { 
+                        id: true, 
+                        name: true, 
+                        plan: true,
+                        projects: { where: { status: 'active' } }
+                    } 
+                },
             },
             orderBy: { createdAt: 'desc' },
         });
 
-        const users = dbUsers.map(u => ({
-            id: u.id,
-            accountId: u.tenantId || undefined,
-            accountName: u.tenant?.name || 'Sem empresa',
-            accountPlan: u.tenant?.plan || 'free',
-            name: u.name || 'Utilizador',
-            email: u.email,
-            role: (u.role || 'client_admin') as any,
-            status: (u.status || 'active') as any,
-            lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
-            suspendedAt: u.suspendedAt ? u.suspendedAt.toISOString() : undefined,
-            suspensionReason: u.suspensionReason || undefined,
-            deletedAt: u.deletedAt ? u.deletedAt.toISOString() : undefined,
-            createdAt: u.createdAt.toISOString(),
-        }));
+        const users = dbUsers.map(u => {
+            const activeProjectsCount = u.tenant?.projects?.length || 0;
+            const isPaidPlan = u.tenant?.plan && u.tenant.plan !== 'free';
+
+            return {
+                id: u.id,
+                accountId: u.tenantId || undefined,
+                accountName: u.tenant?.name || 'Sem empresa',
+                accountPlan: u.tenant?.plan || 'free',
+                isPaidPlan: !!isPaidPlan,
+                activeProjectsCount,
+                hasActiveProjects: activeProjectsCount > 0,
+                name: u.name || 'Utilizador',
+                email: u.email,
+                role: (u.role || 'client_admin') as any,
+                status: (u.status || 'active') as any,
+                lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
+                suspendedAt: u.suspendedAt ? u.suspendedAt.toISOString() : undefined,
+                suspensionReason: u.suspensionReason || undefined,
+                deletedAt: u.deletedAt ? u.deletedAt.toISOString() : undefined,
+                createdAt: u.createdAt.toISOString(),
+            };
+        });
 
         return NextResponse.json({ success: true, users });
     } catch (error: any) {
@@ -109,40 +124,63 @@ export async function PATCH(req: NextRequest) {
         }
 
         // 3. Ação: Auditoria e Limpeza por Inatividade Prolongada (RGPD)
-        // Princípio da Limitação da Conservação (Artigo 5.º, n.º 1, al. e) do RGPD)
+        // Regra Estrita: Aplica-se APENAS a utilizadores FREE.
+        // Utilizadores de contas pagas e criadores de obras ativas NUNCA são apagados.
         if (action === 'cleanup_inactive') {
             const days = Number(thresholdDays) || 180;
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - days);
 
-            // Procurar utilizadores sem login há mais de X dias (ou criados há mais de X dias sem nunca terem feito login)
-            // Ignorando SuperAdmins e contas já eliminadas
+            // Procurar utilizadores inativos APENAS de contas 'free' (ou sem conta)
             const candidateUsers = await prisma.user.findMany({
                 where: {
                     role: { not: 'superadmin' },
                     status: { not: 'deleted' },
                     OR: [
-                        { lastLoginAt: { lt: cutoffDate } },
-                        { lastLoginAt: null, createdAt: { lt: cutoffDate } },
+                        { tenant: { plan: 'free' } },
+                        { tenantId: null },
                     ],
+                    AND: [
+                        {
+                            OR: [
+                                { lastLoginAt: { lt: cutoffDate } },
+                                { lastLoginAt: null, createdAt: { lt: cutoffDate } },
+                            ],
+                        },
+                    ],
+                },
+                include: {
+                    tenant: {
+                        include: {
+                            projects: { where: { status: 'active' } },
+                            users: { where: { status: { not: 'deleted' } } },
+                        },
+                    },
                 },
             });
 
-            if (candidateUsers.length === 0) {
+            // Proteção contra exclusão de criadores de obras ativas
+            const safeToCleanupUsers = candidateUsers.filter(u => {
+                const activeProjects = u.tenant?.projects || [];
+                return activeProjects.length === 0;
+            });
+
+            if (safeToCleanupUsers.length === 0) {
                 return NextResponse.json({
                     success: true,
                     count: 0,
-                    message: `Não foram encontrados utilizadores inativos há mais de ${days} dias.`,
+                    message: `Nenhum utilizador gratuito inativo elegível (utilizadores de contas pagas e criadores de obras ativas estão salvaguardados).`,
                     affectedUsers: [],
                 });
             }
 
             const now = new Date();
             const affectedIds: string[] = [];
+            const deletedTenantIds: string[] = [];
 
             if (cleanupMode === 'anonymize') {
                 // Anonimizar em conformidade com o RGPD
-                for (const u of candidateUsers) {
+                for (const u of safeToCleanupUsers) {
                     const anonEmail = `anonimizado_${u.id.substring(0, 8)}@rgpd.safe`;
                     await prisma.user.update({
                         where: { id: u.id },
@@ -157,16 +195,25 @@ export async function PATCH(req: NextRequest) {
                         },
                     }).catch(() => {});
                     affectedIds.push(u.id);
+
+                    // Verificar se a conta do cliente ficou sem utilizadores ativos
+                    if (u.tenantId && u.tenant) {
+                        const remaining = (u.tenant.users || []).filter(usr => usr.id !== u.id && usr.status !== 'deleted');
+                        if (remaining.length === 0 && u.tenant.plan === 'free') {
+                            await prisma.tenant.delete({ where: { id: u.tenantId } }).catch(() => {});
+                            deletedTenantIds.push(u.tenantId);
+                        }
+                    }
                 }
             } else {
                 // Modo default: Suspender temporariamente por inatividade prolongada
-                for (const u of candidateUsers) {
+                for (const u of safeToCleanupUsers) {
                     await prisma.user.update({
                         where: { id: u.id },
                         data: {
                             status: 'suspended',
                             suspendedAt: now,
-                            suspensionReason: `Suspensão preventiva automática: Inatividade superior a ${days} dias (Conformidade RGPD).`,
+                            suspensionReason: `Suspensão preventiva: Inatividade superior a ${days} dias (Conformidade RGPD).`,
                         },
                     }).catch(() => {});
                     affectedIds.push(u.id);
@@ -177,8 +224,9 @@ export async function PATCH(req: NextRequest) {
                 success: true,
                 count: affectedIds.length,
                 mode: cleanupMode || 'suspend',
-                message: `${affectedIds.length} utilizador(es) inativo(s) há mais de ${days} dias foram ${cleanupMode === 'anonymize' ? 'anonimizados' : 'suspensos'} com sucesso.`,
+                message: `${affectedIds.length} utilizador(es) gratuito(s) inativo(s) há mais de ${days} dias foram ${cleanupMode === 'anonymize' ? 'anonimizados' : 'suspensos'} com sucesso. Contas pagas e obras ativas foram preservadas.`,
                 affectedIds,
+                deletedTenantIds,
             });
         }
 
@@ -191,6 +239,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/platform/users
 // Apagamento Manual / Direito ao Apagamento (Artigo 17.º RGPD)
+// Com proteção de contas pagas, salvaguarda de obras ativas e sincronização de contas órfãs
 export async function DELETE(req: NextRequest) {
     try {
         await ensureUserColumns();
@@ -203,7 +252,18 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ error: 'ID do utilizador é obrigatório.' }, { status: 400 });
         }
 
-        const target = await prisma.user.findUnique({ where: { id: userId } });
+        const target = await prisma.user.findUnique({ 
+            where: { id: userId },
+            include: {
+                tenant: {
+                    include: {
+                        projects: { where: { status: 'active' } },
+                        users: { where: { status: { not: 'deleted' } } },
+                    },
+                },
+            },
+        });
+
         if (!target) {
             return NextResponse.json({ error: 'Utilizador não encontrado.' }, { status: 404 });
         }
@@ -211,28 +271,61 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ error: 'Não é permitido eliminar contas Super Administrador.' }, { status: 403 });
         }
 
+        // 1. Regra do Algoritmo: Contas pagas NUNCA podem ser apagadas via inatividade/RGPD direto
+        if (target.tenant && target.tenant.plan !== 'free') {
+            return NextResponse.json({
+                error: `Esta conta possui uma subscrição PAGA ativa (${target.tenant.plan.toUpperCase()}). Contas com subscrição contratada estão protegidas. Altere primeiro o plano para Gratuito se pretender cancelar o serviço antes de apagar o utilizador.`,
+                protectionReason: 'paid_subscription',
+            }, { status: 400 });
+        }
+
+        // 2. Regra do Algoritmo: Utilizadores proprietários/criadores de obras ativas NÃO podem ser apagados
+        const activeProjects = target.tenant?.projects || [];
+        if (activeProjects.length > 0) {
+            const projectNames = activeProjects.map(p => `"${p.name}"`).join(', ');
+            return NextResponse.json({
+                error: `Impossível apagar este utilizador: A sua empresa é criadora/proprietária de ${activeProjects.length} obra(s) ativa(s): ${projectNames}. O encerramento ou transferência da obra é obrigatório antes de apagar, caso contrário o projeto seria destruído.`,
+                protectionReason: 'active_projects',
+                activeProjects: activeProjects.map(p => ({ id: p.id, name: p.name })),
+            }, { status: 400 });
+        }
+
+        let deletedAccountId: string | null = null;
+        const tenantId = target.tenantId;
+
+        // 3. Execução da remoção
         if (mode === 'purge') {
-            // Eliminação definitiva se o utilizador não tiver impedimentos legais
             try {
-                // Remover sessões e contas associadas
                 await prisma.session.deleteMany({ where: { userId } }).catch(() => {});
                 await prisma.account.deleteMany({ where: { userId } }).catch(() => {});
                 await prisma.projectMember.deleteMany({ where: { userId } }).catch(() => {});
                 await prisma.user.delete({ where: { id: userId } });
 
+                // Se o utilizador era o único membro da conta Free, apagar a conta da empresa para não ficar órfã
+                if (tenantId && target.tenant) {
+                    const remainingUsers = target.tenant.users.filter(u => u.id !== userId);
+                    if (remainingUsers.length === 0 && target.tenant.plan === 'free') {
+                        await prisma.company.deleteMany({ where: { tenantId } }).catch(() => {});
+                        await prisma.worker.deleteMany({ where: { tenantId } }).catch(() => {});
+                        await prisma.equipment.deleteMany({ where: { tenantId } }).catch(() => {});
+                        await prisma.tenant.delete({ where: { id: tenantId } }).catch(() => {});
+                        deletedAccountId = tenantId;
+                    }
+                }
+
                 return NextResponse.json({
                     success: true,
                     mode: 'purge',
-                    message: `Utilizador ${target.name || target.email} foi permanentemente eliminado da base de dados.`,
+                    message: `Utilizador ${target.name || target.email} foi permanentemente eliminado.${deletedAccountId ? ' A respetiva conta de cliente órfã foi também removida.' : ''}`,
                     userId,
+                    deletedAccountId,
                 });
             } catch (delErr: any) {
-                // Se falhar devido a chaves estrangeiras (ex: relatórios técnicos assinados), recorrer à anonimização segura RGPD
-                console.warn('[DELETE user] Falha na purga direta devido a dependências legais; aplicando anonimização RGPD:', delErr?.message);
+                console.warn('[DELETE user] Recorrendo à anonimização segura RGPD:', delErr?.message);
             }
         }
 
-        // Modo 'anonymize' (Salvaguarda da integridade legal de SST / Art. 17.º, n.º 3, al. b) RGPD)
+        // Modo 'anonymize'
         const now = new Date();
         const anonEmail = `anonimizado_${userId.substring(0, 8)}@rgpd.safe`;
 
@@ -254,10 +347,22 @@ export async function DELETE(req: NextRequest) {
             },
         });
 
+        // Se o utilizador era o único da conta Free, eliminar ou anonimizar o tenant
+        if (tenantId && target.tenant) {
+            const remainingUsers = target.tenant.users.filter(u => u.id !== userId);
+            if (remainingUsers.length === 0 && target.tenant.plan === 'free') {
+                await prisma.company.deleteMany({ where: { tenantId } }).catch(() => {});
+                await prisma.worker.deleteMany({ where: { tenantId } }).catch(() => {});
+                await prisma.equipment.deleteMany({ where: { tenantId } }).catch(() => {});
+                await prisma.tenant.delete({ where: { id: tenantId } }).catch(() => {});
+                deletedAccountId = tenantId;
+            }
+        }
+
         return NextResponse.json({
             success: true,
             mode: 'anonymize',
-            message: `Dados pessoais do utilizador foram anonimizados com sucesso em cumprimento do RGPD.`,
+            message: `Dados pessoais do utilizador anonimizados com sucesso.${deletedAccountId ? ' A respetiva conta de cliente órfã foi também removida.' : ''}`,
             user: {
                 id: updated.id,
                 name: updated.name,
@@ -265,6 +370,7 @@ export async function DELETE(req: NextRequest) {
                 status: 'deleted',
                 deletedAt: now.toISOString(),
             },
+            deletedAccountId,
         });
     } catch (error: any) {
         console.error('[API Platform Users DELETE] Error:', error);

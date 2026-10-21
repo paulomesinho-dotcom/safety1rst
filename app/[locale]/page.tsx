@@ -46,7 +46,9 @@ export default function Home() {
         suspendUser,
         reactivateUser,
         deleteUserGdpr,
-        cleanupInactiveUsers
+        cleanupInactiveUsers,
+        deleteAccount,
+        cleanupOrphanAccounts
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
         currentUser: state.currentUser,
@@ -70,14 +72,16 @@ export default function Home() {
         suspendUser: state.suspendUser,
         reactivateUser: state.reactivateUser,
         deleteUserGdpr: state.deleteUserGdpr,
-        cleanupInactiveUsers: state.cleanupInactiveUsers
+        cleanupInactiveUsers: state.cleanupInactiveUsers,
+        deleteAccount: state.deleteAccount,
+        cleanupOrphanAccounts: state.cleanupOrphanAccounts
     })));
 
     // Active Navigation Tab
     const [activeTab, setActiveTab] = useState<WorkplaceTab>('projects');
     const [searchQuery, setSearchQuery] = useState('');
     const [copiedCode, setCopiedCode] = useState<string | null>(null);
-    const [clientPlanFilter, setClientPlanFilter] = useState<'all' | 'paid' | 'free'>('all');
+    const [clientPlanFilter, setClientPlanFilter] = useState<'all' | 'paid' | 'free' | 'orphans'>('all');
 
     // User Management & GDPR State
     const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'suspended' | 'inactive' | 'deleted'>('all');
@@ -134,11 +138,19 @@ export default function Home() {
     // Paid & Free Accounts Split for SuperAdmin
     const paidAccounts = useMemo(() => accounts.filter(a => a.plan !== 'free'), [accounts]);
     const freeAccounts = useMemo(() => accounts.filter(a => a.plan === 'free'), [accounts]);
+    const orphanAccounts = useMemo(() => accounts.filter(acc => {
+        if (acc.plan !== 'free') return false;
+        const hasUsers = users.some(u => u.accountId === acc.id && u.status !== 'deleted');
+        const hasProjects = projects.some(p => p.accountId === acc.id);
+        return acc.isOrphan || (!hasUsers && !hasProjects);
+    }), [accounts, users, projects]);
+
     const filteredAccounts = useMemo(() => {
         if (clientPlanFilter === 'paid') return paidAccounts;
         if (clientPlanFilter === 'free') return freeAccounts;
+        if (clientPlanFilter === 'orphans') return orphanAccounts;
         return accounts;
-    }, [accounts, paidAccounts, freeAccounts, clientPlanFilter]);
+    }, [accounts, paidAccounts, freeAccounts, orphanAccounts, clientPlanFilter]);
 
     // User Categorization & Inactivity Metrics for SuperAdmin
     const activeUsers = useMemo(() => users.filter(u => u.status !== 'suspended' && u.status !== 'deleted'), [users]);
@@ -1358,56 +1370,103 @@ export default function Home() {
                                         <span className="font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200">
                                             Gratuitas: {freeAccounts.length}
                                         </span>
+                                        {orphanAccounts.length > 0 && (
+                                            <span className="font-semibold px-2.5 py-1 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200">
+                                                Órfãs: {orphanAccounts.length}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* Filter Tabs: All, Paid, Free */}
-                                <div className="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-[var(--border)]">
-                                    <button
-                                        type="button"
-                                        onClick={() => setClientPlanFilter('all')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                            clientPlanFilter === 'all'
-                                                ? 'bg-primary text-white shadow-sm'
-                                                : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
-                                        }`}
-                                    >
-                                        <span>Todas as Contas</span>
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'all' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
-                                            {accounts.length}
-                                        </span>
-                                    </button>
+                                {/* Filter Tabs: All, Paid, Free, Orphans + Batch Cleanup Action */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-[var(--border)]">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setClientPlanFilter('all')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                clientPlanFilter === 'all'
+                                                    ? 'bg-primary text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <span>Todas as Contas</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'all' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                                                {accounts.length}
+                                            </span>
+                                        </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={() => setClientPlanFilter('paid')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                            clientPlanFilter === 'paid'
-                                                ? 'bg-amber-600 text-white shadow-sm'
-                                                : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-amber-600 dark:hover:text-amber-400 border border-[var(--border)]'
-                                        }`}
-                                    >
-                                        <Crown size={13} className={clientPlanFilter === 'paid' ? 'text-white' : 'text-amber-500'} />
-                                        <span>Subscrições Pagas</span>
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'paid' ? 'bg-white/20 text-white' : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200'}`}>
-                                            {paidAccounts.length}
-                                        </span>
-                                    </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setClientPlanFilter('paid')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                clientPlanFilter === 'paid'
+                                                    ? 'bg-amber-600 text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-amber-600 dark:hover:text-amber-400 border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <Crown size={13} className={clientPlanFilter === 'paid' ? 'text-white' : 'text-amber-500'} />
+                                            <span>Subscrições Pagas</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'paid' ? 'bg-white/20 text-white' : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200'}`}>
+                                                {paidAccounts.length}
+                                            </span>
+                                        </button>
 
-                                    <button
-                                        type="button"
-                                        onClick={() => setClientPlanFilter('free')}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                                            clientPlanFilter === 'free'
-                                                ? 'bg-slate-700 text-white shadow-sm'
-                                                : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
-                                        }`}
-                                    >
-                                        <span>Utilizadores Gratuitos</span>
-                                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'free' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
-                                            {freeAccounts.length}
-                                        </span>
-                                    </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setClientPlanFilter('free')}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                clientPlanFilter === 'free'
+                                                    ? 'bg-slate-700 text-white shadow-sm'
+                                                    : 'bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] border border-[var(--border)]'
+                                            }`}
+                                        >
+                                            <span>Utilizadores Gratuitos</span>
+                                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'free' ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                                                {freeAccounts.length}
+                                            </span>
+                                        </button>
+
+                                        {orphanAccounts.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setClientPlanFilter('orphans')}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                    clientPlanFilter === 'orphans'
+                                                        ? 'bg-rose-600 text-white shadow-sm'
+                                                        : 'bg-[var(--bg-input)] text-rose-600 dark:text-rose-400 hover:bg-rose-50 border border-rose-200 dark:border-rose-800'
+                                                }`}
+                                            >
+                                                <AlertCircle size={13} />
+                                                <span>Contas Órfãs</span>
+                                                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${clientPlanFilter === 'orphans' ? 'bg-white/20 text-white' : 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-200'}`}>
+                                                    {orphanAccounts.length}
+                                                </span>
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {orphanAccounts.length > 0 && (
+                                        <button
+                                            type="button"
+                                            disabled={isProcessingAction}
+                                            onClick={async () => {
+                                                if (window.confirm(`Tem a certeza que deseja limpar definitivamente ${orphanAccounts.length} conta(s) órfã(s) (sem utilizadores e sem obras ativas)?`)) {
+                                                    setIsProcessingAction(true);
+                                                    try {
+                                                        await cleanupOrphanAccounts();
+                                                    } finally {
+                                                        setIsProcessingAction(false);
+                                                    }
+                                                }
+                                            }}
+                                            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50"
+                                            title="Remover todas as contas gratuitas órfãs que ficaram sem utilizadores e sem obras"
+                                        >
+                                            <Trash2 size={13} />
+                                            <span>Limpar Contas Órfãs ({orphanAccounts.length})</span>
+                                        </button>
+                                    )}
                                 </div>
 
                                 <div className="overflow-x-auto">
@@ -1421,22 +1480,24 @@ export default function Home() {
                                                 <th className="py-3 px-3">Plano Atual (Alteração Ágil)</th>
                                                 <th className="py-3 px-3">Obras Criadas</th>
                                                 <th className="py-3 px-3">Membros</th>
-                                                <th className="py-3 px-3 text-right">Estado</th>
+                                                <th className="py-3 px-3">Estado</th>
+                                                <th className="py-3 px-3 text-right">Ações</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-[var(--border)]">
                                             {filteredAccounts.length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={8} className="py-8 text-center text-xs text-[var(--text-muted)]">
+                                                    <td colSpan={9} className="py-8 text-center text-xs text-[var(--text-muted)]">
                                                         Nenhuma conta encontrada nesta categoria.
                                                     </td>
                                                 </tr>
                                             ) : (
                                                 filteredAccounts.map(acc => {
                                                     const accProjectsCount = projects.filter(p => p.accountId === acc.id).length;
-                                                    const accMembersCount = users.filter(u => u.accountId === acc.id).length;
+                                                    const accMembersCount = users.filter(u => u.accountId === acc.id && u.status !== 'deleted').length;
                                                     const registeredName = acc.registeredUserName || users.find(u => u.accountId === acc.id || (u.email && acc.contactEmail && u.email.toLowerCase() === acc.contactEmail.toLowerCase()))?.name;
                                                     const isPaid = acc.plan !== 'free';
+                                                    const isOrphan = acc.isOrphan || (accMembersCount === 0 && accProjectsCount === 0 && !isPaid);
 
                                                     return (
                                                         <tr key={acc.id} className="hover:bg-primary/5 transition-colors">
@@ -1448,7 +1509,9 @@ export default function Home() {
                                                                         <span>Utilizador: <strong className="text-[var(--text)] font-semibold">{registeredName}</strong></span>
                                                                     </div>
                                                                 ) : (
-                                                                    <div className="text-[10px] text-gray-400 italic">Sem utilizador associado</div>
+                                                                    <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1 mt-0.5">
+                                                                        <AlertCircle size={11} /> Sem utilizador associado
+                                                                    </div>
                                                                 )}
                                                             </td>
                                                             <td className="py-3 px-3 whitespace-nowrap">
@@ -1456,6 +1519,10 @@ export default function Home() {
                                                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
                                                                         <Crown size={11} className="text-amber-600" />
                                                                         Subscrição Paga
+                                                                    </span>
+                                                                ) : isOrphan ? (
+                                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                                                        Conta Órfã
                                                                     </span>
                                                                 ) : (
                                                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
@@ -1493,10 +1560,61 @@ export default function Home() {
                                                             <td className="py-3 px-3 text-[var(--text-muted)]">
                                                                 {accMembersCount} / {acc.maxCompanyUsers || 1}
                                                             </td>
-                                                            <td className="py-3 px-3 text-right">
+                                                            <td className="py-3 px-3">
                                                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                                                     {acc.status || 'Ativo'}
                                                                 </span>
+                                                            </td>
+                                                            <td className="py-3 px-3 text-right whitespace-nowrap">
+                                                                {isPaid ? (
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Subscrição contratada protegida contra eliminação">
+                                                                        <Shield size={10} className="text-amber-600" /> Protegida
+                                                                    </span>
+                                                                ) : accProjectsCount > 0 ? (
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200" title="Empresa responsável por obras ativas. Não pode ser eliminada sem transferir a obra.">
+                                                                        <Building2 size={10} className="text-blue-600" /> Em Obra
+                                                                    </span>
+                                                                ) : isOrphan ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={isProcessingAction}
+                                                                        onClick={async () => {
+                                                                            if (window.confirm(`Eliminar a conta órfã "${acc.name}" definitivamente?`)) {
+                                                                                setIsProcessingAction(true);
+                                                                                try {
+                                                                                    await deleteAccount(acc.id);
+                                                                                } finally {
+                                                                                    setIsProcessingAction(false);
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        className="px-2 py-1 rounded text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+                                                                        title="Eliminar conta órfã"
+                                                                    >
+                                                                        <Trash2 size={12} />
+                                                                        <span>Limpar Órfã</span>
+                                                                    </button>
+                                                                ) : (
+                                                                    <button
+                                                                        type="button"
+                                                                        disabled={isProcessingAction}
+                                                                        onClick={async () => {
+                                                                            if (window.confirm(`Eliminar a conta gratuita "${acc.name}"?`)) {
+                                                                                setIsProcessingAction(true);
+                                                                                try {
+                                                                                    await deleteAccount(acc.id);
+                                                                                } finally {
+                                                                                    setIsProcessingAction(false);
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        className="px-2 py-1 rounded text-[11px] font-bold bg-gray-50 hover:bg-rose-50 text-gray-600 hover:text-rose-700 border border-gray-200 hover:border-rose-200 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+                                                                        title="Eliminar conta"
+                                                                    >
+                                                                        <Trash2 size={12} />
+                                                                        <span>Eliminar</span>
+                                                                    </button>
+                                                                )}
                                                             </td>
                                                         </tr>
                                                     );
@@ -1680,6 +1798,9 @@ export default function Home() {
                                                     const isDeleted = u.status === 'deleted';
                                                     const isSuspended = u.status === 'suspended';
                                                     const isUserSuperAdmin = u.role === 'superadmin';
+                                                    const isUserPaid = userAcc ? userAcc.plan !== 'free' : (u.isPaidPlan ?? false);
+                                                    const userProjects = projects.filter(p => p.accountId === u.accountId);
+                                                    const hasActiveProjects = userProjects.length > 0 || (u.hasActiveProjects ?? false);
 
                                                     let inactivityBadge = null;
                                                     if (!isDeleted) {
@@ -1711,7 +1832,19 @@ export default function Home() {
                                                             </td>
                                                             <td className="py-3 px-3">
                                                                 <div className="font-semibold text-[var(--text)]">{userAcc?.name || '—'}</div>
-                                                                <div className="text-[10px] text-[var(--text-muted)] uppercase">Plano: {userAcc?.plan || 'free'}</div>
+                                                                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                                                    <span className="text-[10px] text-[var(--text-muted)] uppercase">Plano: {userAcc?.plan || 'free'}</span>
+                                                                    {isUserPaid && (
+                                                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200" title="Subscrição Paga Contratada: Isento de eliminação por inatividade/RGPD">
+                                                                            <Crown size={9} className="text-amber-600" /> Pago
+                                                                        </span>
+                                                                    )}
+                                                                    {hasActiveProjects && (
+                                                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200" title={`Responsável por ${userProjects.length} obra(s) ativa(s): Não pode ser apagado para não quebrar a obra`}>
+                                                                            <Building2 size={9} className="text-blue-600" /> Obra Ativa
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                             <td className="py-3 px-3">
                                                                 <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
@@ -1747,7 +1880,7 @@ export default function Home() {
                                                             </td>
                                                             <td className="py-3 px-3 text-right">
                                                                 {isUserSuperAdmin ? (
-                                                                    <span className="text-[10px] text-gray-400 italic">Protegido</span>
+                                                                    <span className="text-[10px] text-gray-400 italic">SuperAdmin (Protegido)</span>
                                                                 ) : isDeleted ? (
                                                                     <span className="text-[10px] text-gray-400 italic">Direito ao Esquecimento Exercido</span>
                                                                 ) : (
@@ -1778,19 +1911,37 @@ export default function Home() {
                                                                             </button>
                                                                         )}
 
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                setSelectedUserForAction(u);
-                                                                                setDeleteGdprMode('anonymize');
-                                                                                setDeleteGdprReason('Exercício do Direito ao Apagamento (Artigo 17.º RGPD)');
-                                                                                setIsDeleteGdprModalOpen(true);
-                                                                            }}
-                                                                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors"
-                                                                            title="Eliminar dados pessoais ao abrigo do RGPD"
-                                                                        >
-                                                                            Eliminar (RGPD)
-                                                                        </button>
+                                                                        {isUserPaid ? (
+                                                                            <span
+                                                                                className="px-2 py-1 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 flex items-center gap-1 cursor-help"
+                                                                                title="Protegido: Contas com subscrição contratada ativa não podem ser apagadas diretamente. Cancele o plano primeiro."
+                                                                            >
+                                                                                <ShieldAlert size={12} className="text-amber-600" />
+                                                                                <span>Plano Pago</span>
+                                                                            </span>
+                                                                        ) : hasActiveProjects ? (
+                                                                            <span
+                                                                                className="px-2 py-1 rounded-md text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 flex items-center gap-1 cursor-help"
+                                                                                title={`Protegido: Empresa responsável por ${userProjects.length} obra(s) ativa(s). A eliminação deste utilizador destruiria a obra.`}
+                                                                            >
+                                                                                <ShieldAlert size={12} className="text-blue-600" />
+                                                                                <span>Obra Ativa</span>
+                                                                            </span>
+                                                                        ) : (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setSelectedUserForAction(u);
+                                                                                    setDeleteGdprMode('anonymize');
+                                                                                    setDeleteGdprReason('Exercício do Direito ao Apagamento (Artigo 17.º RGPD)');
+                                                                                    setIsDeleteGdprModalOpen(true);
+                                                                                }}
+                                                                                className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors"
+                                                                                title="Eliminar dados pessoais ao abrigo do RGPD"
+                                                                            >
+                                                                                Eliminar (RGPD)
+                                                                            </button>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                             </td>
@@ -2186,102 +2337,130 @@ export default function Home() {
                 </Modal>
 
                 {/* ════════ MODAL: ELIMINAR UTILIZADOR (RGPD) ════════ */}
-                <Modal
-                    title="Eliminar Utilizador (Direito ao Esquecimento RGPD)"
-                    isOpen={isDeleteGdprModalOpen}
-                    onClose={() => {
-                        setIsDeleteGdprModalOpen(false);
-                        setSelectedUserForAction(null);
-                    }}
-                >
-                    <div className="space-y-4">
-                        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex items-start gap-3">
-                            <Trash2 className="text-rose-600 shrink-0 mt-0.5" size={18} />
-                            <div className="text-xs text-rose-950 dark:text-rose-200">
-                                Está prestes a aplicar o direito ao apagamento ao utilizador <strong>{selectedUserForAction?.name}</strong> ({selectedUserForAction?.email}).
-                            </div>
-                        </div>
+                {(() => {
+                    const selectedUserAccount = selectedUserForAction ? accounts.find(a => a.id === selectedUserForAction.accountId) : null;
+                    const isSelectedUserPaid = selectedUserAccount ? selectedUserAccount.plan !== 'free' : (selectedUserForAction?.isPaidPlan ?? false);
+                    const selectedUserProjects = selectedUserForAction ? projects.filter(p => p.accountId === selectedUserForAction.accountId) : [];
+                    const isSelectedUserProjectOwner = selectedUserProjects.length > 0 || (selectedUserForAction?.hasActiveProjects ?? false);
+                    const isDeletionBlocked = isSelectedUserPaid || isSelectedUserProjectOwner;
 
-                        <div className="space-y-2">
-                            <label className="text-xs font-bold text-[var(--text)] block">
-                                Método de Apagamento:
-                            </label>
-
-                            <div 
-                                onClick={() => setDeleteGdprMode('anonymize')}
-                                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                                    deleteGdprMode === 'anonymize'
-                                        ? 'border-purple-600 bg-purple-50/50 dark:bg-purple-950/30 ring-1 ring-purple-600'
-                                        : 'border-[var(--border)] hover:bg-[var(--bg-input)]'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <span className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
-                                        <CheckCircle2 size={14} className={deleteGdprMode === 'anonymize' ? 'text-purple-600' : 'text-gray-400'} />
-                                        Anonimização Segura (Recomendado SST)
-                                    </span>
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
-                                        Art. 17.º, n.º 3, al. b) RGPD
-                                    </span>
+                    return (
+                        <Modal
+                            title="Eliminar Utilizador (Direito ao Esquecimento RGPD)"
+                            isOpen={isDeleteGdprModalOpen}
+                            onClose={() => {
+                                setIsDeleteGdprModalOpen(false);
+                                setSelectedUserForAction(null);
+                            }}
+                        >
+                            <div className="space-y-4">
+                                <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex items-start gap-3">
+                                    <Trash2 className="text-rose-600 shrink-0 mt-0.5" size={18} />
+                                    <div className="text-xs text-rose-950 dark:text-rose-200">
+                                        Está prestes a aplicar o direito ao apagamento ao utilizador <strong>{selectedUserForAction?.name}</strong> ({selectedUserForAction?.email}).
+                                    </div>
                                 </div>
-                                <p className="text-[11px] text-[var(--text-muted)] mt-1 pl-5 leading-relaxed">
-                                    Substitui nome por &quot;Utilizador Removido (RGPD)&quot;, anonimiza o e-mail, apaga credenciais e remove acessos. Preserva a validade de relatórios de acidentes e segurança de obra obrigatórios por lei (Lei n.º 102/2009).
-                                </p>
-                            </div>
 
-                            <div 
-                                onClick={() => setDeleteGdprMode('purge')}
-                                className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                                    deleteGdprMode === 'purge'
-                                        ? 'border-rose-600 bg-rose-50/50 dark:bg-rose-950/30 ring-1 ring-rose-600'
-                                        : 'border-[var(--border)] hover:bg-[var(--bg-input)]'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <span className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
-                                        <CheckCircle2 size={14} className={deleteGdprMode === 'purge' ? 'text-rose-600' : 'text-gray-400'} />
-                                        Purga Total Definitiva (Hard Delete)
-                                    </span>
-                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">
-                                        Eliminação Total
-                                    </span>
+                                {isSelectedUserPaid && (
+                                    <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700 flex items-start gap-3">
+                                        <ShieldAlert className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                                        <div className="text-xs text-amber-950 dark:text-amber-200 leading-relaxed">
+                                            <strong>Ação Bloqueada — Subscrição Paga Ativa:</strong> Este utilizador pertence à empresa <strong>{selectedUserAccount?.name}</strong> com plano contratado ({selectedUserAccount?.plan?.toUpperCase()}). Contas pagas estão protegidas contra apagamento direto. Cancele ou altere o plano para Gratuito na Gestão de Clientes se pretender rescindir o serviço antes de apagar.
+                                        </div>
+                                    </div>
+                                )}
+
+                                {isSelectedUserProjectOwner && (
+                                    <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-700 flex items-start gap-3">
+                                        <ShieldAlert className="text-blue-600 shrink-0 mt-0.5" size={18} />
+                                        <div className="text-xs text-blue-950 dark:text-blue-200 leading-relaxed">
+                                            <strong>Ação Bloqueada — Responsável por Obras Ativas:</strong> Este utilizador/empresa é proprietário de {selectedUserProjects.length} obra(s) em curso ({selectedUserProjects.map(p => `"${p.name}"`).join(', ')}). A eliminação deste utilizador destruiria a obra. A titularidade da obra deve ser transferida ou o projeto arquivado antes do apagamento.
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-[var(--text)] block">
+                                        Método de Apagamento:
+                                    </label>
+
+                                    <div 
+                                        onClick={() => setDeleteGdprMode('anonymize')}
+                                        className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                            deleteGdprMode === 'anonymize'
+                                                ? 'border-purple-600 bg-purple-50/50 dark:bg-purple-950/30 ring-1 ring-purple-600'
+                                                : 'border-[var(--border)] hover:bg-[var(--bg-input)]'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
+                                                <CheckCircle2 size={14} className={deleteGdprMode === 'anonymize' ? 'text-purple-600' : 'text-gray-400'} />
+                                                Anonimização Segura (Recomendado SST)
+                                            </span>
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">
+                                                Art. 17.º, n.º 3, al. b) RGPD
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-[var(--text-muted)] mt-1 pl-5 leading-relaxed">
+                                            Substitui nome por &quot;Utilizador Removido (RGPD)&quot;, anonimiza o e-mail, apaga credenciais e remove acessos. Preserva a validade de relatórios de acidentes e segurança de obra obrigatórios por lei (Lei n.º 102/2009).
+                                        </p>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => setDeleteGdprMode('purge')}
+                                        className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                            deleteGdprMode === 'purge'
+                                                ? 'border-rose-600 bg-rose-50/50 dark:bg-rose-950/30 ring-1 ring-rose-600'
+                                                : 'border-[var(--border)] hover:bg-[var(--bg-input)]'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-bold text-xs text-[var(--text)] flex items-center gap-1.5">
+                                                <CheckCircle2 size={14} className={deleteGdprMode === 'purge' ? 'text-rose-600' : 'text-gray-400'} />
+                                                Purga Total Definitiva (Hard Delete)
+                                            </span>
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">
+                                                Eliminação Total
+                                            </span>
+                                        </div>
+                                        <p className="text-[11px] text-[var(--text-muted)] mt-1 pl-5 leading-relaxed">
+                                            Elimina de forma permanente o registo do utilizador da base de dados. (Aplicável apenas se o utilizador não tiver relatórios legais vinculados).
+                                        </p>
+                                    </div>
                                 </div>
-                                <p className="text-[11px] text-[var(--text-muted)] mt-1 pl-5 leading-relaxed">
-                                    Elimina de forma permanente o registo do utilizador da base de dados. (Aplicável apenas se o utilizador não tiver relatórios legais vinculados).
-                                </p>
+
+                                <InputGroup label="Motivo / Fundamento do Pedido">
+                                    <input
+                                        type="text"
+                                        className="w-full p-2.5 text-xs border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
+                                        value={deleteGdprReason}
+                                        onChange={e => setDeleteGdprReason(e.target.value)}
+                                    />
+                                </InputGroup>
+
+                                <div className="flex items-center justify-end gap-3 pt-2">
+                                    <SecondaryButton
+                                        onClick={() => {
+                                            setIsDeleteGdprModalOpen(false);
+                                            setSelectedUserForAction(null);
+                                        }}
+                                        className="text-xs"
+                                    >
+                                        Cancelar
+                                    </SecondaryButton>
+                                    <button
+                                        type="button"
+                                        disabled={isDeletionBlocked || isProcessingAction}
+                                        onClick={handleConfirmDeleteGdpr}
+                                        className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >
+                                        {isProcessingAction ? 'A processar...' : 'Confirmar Apagamento RGPD'}
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-
-                        <InputGroup label="Motivo / Fundamento do Pedido">
-                            <input
-                                type="text"
-                                className="w-full p-2.5 text-xs border border-gray-300 dark:border-[#444746] rounded-lg focus:ring-2 focus:ring-rose-500 outline-none"
-                                value={deleteGdprReason}
-                                onChange={e => setDeleteGdprReason(e.target.value)}
-                            />
-                        </InputGroup>
-
-                        <div className="flex items-center justify-end gap-3 pt-2">
-                            <SecondaryButton
-                                onClick={() => {
-                                    setIsDeleteGdprModalOpen(false);
-                                    setSelectedUserForAction(null);
-                                }}
-                                className="text-xs"
-                            >
-                                Cancelar
-                            </SecondaryButton>
-                            <button
-                                type="button"
-                                disabled={isProcessingAction}
-                                onClick={handleConfirmDeleteGdpr}
-                                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50"
-                            >
-                                {isProcessingAction ? 'A processar...' : 'Confirmar Apagamento RGPD'}
-                            </button>
-                        </div>
-                    </div>
-                </Modal>
+                        </Modal>
+                    );
+                })()}
 
                 {/* ════════ MODAL: LIMPEZA POR INATIVIDADE RGPD ════════ */}
                 <Modal
@@ -2294,6 +2473,13 @@ export default function Home() {
                             <Info className="text-purple-600 shrink-0 mt-0.5" size={18} />
                             <div className="text-xs text-purple-950 dark:text-purple-200 leading-relaxed">
                                 <strong>Princípio da Limitação da Conservação:</strong> O Artigo 5.º, n.º 1, al. e) do RGPD determina que os dados pessoais não devem ser retidos por períodos excessivos sem utilidade contratual ou legal.
+                            </div>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
+                            <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
+                            <div>
+                                <strong>Algoritmo de Blindagem Ativo:</strong> Subscrições pagas (Básico, Premium, Enterprise) e contas criadoras de obras ativas estão <strong>totalmente salvaguardadas</strong> e nunca serão afetadas por esta rotina. A limpeza incide estritamente sobre contas gratuitas sem obras ativas.
                             </div>
                         </div>
 

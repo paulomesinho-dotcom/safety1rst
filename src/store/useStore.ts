@@ -86,6 +86,8 @@ export interface AppState {
     addUser: (user: Omit<User, 'id' | 'createdAt'> & { id?: string }) => void;
     addAccount: (account: Omit<Account, 'id' | 'createdAt'> & { id?: string }) => void;
     updateAccount: (id: string, updates: Partial<Account>) => void;
+    deleteAccount: (accountId: string) => Promise<{ success: boolean; message?: string }>;
+    cleanupOrphanAccounts: () => Promise<{ success: boolean; count?: number; message?: string }>;
     updateUser: (id: string, updates: Partial<User>) => void;
     deleteUser: (userId: string) => void;
     suspendUser: (userId: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
@@ -918,20 +920,19 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs } = data;
 
                 set((state) => {
-                    // Sincronizar Accounts
-                    const existingAccIds = new Set(state.accounts.map(a => a.id));
-                    const mergedAccounts = [...state.accounts];
+                    // Sincronizar Accounts: se vier do servidor, o servidor é a fonte da verdade para contas registadas
+                    const srvAccMap = new Map((srvAccounts || []).map((a: any) => [a.id, a]));
+                    const mergedAccounts: Account[] = [];
                     if (Array.isArray(srvAccounts)) {
-                        for (const acc of srvAccounts) {
-                            if (!existingAccIds.has(acc.id)) {
-                                mergedAccounts.push(acc);
-                                existingAccIds.add(acc.id);
-                            } else {
-                                const idx = mergedAccounts.findIndex(a => a.id === acc.id);
-                                if (idx !== -1) {
-                                    mergedAccounts[idx] = { ...mergedAccounts[idx], ...acc };
-                                }
-                            }
+                        for (const srvAcc of srvAccounts) {
+                            const local = state.accounts.find(a => a.id === srvAcc.id);
+                            mergedAccounts.push(local ? { ...local, ...srvAcc } : srvAcc);
+                        }
+                    }
+                    // Preservar contas locais default/mock se ainda existirem
+                    for (const localAcc of state.accounts) {
+                        if (!srvAccMap.has(localAcc.id) && (localAcc.id === 'acc_mock_01' || localAcc.id.startsWith('mock_'))) {
+                            mergedAccounts.push(localAcc);
                         }
                     }
 
@@ -1201,6 +1202,60 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbUpdate('accounts', id, updates).catch(console.error);
         return { accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) };
     }),
+
+    deleteAccount: async (accountId: string) => {
+        try {
+            const res = await fetch(`/api/platform/clients?accountId=${encodeURIComponent(accountId)}`, {
+                method: 'DELETE',
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                set((state) => ({
+                    accounts: state.accounts.filter(a => a.id !== accountId)
+                }));
+                dbRemove('accounts', accountId).catch(console.error);
+                get().addNotification('success', data.message || 'Conta de cliente removida com sucesso.');
+                return { success: true, message: data.message };
+            }
+            const err = data.error || 'Não foi possível remover a conta.';
+            get().addNotification('error', err);
+            return { success: false, message: err };
+        } catch (e: any) {
+            const err = e?.message || 'Falha de comunicação ao remover conta.';
+            get().addNotification('error', err);
+            return { success: false, message: err };
+        }
+    },
+
+    cleanupOrphanAccounts: async () => {
+        try {
+            const res = await fetch('/api/platform/clients?action=cleanup_orphans', {
+                method: 'DELETE',
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                if (Array.isArray(data.deletedAccountIds) && data.deletedAccountIds.length > 0) {
+                    const deletedSet = new Set(data.deletedAccountIds);
+                    set((state) => ({
+                        accounts: state.accounts.filter(a => !deletedSet.has(a.id))
+                    }));
+                    for (const id of data.deletedAccountIds) {
+                        dbRemove('accounts', id).catch(console.error);
+                    }
+                }
+                await get().syncFromServer();
+                get().addNotification('success', data.message || 'Contas órfãs removidas com sucesso.');
+                return { success: true, count: data.deletedAccountIds?.length || 0, message: data.message };
+            }
+            const err = data.error || 'Erro ao limpar contas órfãs.';
+            get().addNotification('error', err);
+            return { success: false, message: err };
+        } catch (e: any) {
+            const err = e?.message || 'Falha ao limpar contas órfãs.';
+            get().addNotification('error', err);
+            return { success: false, message: err };
+        }
+    },
 
     // Subscription Request Handlers (Client Onboarding)
     addSubscriptionRequest: (req) => set((state) => {
@@ -1656,6 +1711,14 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             });
             const data = await res.json();
             if (res.ok && data.success) {
+                // Sincronizar remoção automática de conta órfã se o utilizador era o único membro
+                if (data.deletedAccountId) {
+                    set((state) => ({
+                        accounts: state.accounts.filter(a => a.id !== data.deletedAccountId)
+                    }));
+                    dbRemove('accounts', data.deletedAccountId).catch(console.error);
+                }
+
                 if (mode === 'purge') {
                     set((state) => ({
                         users: state.users.filter(u => u.id !== userId)
@@ -1678,10 +1741,12 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         } : u)
                     }));
                 }
-                get().addNotification('success', mode === 'purge' ? 'Utilizador eliminado definitivamente.' : 'Dados do utilizador anonimizados ao abrigo do RGPD.');
+                get().addNotification('success', data.message || (mode === 'purge' ? 'Utilizador eliminado definitivamente.' : 'Dados do utilizador anonimizados ao abrigo do RGPD.'));
                 return { success: true };
             }
-            return { success: false, message: data.error };
+            const errMsg = data.error || 'Não foi possível eliminar o utilizador.';
+            get().addNotification('error', errMsg);
+            return { success: false, message: errMsg };
         } catch (e: any) {
             set((state) => ({
                 users: state.users.filter(u => u.id !== userId)
@@ -1700,13 +1765,27 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             });
             const data = await res.json();
             if (res.ok && data.success) {
+                // Sincronizar contas órfãs eliminadas no servidor
+                if (Array.isArray(data.deletedTenantIds) && data.deletedTenantIds.length > 0) {
+                    const deletedSet = new Set(data.deletedTenantIds);
+                    set((state) => ({
+                        accounts: state.accounts.filter(a => !deletedSet.has(a.id))
+                    }));
+                    for (const tid of data.deletedTenantIds) {
+                        dbRemove('accounts', tid).catch(console.error);
+                    }
+                }
                 await get().syncFromServer();
                 get().addNotification('info', data.message || 'Limpeza por inatividade concluída.');
                 return { success: true, count: data.count || 0, message: data.message };
             }
-            return { success: false, count: 0, message: data.error || 'Erro ao executar limpeza.' };
+            const errMsg = data.error || 'Erro ao executar limpeza.';
+            get().addNotification('error', errMsg);
+            return { success: false, count: 0, message: errMsg };
         } catch (e: any) {
-            return { success: false, count: 0, message: e?.message || 'Falha na comunicação com o servidor.' };
+            const errMsg = e?.message || 'Falha na comunicação com o servidor.';
+            get().addNotification('error', errMsg);
+            return { success: false, count: 0, message: errMsg };
         }
     },
 

@@ -28,6 +28,9 @@ export interface User {
     suspensionReason?: string;
     deletedAt?: string;
     gdprAnonymized?: boolean;
+    isPaidPlan?: boolean;
+    activeProjectsCount?: number;
+    hasActiveProjects?: boolean;
     createdAt: string;
 }
 
@@ -68,6 +71,9 @@ export interface Account {
     maxCompanyUsers?: number; // 1, 5, 10, or 50
     modules: string[]; // List of enabled module IDs
     registeredUserName?: string;
+    activeUsersCount?: number;
+    projectsCount?: number;
+    isOrphan?: boolean;
     createdAt: string;
 }
 

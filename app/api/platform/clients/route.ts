@@ -10,7 +10,10 @@ export async function GET() {
 
         const [tenants, dbUsers, requests] = await Promise.all([
             prisma.tenant.findMany({
-                include: { users: true },
+                include: { 
+                    users: true,
+                    projects: true,
+                },
                 orderBy: { createdAt: 'desc' },
             }).catch(() => []),
             prisma.user.findMany({
@@ -22,9 +25,12 @@ export async function GET() {
         ]);
 
         const accounts = tenants.map(t => {
-            // Encontrar o utilizador principal associado
-            const primaryUser = t.users?.[0];
+            // Filtrar utilizadores que não estejam eliminados
+            const activeUsersInTenant = (t.users || []).filter(u => u.status !== 'deleted');
+            const primaryUser = activeUsersInTenant[0] || t.users?.[0];
             const matchingReq = requests.find(r => r.email === primaryUser?.email || r.companyName === t.name);
+            const activeProjectsCount = (t.projects || []).filter(p => p.status === 'active').length;
+            const isOrphan = activeUsersInTenant.length === 0;
 
             return {
                 id: t.id,
@@ -40,6 +46,9 @@ export async function GET() {
                 maxCompanyUsers: t.plan === 'enterprise' ? 50 : t.plan === 'premium' ? 10 : t.plan === 'basic' ? 5 : 1,
                 modules: t.modules && t.modules.length > 0 ? t.modules : ['companies', 'workers', 'equipment', 'access-control'],
                 registeredUserName: primaryUser?.name || matchingReq?.contactName || undefined,
+                activeUsersCount: activeUsersInTenant.length,
+                projectsCount: activeProjectsCount,
+                isOrphan,
                 createdAt: t.createdAt.toISOString(),
             };
         });
@@ -154,5 +163,93 @@ export async function PATCH(req: NextRequest) {
             { error: 'Erro ao atualizar plano do cliente.' },
             { status: 500 }
         );
+    }
+}
+
+// DELETE /api/platform/clients
+// Eliminação de contas de clientes (com validação estrita de subscrição paga e projetos ativos)
+export async function DELETE(req: NextRequest) {
+    try {
+        const { searchParams } = new URL(req.url);
+        const accountId = searchParams.get('accountId');
+        const action = searchParams.get('action'); // 'delete_single' | 'cleanup_orphans'
+
+        // Ação em Lote: Limpar todas as contas órfãs do plano Free sem projetos
+        if (action === 'cleanup_orphans') {
+            const allTenants = await prisma.tenant.findMany({
+                where: { plan: 'free' },
+                include: {
+                    users: { where: { status: { not: 'deleted' } } },
+                    projects: { where: { status: 'active' } },
+                },
+            });
+
+            const orphanTenants = allTenants.filter(t => t.users.length === 0 && t.projects.length === 0);
+            const orphanIds = orphanTenants.map(t => t.id);
+
+            if (orphanIds.length > 0) {
+                await prisma.company.deleteMany({ where: { tenantId: { in: orphanIds } } }).catch(() => {});
+                await prisma.worker.deleteMany({ where: { tenantId: { in: orphanIds } } }).catch(() => {});
+                await prisma.equipment.deleteMany({ where: { tenantId: { in: orphanIds } } }).catch(() => {});
+                await prisma.user.deleteMany({ where: { tenantId: { in: orphanIds } } }).catch(() => {});
+                await prisma.tenant.deleteMany({ where: { id: { in: orphanIds } } });
+            }
+
+            return NextResponse.json({
+                success: true,
+                message: `${orphanIds.length} conta(s) órfã(s) removida(s) com sucesso.`,
+                deletedAccountIds: orphanIds,
+            });
+        }
+
+        if (!accountId) {
+            return NextResponse.json({ error: 'ID da conta é obrigatório.' }, { status: 400 });
+        }
+
+        const tenant = await prisma.tenant.findUnique({
+            where: { id: accountId },
+            include: {
+                projects: { where: { status: 'active' } },
+                users: true,
+            },
+        });
+
+        if (!tenant) {
+            return NextResponse.json({ error: 'Conta não encontrada.' }, { status: 404 });
+        }
+
+        // 1. Regra de Proteção: Contas com subscrição paga ativa não podem ser apagadas
+        if (tenant.plan !== 'free') {
+            return NextResponse.json({
+                error: `Esta conta possui uma subscrição PAGA ativa (${tenant.plan.toUpperCase()}). Contas com subscrição contratada estão protegidas. Altere primeiro o plano para Gratuito se pretender cancelar o serviço.`,
+                protectionReason: 'paid_subscription',
+            }, { status: 400 });
+        }
+
+        // 2. Regra de Proteção: Contas com obras ativas não podem ser apagadas
+        if (tenant.projects.length > 0) {
+            const projectNames = tenant.projects.map(p => `"${p.name}"`).join(', ');
+            return NextResponse.json({
+                error: `Esta conta é responsável por ${tenant.projects.length} obra(s) ativa(s): ${projectNames}. O encerramento ou transferência da obra é obrigatório antes de eliminar a conta.`,
+                protectionReason: 'active_projects',
+                activeProjects: tenant.projects.map(p => ({ id: p.id, name: p.name })),
+            }, { status: 400 });
+        }
+
+        // 3. Eliminar dados associados e o Tenant
+        await prisma.company.deleteMany({ where: { tenantId: accountId } }).catch(() => {});
+        await prisma.worker.deleteMany({ where: { tenantId: accountId } }).catch(() => {});
+        await prisma.equipment.deleteMany({ where: { tenantId: accountId } }).catch(() => {});
+        await prisma.user.deleteMany({ where: { tenantId: accountId } }).catch(() => {});
+        await prisma.tenant.delete({ where: { id: accountId } });
+
+        return NextResponse.json({
+            success: true,
+            message: `Conta "${tenant.name}" eliminada com sucesso.`,
+            deletedAccountId: accountId,
+        });
+    } catch (error: any) {
+        console.error('[API Platform Clients DELETE] Error:', error);
+        return NextResponse.json({ error: 'Erro ao eliminar conta de cliente.' }, { status: 500 });
     }
 }
