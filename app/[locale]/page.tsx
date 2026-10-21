@@ -7,7 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { 
     Folder, MapPin, Users, Layout, LogOut, ArrowRight, Sun, Moon, 
     Plus, Check, Shield, Building2, CheckCircle2, Clock, AlertCircle, 
-    Copy, Search, Sparkles, UserPlus, Layers, Crown, CheckCheck, 
+    Copy, Search, Sparkles, UserPlus, Crown, CheckCheck, 
     XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound
 } from 'lucide-react';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
@@ -410,81 +410,44 @@ export default function Home() {
 
                 {/* ── Main Workplace Hub Container ── */}
                 <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
-                    {/* Welcome Banner & Quick Stats */}
-                    <div className="bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
-                        <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-10 pointer-events-none flex items-center justify-end pr-8">
-                            <Layers size={220} />
+                    {/* ── Header & Direct Actions (Clean & Straight) ── */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--border)]">
+                        <div>
+                            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text)]">
+                                Workplace
+                            </h1>
+                            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                {userAccount?.name ? `${userAccount.name} • ` : ''}Plano <strong className="uppercase text-primary">{currentPlan}</strong> &bull; {joinedProjects.length}/{maxJoinedProjects === Infinity ? '∞' : maxJoinedProjects} obras em acesso
+                            </p>
                         </div>
 
-                        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                            <div>
-                                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-xs font-semibold text-blue-200 mb-3 border border-white/10">
-                                    <Sparkles size={13} className="text-amber-300" /> Centro de Operações & Obras
-                                </div>
-                                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-                                    Olá, {currentUser.name.split(' ')[0]} 👋
-                                </h1>
-                                <p className="text-blue-100 text-sm mt-1 max-w-xl leading-relaxed">
-                                    Gira as suas obras, solicite acessos com o código da obra, convide a sua equipa e acompanhe as suas subscrições.
-                                </p>
-                            </div>
+                        {/* Direct Straight Actions */}
+                        <div className="flex items-center gap-2.5">
+                            <button
+                                onClick={() => {
+                                    setJoinCode('');
+                                    setSelectedCompanyId('');
+                                    setJoinError('');
+                                    setIsJoinOpen(true);
+                                }}
+                                className="px-3.5 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] hover:bg-[var(--bg-input)] text-[var(--text)] font-semibold text-xs shadow-sm transition-all flex items-center gap-2"
+                            >
+                                <KeyRound size={14} className="text-primary" /> Solicitar Projeto
+                            </button>
 
-                            {/* Action Buttons */}
-                            <div className="flex flex-wrap items-center gap-3">
-                                <button
-                                    onClick={() => {
-                                        setJoinCode('');
-                                        setSelectedCompanyId('');
-                                        setJoinError('');
-                                        setIsJoinOpen(true);
-                                    }}
-                                    className="px-4 py-2.5 rounded-xl bg-white text-gray-900 hover:bg-blue-50 font-bold text-xs shadow-md transition-all flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                    <KeyRound size={15} className="text-primary" /> Solicitar Projeto
-                                </button>
-
-                                <button
-                                    onClick={() => {
-                                        if (projectCreationLimit === 0) {
-                                            setActiveTab('subscriptions');
-                                            addNotification('warning', 'A criação de novos projetos requer uma subscrição Básico, Pro ou Enterprise.');
-                                        } else {
-                                            setIsCreateOpen(true);
-                                        }
-                                    }}
-                                    className="px-4 py-2.5 rounded-xl bg-primary text-white hover:bg-blue-600 font-bold text-xs shadow-md transition-all flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
-                                >
-                                    <Plus size={16} /> Criar Novo Projeto
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Quick Metrics Bar */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/10">
-                            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                                <span className="text-[11px] text-blue-200 block">Obras em Acesso</span>
-                                <div className="text-lg font-bold text-white mt-0.5">
-                                    {joinedProjects.length} <span className="text-xs font-normal text-blue-300">/ {maxJoinedProjects === Infinity ? '∞' : maxJoinedProjects}</span>
-                                </div>
-                            </div>
-                            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                                <span className="text-[11px] text-blue-200 block">Obras Criadas</span>
-                                <div className="text-lg font-bold text-white mt-0.5">
-                                    {createdProjectsCount} <span className="text-xs font-normal text-blue-300">/ {projectCreationLimit === Infinity ? '∞' : projectCreationLimit}</span>
-                                </div>
-                            </div>
-                            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                                <span className="text-[11px] text-blue-200 block">Equipa da Empresa</span>
-                                <div className="text-lg font-bold text-white mt-0.5">
-                                    {companyMembers.length} <span className="text-xs font-normal text-blue-300">/ {maxCompanyMembers === Infinity ? '∞' : maxCompanyMembers}</span>
-                                </div>
-                            </div>
-                            <div className="bg-white/5 backdrop-blur-sm rounded-xl p-3 border border-white/10">
-                                <span className="text-[11px] text-blue-200 block">Pedidos Pendentes</span>
-                                <div className="text-lg font-bold text-amber-300 mt-0.5">
-                                    {receivedRequests.length}
-                                </div>
-                            </div>
+                            <button
+                                onClick={() => {
+                                    if (projectCreationLimit === 0) {
+                                        setActiveTab('subscriptions');
+                                        addNotification('warning', 'A criação de novos projetos requer uma subscrição Básico, Pro ou Enterprise.');
+                                    } else {
+                                        setIsCreateOpen(true);
+                                    }
+                                }}
+                                className="px-3.5 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white font-semibold text-xs shadow-sm transition-all flex items-center gap-2"
+                            >
+                                <Plus size={15} /> Criar Novo Projeto
+                            </button>
                         </div>
                     </div>
 
@@ -577,7 +540,7 @@ export default function Home() {
                             </div>
 
                             {visibleProjects.length === 0 ? (
-                                <div className="text-center py-16 bg-[var(--bg-card)] rounded-2xl border border-dashed border-[var(--border)] p-6">
+                                <div className="text-center py-16 bg-[var(--bg-card)] rounded-lg border border-dashed border-[var(--border)] p-6">
                                     <Folder className="mx-auto text-[var(--text-muted)] mb-3 opacity-40" size={48} />
                                     <h3 className="text-base font-bold text-[var(--text)]">Nenhum projeto encontrado</h3>
                                     <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md mx-auto">
@@ -593,7 +556,7 @@ export default function Home() {
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] shadow-sm overflow-hidden">
+                                <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] shadow-sm overflow-hidden">
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-left border-collapse text-xs">
                                             <thead>
@@ -682,7 +645,7 @@ export default function Home() {
                     {activeTab === 'requests' && (
                         <div className="space-y-6">
                             {/* Pedidos Recebidos (Aprovação pelo Gestor) */}
-                            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-6 shadow-sm">
+                            <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <div className="flex items-center justify-between mb-4">
                                     <div>
                                         <h3 className="text-sm font-bold text-[var(--text)] flex items-center gap-2">
@@ -764,7 +727,7 @@ export default function Home() {
                             </div>
 
                             {/* Os Meus Pedidos Enviados */}
-                            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-6 shadow-sm">
+                            <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <h3 className="text-sm font-bold text-[var(--text)] mb-3 flex items-center gap-2">
                                     <Clock size={16} className="text-[var(--text-muted)]" /> Os Meus Pedidos Enviados
                                 </h3>
@@ -821,7 +784,7 @@ export default function Home() {
                     {/* ════════ TAB 3: MEMBROS DA EMPRESA ════════ */}
                     {activeTab === 'company' && (
                         <div className="space-y-6">
-                            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-6 shadow-sm">
+                            <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                                     <div>
                                         <div className="flex items-center gap-2">
@@ -909,7 +872,7 @@ export default function Home() {
                     {activeTab === 'subscriptions' && (
                         <div className="space-y-6">
                             {/* Current Plan Overview Card */}
-                            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-6 shadow-sm">
+                            <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[var(--border)]">
                                     <div>
                                         <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Subscrição Ativa</span>
@@ -980,7 +943,7 @@ export default function Home() {
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 {/* Plano Básico */}
-                                <div className={`rounded-2xl border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] ${
+                                <div className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] ${
                                     currentPlan === 'basic' ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-[var(--border)] hover:border-primary/40'
                                 }`}>
                                     <div>
@@ -1031,7 +994,7 @@ export default function Home() {
                                 </div>
 
                                 {/* Plano Premium */}
-                                <div className={`rounded-2xl border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] relative ${
+                                <div className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] relative ${
                                     currentPlan === 'premium' ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-primary/50 shadow-sm hover:border-primary'
                                 }`}>
                                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-primary to-blue-600 text-white shadow-sm">
@@ -1089,7 +1052,7 @@ export default function Home() {
                                 </div>
 
                                 {/* Plano Enterprise */}
-                                <div className={`rounded-2xl border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] ${
+                                <div className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] ${
                                     currentPlan === 'enterprise' ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-[var(--border)] hover:border-primary/40'
                                 }`}>
                                     <div>
@@ -1147,7 +1110,7 @@ export default function Home() {
                         <div className="space-y-6">
                             {/* Pending Subscription Requests from Users */}
                             {subscriptionRequests.filter(r => r.status === 'pending').length > 0 && (
-                                <div className="bg-[var(--bg-card)] rounded-2xl border border-amber-300 dark:border-amber-800 p-6 shadow-sm">
+                                <div className="bg-[var(--bg-card)] rounded-lg border border-amber-300 dark:border-amber-800 p-6 shadow-sm">
                                     <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2 mb-3">
                                         <Clock size={16} className="text-amber-600" />
                                         Pedidos de Subscrição / Upgrade Pendentes
@@ -1211,7 +1174,7 @@ export default function Home() {
                             )}
 
                             {/* Client Accounts Agile Table */}
-                            <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border)] p-6 shadow-sm">
+                            <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                                     <div>
                                         <h3 className="text-base font-bold text-[var(--text)] flex items-center gap-2">
