@@ -185,3 +185,84 @@ export async function sendAccountApprovedEmail({
         return { success: false, error: err.message };
     }
 }
+
+export async function sendPasswordResetEmail({
+    to,
+    name,
+    token,
+}: {
+    to: string;
+    name?: string;
+    token: string;
+}) {
+    const resetUrl = `${APP_URL}/pt/reset-password?token=${token}`;
+    const userName = name || 'Utilizador';
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="pt">
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+        .container { max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+        .header { background: linear-gradient(135deg, #1e3a8a, #2563eb); padding: 32px 24px; text-align: center; color: white; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 700; }
+        .content { padding: 32px 24px; line-height: 1.6; }
+        .button { display: inline-block; background: #2563eb; color: #ffffff !important; font-weight: 600; padding: 14px 28px; border-radius: 8px; text-decoration: none; margin-top: 20px; box-shadow: 0 4px 10px rgba(37,99,235,0.25); }
+        .notice { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 20px 0; border-radius: 0 8px 8px 0; font-size: 13px; color: #92400e; }
+        .footer { padding: 20px; text-align: center; font-size: 12px; color: #64748b; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>SafetyFirst</h1>
+          <p style="margin: 4px 0 0; opacity: 0.9; font-size: 14px;">Recuperação de Palavra-passe</p>
+        </div>
+        <div class="content">
+          <p>Olá <strong>${userName}</strong>,</p>
+          <p>Recebemos um pedido para repor a palavra-passe da sua conta SafetyFirst associada a <strong>${to}</strong>.</p>
+          <p>Para definir uma nova palavra-passe, clique no botão abaixo:</p>
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${resetUrl}" class="button">Redefinir Palavra-passe</a>
+          </div>
+          <p style="font-size: 13px; color: #64748b;">Se o botão não funcionar, copie e cole o seguinte link no seu navegador:<br>
+          <a href="${resetUrl}" style="color: #2563eb; word-break: break-all;">${resetUrl}</a></p>
+          <div class="notice">
+            <strong>Atenção:</strong> Este link é válido durante 1 hora. Se não pediu a recuperação de palavra-passe, pode ignorar esta mensagem em segurança.
+          </div>
+        </div>
+        <div class="footer">
+          &copy; ${new Date().getFullYear()} SafetyFirst by Xispoli. Todos os direitos reservados.
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+
+    const resend = getResendClient();
+    if (!resend) {
+        console.log(`[Email Mock] Enviando reposição de password para ${to}: ${resetUrl}`);
+        return { success: true, mocked: true, resetUrl };
+    }
+
+    try {
+        const { data, error } = await resend.emails.send({
+            from: FROM_EMAIL,
+            to,
+            subject: 'Recuperação de Palavra-passe — SafetyFirst',
+            html,
+        });
+
+        if (error) {
+            console.error('[Resend Error] Erro ao enviar email de reposição:', error);
+            return { success: false, error: error.message };
+        }
+        return { success: true, messageId: data?.id };
+    } catch (err: any) {
+        console.error('[Resend Exception] Falha no envio de reposição:', err);
+        return { success: false, error: err.message };
+    }
+}
+

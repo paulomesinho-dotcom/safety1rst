@@ -187,15 +187,47 @@ export default function LoginPage() {
     const handleForgotPassword = async (e: React.FormEvent) => {
         e.preventDefault();
         setForgotError('');
-        if (!forgotEmail.trim()) {
+
+        const cleanEmail = forgotEmail.trim().toLowerCase();
+        if (!cleanEmail) {
             setForgotError('Por favor insira o seu endereço de email.');
             return;
         }
+
         setForgotLoading(true);
-        setTimeout(() => {
-            setForgotLoading(false);
+
+        try {
+            const res = await fetch('/api/auth/forgot-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: cleanEmail }),
+            });
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                // Se a API indicar que não existe ou erro no envio
+                const existsLocally = users.some(u => u.email?.trim().toLowerCase() === cleanEmail);
+                if (res.status === 404 && !existsLocally) {
+                    setForgotError('Este endereço de email não se encontra registado na plataforma.');
+                    return;
+                }
+                setForgotError(data.error || 'Não foi possível processar a recuperação de palavra-passe.');
+                return;
+            }
+
             setForgotSent(true);
-        }, 600);
+        } catch (err: any) {
+            console.error('[Forgot Password Error]:', err);
+            const existsLocally = users.some(u => u.email?.trim().toLowerCase() === cleanEmail);
+            if (!existsLocally) {
+                setForgotError('Este endereço de email não se encontra registado na plataforma.');
+            } else {
+                setForgotError('Erro de ligação ao servidor para envio do email. Por favor tente novamente.');
+            }
+        } finally {
+            setForgotLoading(false);
+        }
     };
 
     return (
@@ -641,9 +673,9 @@ export default function LoginPage() {
                             <CheckCircle2 size={24} />
                         </div>
                         <div>
-                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">Instruções enviadas</h3>
+                            <h3 className="text-sm font-bold text-gray-900 dark:text-white">Email Enviado com Sucesso</h3>
                             <p className="text-xs text-gray-600 dark:text-gray-300 mt-1.5 leading-relaxed">
-                                Se o email <strong>{forgotEmail}</strong> estiver registado na plataforma, enviámos uma mensagem com as instruções para redefinir a sua palavra-passe.
+                                Enviámos uma mensagem para <strong>{forgotEmail}</strong> com o link seguro para redefinir a sua palavra-passe.
                             </p>
                             <p className="text-[11px] text-gray-500 mt-2">
                                 Por favor verifique a sua caixa de entrada e pasta de correio não solicitado (spam).

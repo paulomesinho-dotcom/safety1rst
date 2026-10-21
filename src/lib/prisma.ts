@@ -75,5 +75,32 @@ export async function ensureSubscriptionTable() {
     }
 }
 
+let tokenTableEnsured = false;
+export async function ensureVerificationTokenTable() {
+    if (tokenTableEnsured) return;
+    if (!process.env.DATABASE_URL) return;
+    try {
+        await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "verification_tokens" (
+                "identifier" TEXT NOT NULL,
+                "token" TEXT NOT NULL,
+                "expires" TIMESTAMP(3) NOT NULL
+            );
+        `);
+        await prisma.$executeRawUnsafe(`
+            CREATE UNIQUE INDEX IF NOT EXISTS "verification_tokens_token_key" 
+            ON "verification_tokens"("token");
+        `);
+        await prisma.$executeRawUnsafe(`
+            CREATE UNIQUE INDEX IF NOT EXISTS "verification_tokens_identifier_token_key" 
+            ON "verification_tokens"("identifier", "token");
+        `);
+        tokenTableEnsured = true;
+    } catch (e: any) {
+        console.warn('[Prisma] ensureVerificationTokenTable warning:', e?.message || e);
+    }
+}
+
 export default prisma;
+
 
