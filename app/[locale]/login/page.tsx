@@ -29,9 +29,8 @@ export default function LoginPage() {
     // Register State
     const [regData, setRegData] = useState({
         name: '',
-        companyName: '',
-        nif: '',
         email: '',
+        nif: '',
         password: '',
     });
     const [consentRgpd, setConsentRgpd] = useState(false);
@@ -97,13 +96,25 @@ export default function LoginPage() {
         e.preventDefault();
         setRegError('');
 
-        if (!regData.name.trim() || !regData.companyName.trim() || !regData.nif.trim() || !regData.email.trim() || !regData.password) {
+        if (!regData.name.trim() || !regData.email.trim() || !regData.nif.trim() || !regData.password) {
             setRegError('Por favor preencha todos os campos obrigatórios.');
             return;
         }
 
         if (regData.password.length < 8) {
             setRegError('A palavra-passe deve ter pelo menos 8 caracteres.');
+            return;
+        }
+        if (!/[A-Z]/.test(regData.password)) {
+            setRegError('A palavra-passe deve conter pelo menos 1 letra maiúscula.');
+            return;
+        }
+        if (!/[0-9]/.test(regData.password)) {
+            setRegError('A palavra-passe deve conter pelo menos 1 número.');
+            return;
+        }
+        if (!/[^A-Za-z0-9]/.test(regData.password)) {
+            setRegError('A palavra-passe deve conter pelo menos 1 caráter especial.');
             return;
         }
 
@@ -127,7 +138,7 @@ export default function LoginPage() {
             // 1. Criar a conta / tenant com plano inicial gratuito
             addAccount({
                 id: newAccountId,
-                name: regData.companyName.trim(),
+                name: `Empresa (${regData.nif.trim()})`,
                 vatNumber: regData.nif.trim(),
                 contactEmail: emailClean,
                 contactPhone: undefined,
@@ -161,7 +172,8 @@ export default function LoginPage() {
                         name: regData.name.trim(),
                         email: emailClean,
                         password: regData.password,
-                        tenantName: regData.companyName.trim(),
+                        nif: regData.nif.trim(),
+                        tenantName: `Empresa (${regData.nif.trim()})`,
                     }),
                 });
             } catch (apiErr) {
@@ -367,33 +379,6 @@ export default function LoginPage() {
 
                                     {/* Register Form */}
                                     <form onSubmit={handleRegister} className="space-y-3">
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">Empresa *</label>
-                                                <div className="relative">
-                                                    <Building2 className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                                                    <input
-                                                        type="text" required
-                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                                        value={regData.companyName}
-                                                        onChange={e => setRegData({ ...regData, companyName: e.target.value })}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-medium text-gray-700 mb-1">NIF *</label>
-                                                <div className="relative">
-                                                    <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                                                    <input
-                                                        type="text" required
-                                                        className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                                        value={regData.nif}
-                                                        onChange={e => setRegData({ ...regData, nif: e.target.value })}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-
                                         <div>
                                             <label className="block text-xs font-medium text-gray-700 mb-1">Nome *</label>
                                             <div className="relative">
@@ -421,7 +406,22 @@ export default function LoginPage() {
                                         </div>
 
                                         <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">Palavra-passe *</label>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">NIF da empresa *</label>
+                                            <div className="relative">
+                                                <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                                                <input
+                                                    type="text" required
+                                                    className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                                                    value={regData.nif}
+                                                    onChange={e => setRegData({ ...regData, nif: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                Palavra-passe * <span className="text-[10px] text-gray-500 font-normal">(mínimo 8 caracteres, 1 letra maiúscula, 1 número, 1 caráter especial)</span>
+                                            </label>
                                             <div className="relative">
                                                 <Lock className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                                 <input

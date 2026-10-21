@@ -20,6 +20,24 @@ export async function POST(req: NextRequest) {
                 { status: 400 }
             );
         }
+        if (!/[A-Z]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 letra maiúscula.' },
+                { status: 400 }
+            );
+        }
+        if (!/[0-9]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 número.' },
+                { status: 400 }
+            );
+        }
+        if (!/[^A-Za-z0-9]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 caráter especial.' },
+                { status: 400 }
+            );
+        }
 
         await ensureVerificationTokenTable();
 

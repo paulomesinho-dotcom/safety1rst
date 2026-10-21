@@ -7,19 +7,37 @@ import { prisma } from '@/lib/prisma';
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { name, email, password, tenantName } = body;
+        const { name, email, password, nif, tenantName } = body;
 
         // Validação básica
         if (!name || !email || !password) {
             return NextResponse.json(
-                { error: 'Nome, email e password são obrigatórios.' },
+                { error: 'Nome, email e palavra-passe são obrigatórios.' },
                 { status: 400 }
             );
         }
 
         if (password.length < 8) {
             return NextResponse.json(
-                { error: 'A password deve ter pelo menos 8 caracteres.' },
+                { error: 'A palavra-passe deve ter pelo menos 8 caracteres.' },
+                { status: 400 }
+            );
+        }
+        if (!/[A-Z]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 letra maiúscula.' },
+                { status: 400 }
+            );
+        }
+        if (!/[0-9]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 número.' },
+                { status: 400 }
+            );
+        }
+        if (!/[^A-Za-z0-9]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 caráter especial.' },
                 { status: 400 }
             );
         }
@@ -41,7 +59,7 @@ export async function POST(req: NextRequest) {
             // 1. Criar Tenant
             const tenant = await tx.tenant.create({
                 data: {
-                    name: tenantName || `${name} — Empresa`,
+                    name: tenantName || (nif ? `Empresa (${nif})` : `${name} — Empresa`),
                     plan: 'basic',
                     modules: [
                         'companies', 'workers', 'equipment',

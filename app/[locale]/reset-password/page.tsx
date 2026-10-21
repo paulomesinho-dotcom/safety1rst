@@ -29,6 +29,18 @@ function ResetPasswordContent() {
             setError('A nova palavra-passe deve ter pelo menos 8 caracteres.');
             return;
         }
+        if (!/[A-Z]/.test(password)) {
+            setError('A nova palavra-passe deve conter pelo menos 1 letra maiúscula.');
+            return;
+        }
+        if (!/[0-9]/.test(password)) {
+            setError('A nova palavra-passe deve conter pelo menos 1 número.');
+            return;
+        }
+        if (!/[^A-Za-z0-9]/.test(password)) {
+            setError('A nova palavra-passe deve conter pelo menos 1 caráter especial.');
+            return;
+        }
 
         if (password !== confirmPassword) {
             setError('As palavras-passe introduzidas não coincidem.');
