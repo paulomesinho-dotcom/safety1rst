@@ -20,6 +20,7 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [loginLoading, setLoginLoading] = useState(false);
 
     // Registration Success / Email Pending State
     const [isRegisteredSuccess, setIsRegisteredSuccess] = useState(false);
@@ -90,25 +91,19 @@ export default function LoginPage() {
             return;
         }
 
-        // Verificar se tem verificação de email pendente
-        const pendingEmailReq = subscriptionRequests.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.status === 'pending_email');
-        if (pendingEmailReq) {
-            setError('O seu e-mail ainda não foi verificado. Por favor consulte a sua caixa de correio e clique na ligação para ativar a sua conta.');
-            return;
-        }
+        setLoginLoading(true);
+        try {
+            const res = await login(cleanEmail, password);
 
-        const pendingApprovalReq = subscriptionRequests.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.status === 'pending_approval');
-        if (pendingApprovalReq) {
-            setError('O seu pedido de subscrição encontra-se a aguardar aprovação da equipa de administração.');
-            return;
-        }
-
-        const res = await login(cleanEmail, password);
-
-        if (res.success) {
-            router.push('/');
-        } else {
-            setError(res.error || 'E-mail ou palavra-passe incorretos.');
+            if (res.success) {
+                router.push('/');
+            } else {
+                setError(res.error || 'E-mail ou palavra-passe incorretos.');
+            }
+        } catch (err) {
+            setError('Erro inesperado ao iniciar sessão. Por favor tente novamente.');
+        } finally {
+            setLoginLoading(false);
         }
     };
 
@@ -369,8 +364,16 @@ export default function LoginPage() {
 
                                     {error && <div className="text-red-500 text-sm bg-red-50 p-2 rounded-md border border-red-100 flex items-center gap-2"><Shield size={14} /> {error}</div>}
 
-                                    <PrimaryButton type="submit" className="w-full justify-center py-2.5 text-base shadow-lg shadow-primary/20">
-                                        Entrar <ArrowRight size={18} className="ml-2" />
+                                    <PrimaryButton type="submit" disabled={loginLoading} className="w-full justify-center py-2.5 text-base shadow-lg shadow-primary/20">
+                                        {loginLoading ? (
+                                            <span className="flex items-center gap-2">
+                                                <Loader2 size={18} className="animate-spin" /> A validar credenciais...
+                                            </span>
+                                        ) : (
+                                            <span className="flex items-center gap-2">
+                                                Entrar <ArrowRight size={18} />
+                                            </span>
+                                        )}
                                     </PrimaryButton>
 
                                     <p className="text-center text-sm text-gray-500 mt-4">

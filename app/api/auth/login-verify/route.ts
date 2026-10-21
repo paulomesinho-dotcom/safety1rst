@@ -23,7 +23,10 @@ export async function POST(req: NextRequest) {
         // 1. Verificar se existe utilizador no PostgreSQL
         const dbUser = await prisma.user.findUnique({
             where: { email: cleanEmail },
-            include: { tenant: true },
+            include: {
+                tenant: true,
+                projectMembers: true,
+            },
         });
 
         // Se não encontrar utilizador, verificar se há pedido pendente
@@ -113,6 +116,34 @@ export async function POST(req: NextRequest) {
             modules: tenant.modules && tenant.modules.length > 0 ? tenant.modules : ['companies', 'workers', 'equipment', 'access-control'],
         } : null;
 
+        // Buscar projetos do tenant para garantir que o administrador da empresa tem acesso de gestor
+        const tenantProjects = dbUser.tenantId
+            ? await prisma.project.findMany({ where: { tenantId: dbUser.tenantId } }).catch(() => [])
+            : [];
+
+        const accessMap = new Map<string, any>();
+        for (const pm of (dbUser.projectMembers || [])) {
+            accessMap.set(pm.projectId, {
+                projectId: pm.projectId,
+                role: pm.role || 'viewer',
+                allowedModules: Array.isArray(pm.allowedModules) && pm.allowedModules.length > 0
+                    ? pm.allowedModules
+                    : ['general', 'safety', 'access', 'training', 'quality', 'environment', 'cde'],
+                companyIds: pm.companyIds && pm.companyIds.length > 0 ? pm.companyIds : undefined
+            });
+        }
+
+        // Se o utilizador é administrador ou criador no tenant, garantir acesso manager aos projetos do seu tenant
+        for (const tp of tenantProjects) {
+            if (!accessMap.has(tp.id)) {
+                accessMap.set(tp.id, {
+                    projectId: tp.id,
+                    role: 'manager',
+                    allowedModules: ['general', 'safety', 'access', 'training', 'quality', 'environment', 'cde'],
+                });
+            }
+        }
+
         const user = {
             id: dbUser.id,
             accountId: dbUser.tenantId || undefined,
@@ -127,7 +158,7 @@ export async function POST(req: NextRequest) {
             suspensionReason: dbUser.suspensionReason || undefined,
             deletedAt: dbUser.deletedAt ? dbUser.deletedAt.toISOString() : undefined,
             createdAt: dbUser.createdAt ? dbUser.createdAt.toISOString() : now.toISOString(),
-            projectAccess: [],
+            projectAccess: Array.from(accessMap.values()),
         };
 
         return NextResponse.json({

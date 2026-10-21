@@ -122,6 +122,7 @@ export interface Project {
     cdeConfig?: CDEConfig;
     status: 'active' | 'completed' | 'archived';
     code?: string;
+    creatorId?: string;
     logoUrl?: string; // URL for project logo/background
     cardConfig?: any; // Stores Access Card Design (CardDesignConfig)
     workflowCcList?: string[];

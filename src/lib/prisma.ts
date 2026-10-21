@@ -119,6 +119,33 @@ export async function ensureUserColumns() {
     }
 }
 
+let projectRequestTableEnsured = false;
+export async function ensureProjectRequestTable() {
+    if (projectRequestTableEnsured) return;
+    if (!process.env.DATABASE_URL) return;
+    try {
+        await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "project_access_requests" (
+                "id" TEXT NOT NULL PRIMARY KEY,
+                "userId" TEXT NOT NULL,
+                "userName" TEXT,
+                "userEmail" TEXT,
+                "projectId" TEXT NOT NULL,
+                "projectName" TEXT,
+                "companyId" TEXT,
+                "companyName" TEXT,
+                "nif" TEXT,
+                "status" TEXT NOT NULL DEFAULT 'pending',
+                "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        `);
+        projectRequestTableEnsured = true;
+    } catch (e: any) {
+        console.warn('[Prisma] ensureProjectRequestTable warning:', e?.message || e);
+    }
+}
+
 export default prisma;
 
 

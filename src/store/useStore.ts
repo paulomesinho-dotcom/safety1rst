@@ -660,13 +660,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 accounts, users, projects, companies, workers, equipment,
                 accessPoints, trainings, accidents, riskAssessments, accessLogs, documents, companyProfiles,
                 workerProfiles, equipmentProfiles, tickets, ticketMessages, courses, trainingSessions, workerTrainingRecords,
-                subscriptionRequests
+                subscriptionRequests, projectRequests
             ] = await Promise.all([
                 load('accounts'), load('users'), load('projects'), load('companies'), load('workers'), load('equipment'),
                 load('access_points'), load('trainings'), load('accidents'), load('risk_assessments'), load('access_logs'), load('documents'), load('company_profiles'),
                 load('worker_profiles'), load('equipment_profiles'), load('tickets'), load('ticket_messages'),
                 load('courses'), load('training_sessions'), load('worker_training_records'),
-                load('subscription_requests')
+                load('subscription_requests'), load('project_requests')
             ]);
 
             const members = (await load('project_members')) as any[];
@@ -820,7 +820,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 courses: courses || [],
                 trainingSessions: trainingSessions || [],
                 workerTrainingRecords: workerTrainingRecords || [],
-                subscriptionRequests: subscriptionRequests || []
+                subscriptionRequests: subscriptionRequests || [],
+                projectRequests: projectRequests || []
             });
             console.log(`[Store] Initialization Complete. Loaded ${documents?.length || 0} documents.`);
 
@@ -918,7 +919,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const res = await fetch('/api/platform/clients');
             const data = await res.json();
             if (res.ok && data.success) {
-                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs, projects: srvProjects } = data;
+                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs, projects: srvProjects, projectRequests: srvProjectRequests } = data;
+                let newPendingCount = 0;
 
                 set((state) => {
                     // Sincronizar Accounts: se vier do servidor, o servidor é a fonte da verdade para contas registadas
@@ -937,7 +939,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         }
                     }
 
-                    // Sincronizar Users
+                    // Sincronizar Users preservando projectAccess
                     const existingUserEmails = new Set(state.users.map(u => u.email.toLowerCase()));
                     const mergedUsers = [...state.users];
                     if (Array.isArray(srvUsers)) {
@@ -948,9 +950,34 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                             } else {
                                 const idx = mergedUsers.findIndex(usr => usr.email.toLowerCase() === u.email.toLowerCase());
                                 if (idx !== -1) {
-                                    mergedUsers[idx] = { ...mergedUsers[idx], ...u };
+                                    // Preservar e fundir projectAccess sem perder dados
+                                    const serverAccess = u.projectAccess || [];
+                                    const localAccess = mergedUsers[idx].projectAccess || [];
+                                    const combinedAccessMap = new Map();
+                                    for (const pa of localAccess) combinedAccessMap.set(pa.projectId, pa);
+                                    for (const pa of serverAccess) combinedAccessMap.set(pa.projectId, pa);
+                                    const finalAccess = Array.from(combinedAccessMap.values());
+
+                                    mergedUsers[idx] = { 
+                                        ...mergedUsers[idx], 
+                                        ...u,
+                                        projectAccess: finalAccess
+                                    };
                                 }
                             }
+                        }
+                    }
+
+                    // Atualizar currentUser se estiver na lista
+                    let updatedCurrentUser = state.currentUser;
+                    if (updatedCurrentUser) {
+                        const match = mergedUsers.find(u => u.id === updatedCurrentUser?.id || (u.email && u.email.toLowerCase() === updatedCurrentUser?.email?.toLowerCase()));
+                        if (match) {
+                            updatedCurrentUser = {
+                                ...updatedCurrentUser,
+                                ...match,
+                                projectAccess: match.projectAccess || updatedCurrentUser.projectAccess,
+                            };
                         }
                     }
 
@@ -990,14 +1017,42 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         }
                     }
 
+                    // Sincronizar Project Requests (pedidos de adesão a obras)
+                    const existingProjReqIds = new Set(state.projectRequests.map(r => r.id));
+                    const mergedProjReqs = [...state.projectRequests];
+                    if (Array.isArray(srvProjectRequests)) {
+                        for (const pr of srvProjectRequests) {
+                            if (!existingProjReqIds.has(pr.id)) {
+                                mergedProjReqs.push(pr);
+                                existingProjReqIds.add(pr.id);
+                                dbInsert('project_requests', pr).catch(() => {});
+                                if (pr.status === 'pending') {
+                                    newPendingCount++;
+                                }
+                            } else {
+                                const idx = mergedProjReqs.findIndex(req => req.id === pr.id);
+                                if (idx !== -1) {
+                                    mergedProjReqs[idx] = { ...mergedProjReqs[idx], ...pr };
+                                    dbUpdate('project_requests', pr.id, pr).catch(() => {});
+                                }
+                            }
+                        }
+                    }
+
                     return {
                         accounts: mergedAccounts,
                         users: mergedUsers,
+                        currentUser: updatedCurrentUser,
                         subscriptionRequests: mergedReqs,
                         projects: mergedProjects,
+                        projectRequests: mergedProjReqs,
                     };
                 });
-                console.log(`[Store] Sincronização com o servidor concluída: ${srvAccounts?.length || 0} contas, ${srvUsers?.length || 0} utilizadores, ${srvProjects?.length || 0} projetos.`);
+
+                if (newPendingCount > 0) {
+                    get().addNotification('info', `Tem ${newPendingCount} novo(s) pedido(s) de adesão a obras a aguardar aprovação.`);
+                }
+                console.log(`[Store] Sincronização com o servidor concluída: ${srvAccounts?.length || 0} contas, ${srvUsers?.length || 0} utilizadores, ${srvProjects?.length || 0} projetos, ${srvProjectRequests?.length || 0} pedidos de obra.`);
             }
         } catch (e) {
             console.warn('[Store] Falha ao sincronizar com servidor (offline fallback ativo):', e);
@@ -1085,10 +1140,18 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         notifications: state.notifications.filter(n => n.id !== id)
     })),
 
-    addUser: (user: Omit<User, 'id' | 'createdAt'>) => set((state) => {
-        const id = nanoid();
+    addUser: (user: Omit<User, 'id' | 'createdAt'> & { id?: string }) => set((state) => {
+        const id = user.id || nanoid();
         const newUser = { ...user, id, createdAt: new Date().toISOString() };
         dbInsert('users', newUser).catch(console.error);
+
+        // Notificar servidor PostgreSQL para persistência centralizada
+        fetch('/api/platform/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newUser),
+        }).catch(console.error);
+
         return { users: [...state.users, newUser] };
     }),
     updateUser: (id, updates) => set((state) => {
@@ -1169,11 +1232,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbInsert('worker_profiles', workProfile).catch(console.error);
         dbInsert('equipment_profiles', equipProfile).catch(console.error);
 
+        const creatorId = state.currentUser?.id;
         const code = project.code || `PRJ-${projectId.replace(/^prj_/, '').substring(0, 4).toUpperCase()}-${new Date().getFullYear()}`;
         const newProject = {
             ...project,
             id: projectId,
             code,
+            creatorId,
             accountId: account?.id || userAccountId || MOCK_ACCOUNT_ID,
             createdAt,
             defaultCompanyProfileId: stdCompanyId,
@@ -1199,7 +1264,6 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }).catch(console.error);
 
         // Garantir acesso EXCLUSIVO do criador como gestor ao novo projeto (sem membros adicionais)
-        const creatorId = state.currentUser?.id;
         let updatedUsers = state.users;
         let updatedCurrentUser = state.currentUser;
         if (creatorId) {
@@ -1896,6 +1960,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             createdAt: new Date().toISOString()
         };
         dbInsert('project_requests', newReq).catch(() => {});
+        fetch('/api/platform/projects/requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newReq)
+        }).catch(() => {});
         return {
             projectRequests: [newReq, ...state.projectRequests]
         };
@@ -1968,6 +2037,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }
 
         dbUpdate('project_requests', requestId, { status }).catch(() => {});
+        fetch('/api/platform/projects/requests', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ requestId, status, role })
+        }).catch(() => {});
 
         return {
             companies: updatedCompanies,
@@ -3285,11 +3359,18 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     // Permission Helpers Implementation
     getUserRoleInProject: (userId, projectId) => {
         const state = get();
-        const user = state.users.find(u => u.id === userId);
+        const user = state.users.find(u => u.id === userId) || (state.currentUser?.id === userId ? state.currentUser : null);
         if (!user) return null;
 
         // Global Admins are effectively managers
         if (user.role === 'admin' || user.role === 'superadmin') return 'manager';
+
+        // Project Creator or Account Owner is always manager
+        const project = state.projects.find(p => p.id === projectId);
+        if (project) {
+            if (project.creatorId && project.creatorId === userId) return 'manager';
+            if (project.accountId && user.accountId && project.accountId === user.accountId) return 'manager';
+        }
 
         // Project Specific Access
         const projectAccess = user.projectAccess?.find(pa => pa.projectId === projectId);
@@ -3298,13 +3379,15 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
     canAccessModule: (userId, projectId, moduleId) => {
         const state = get();
-        const user = state.users.find(u => u.id === userId);
+        const user = state.users.find(u => u.id === userId) || (state.currentUser?.id === userId ? state.currentUser : null);
         if (!user) return false;
         if (user.role === 'admin' || user.role === 'superadmin') return true;
 
+        const role = state.getUserRoleInProject(userId, projectId);
+        if (role === 'manager') return true;
+
         const access = user.projectAccess?.find(pa => pa.projectId === projectId);
         if (!access) return false;
-        if (access.role === 'manager') return true;
 
         return access.allowedModules.includes(moduleId);
     },
@@ -3324,7 +3407,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     // Workflow Role Helpers Implementation
     getProjectManager: (projectId) => {
         const state = get();
+        const project = state.projects.find(p => p.id === projectId);
+        if (project?.creatorId) {
+            const creator = state.users.find(u => u.id === project.creatorId);
+            if (creator) return creator;
+        }
         return state.users.find(u =>
+            (project?.accountId && u.accountId === project.accountId && u.role === 'admin') ||
             u.projectAccess?.some(pa =>
                 pa.projectId === projectId && pa.role === 'manager'
             )

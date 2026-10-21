@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 import { prisma, ensureUserColumns } from '@/lib/prisma';
 
 // GET /api/platform/users
@@ -375,5 +376,76 @@ export async function DELETE(req: NextRequest) {
     } catch (error: any) {
         console.error('[API Platform Users DELETE] Error:', error);
         return NextResponse.json({ error: 'Erro ao eliminar utilizador.' }, { status: 500 });
+    }
+}
+
+// POST /api/platform/users
+// Cria ou sincroniza um utilizador na base de dados central PostgreSQL
+export async function POST(req: NextRequest) {
+    try {
+        await ensureUserColumns();
+        const body = await req.json();
+        const { id, name, email, password, role, accountId, status } = body;
+
+        const cleanEmail = (email || '').trim().toLowerCase();
+        if (!cleanEmail) {
+            return NextResponse.json({ error: 'O email é obrigatório.' }, { status: 400 });
+        }
+
+        let tenantId = accountId;
+        if (tenantId) {
+            const tenantExists = await prisma.tenant.findUnique({ where: { id: tenantId } }).catch(() => null);
+            if (!tenantExists) {
+                tenantId = undefined;
+            }
+        }
+
+        let hashedPassword: string | undefined = undefined;
+        if (password) {
+            if (password.startsWith('$2a$') || password.startsWith('$2b$')) {
+                hashedPassword = password;
+            } else {
+                hashedPassword = await bcrypt.hash(password, 10);
+            }
+        }
+
+        const userId = id || `usr_${Date.now()}`;
+        const dbUser = await prisma.user.upsert({
+            where: { email: cleanEmail },
+            update: {
+                name: name || undefined,
+                role: role || undefined,
+                tenantId: tenantId || undefined,
+                password: hashedPassword || undefined,
+                status: status || 'active',
+                emailVerified: new Date(),
+            },
+            create: {
+                id: userId,
+                name: name || 'Utilizador',
+                email: cleanEmail,
+                password: hashedPassword,
+                role: role || 'client_admin',
+                tenantId: tenantId,
+                status: status || 'active',
+                emailVerified: new Date(),
+            },
+        });
+
+        return NextResponse.json({
+            success: true,
+            user: {
+                id: dbUser.id,
+                accountId: dbUser.tenantId || undefined,
+                name: dbUser.name || 'Utilizador',
+                email: dbUser.email,
+                role: dbUser.role as any,
+                status: dbUser.status as any,
+                createdAt: dbUser.createdAt.toISOString(),
+            }
+        });
+    } catch (error: any) {
+        console.error('[API Platform Users POST] Error:', error);
+        return NextResponse.json({ error: 'Erro ao criar utilizador no servidor.' }, { status: 500 });
     }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, ensureSubscriptionTable, ensureUserColumns } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable, ensureUserColumns, ensureProjectRequestTable } from '@/lib/prisma';
 
 // GET /api/platform/clients
 // Retorna todos os Tenants, Users e SubscriptionRequests da base de dados PostgreSQL
@@ -7,6 +7,7 @@ export async function GET() {
     try {
         await ensureSubscriptionTable();
         await ensureUserColumns();
+        await ensureProjectRequestTable();
 
         const [tenants, dbUsers, requests] = await Promise.all([
             prisma.tenant.findMany({
@@ -17,12 +18,22 @@ export async function GET() {
                 orderBy: { createdAt: 'desc' },
             }).catch(() => []),
             prisma.user.findMany({
+                include: {
+                    projectMembers: true,
+                },
                 orderBy: { createdAt: 'desc' },
             }).catch(() => []),
             prisma.subscriptionRequest.findMany({
                 orderBy: { createdAt: 'desc' },
             }).catch(() => []),
         ]);
+
+        let rawProjectRequests: any[] = [];
+        try {
+            rawProjectRequests = await prisma.$queryRawUnsafe(`SELECT * FROM "project_access_requests" ORDER BY "createdAt" DESC`);
+        } catch {
+            rawProjectRequests = [];
+        }
 
         const accounts = tenants.map(t => {
             // Filtrar utilizadores que não estejam eliminados
@@ -68,7 +79,12 @@ export async function GET() {
             deletedAt: u.deletedAt ? u.deletedAt.toISOString() : undefined,
             emailVerified: u.emailVerified ? u.emailVerified.toISOString() : undefined,
             createdAt: u.createdAt.toISOString(),
-            projectAccess: [],
+            projectAccess: (u.projectMembers || []).map(pm => ({
+                projectId: pm.projectId,
+                role: pm.role as any,
+                allowedModules: pm.allowedModules || [],
+                companyIds: pm.companyIds || [],
+            })),
         }));
 
         const subscriptionRequests = requests.map(r => ({
@@ -89,6 +105,20 @@ export async function GET() {
             updatedAt: r.updatedAt.toISOString(),
         }));
 
+        const projectRequests = rawProjectRequests.map(r => ({
+            id: r.id,
+            userId: r.userId,
+            userName: r.userName || undefined,
+            userEmail: r.userEmail || undefined,
+            projectId: r.projectId,
+            projectName: r.projectName || undefined,
+            companyId: r.companyId || undefined,
+            companyName: r.companyName || undefined,
+            nif: r.nif || undefined,
+            status: r.status,
+            createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+        }));
+
         const allProjects = tenants.flatMap(t => (t.projects || []).filter(p => p.status !== 'deleted').map(p => ({
             id: p.id,
             name: p.name,
@@ -106,6 +136,7 @@ export async function GET() {
             users,
             subscriptionRequests,
             projects: allProjects,
+            projectRequests,
         });
     } catch (error: any) {
         console.error('[API Platform Clients GET] Error:', error);

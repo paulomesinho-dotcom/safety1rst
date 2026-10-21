@@ -67,11 +67,12 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
     const pathname = usePathname();
     const router = useRouter();
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const { projects, modules, currentUser, setCurrentUser, getUserRoleInProject, canAccessModule } = useStore();
+    const { projects, modules, currentUser, setCurrentUser, getUserRoleInProject, canAccessModule, projectRequests } = useStore();
     const currentProject = projects.find(p => p.id === id);
     const { isDark, toggleTheme } = useTheme();
 
     const userRole = currentUser && currentProject ? getUserRoleInProject(currentUser.id, id) : null;
+    const pendingProjectRequests = (projectRequests || []).filter(r => r.projectId === id && r.status === 'pending');
 
     const handleLogout = () => {
         setCurrentUser(null);
@@ -242,6 +243,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                                             >
                                                 <SettingsIcon size={18} className="shrink-0" />
                                                 {!isCollapsed && <span className="truncate">Configurações</span>}
+                                                {pendingProjectRequests.length > 0 && (
+                                                    <span className="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white animate-pulse">
+                                                        {pendingProjectRequests.length}
+                                                    </span>
+                                                )}
                                             </Link>
                                         </li>
                                     );
@@ -313,6 +319,22 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                         <Header />
                         <main className="flex-1 bg-[var(--bg-card)] ml-3 mt-3 mr-4 mb-4 rounded-lg shadow-sm border border-[var(--border)] overflow-hidden relative">
                             <div className="absolute inset-0 overflow-y-auto p-6">
+                                {pendingProjectRequests.length > 0 && (
+                                    <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-center justify-between gap-3 animate-in fade-in">
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0" />
+                                            <span className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                                                Tem {pendingProjectRequests.length === 1 ? '1 pedido de acesso pendente' : `${pendingProjectRequests.length} pedidos de acesso pendentes`} nesta obra.
+                                            </span>
+                                        </div>
+                                        <Link
+                                            href="/"
+                                            className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold shadow-sm transition-all whitespace-nowrap"
+                                        >
+                                            Ver no Workplace &rarr;
+                                        </Link>
+                                    </div>
+                                )}
                                 {children}
                             </div>
                         </main>

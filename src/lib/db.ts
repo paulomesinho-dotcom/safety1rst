@@ -398,6 +398,19 @@ const createSchema = async () => {
             rejection_reason TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
+        )`,
+        `CREATE TABLE IF NOT EXISTS project_requests (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            user_name TEXT,
+            user_email TEXT,
+            project_id TEXT NOT NULL,
+            project_name TEXT,
+            company_id TEXT,
+            company_name TEXT,
+            nif TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now'))
         )`
     ];
 

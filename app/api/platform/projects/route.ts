@@ -96,11 +96,31 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'O nome da obra é obrigatório.' }, { status: 400 });
         }
 
-        // Verificar ou associar ao Tenant
+        // Verificar ou associar ao Tenant garantindo que existe no PostgreSQL
         let tenantId = accountId;
-        if (!tenantId) {
-            const firstTenant = await prisma.tenant.findFirst();
-            tenantId = firstTenant?.id;
+        let existingTenant = tenantId ? await prisma.tenant.findUnique({ where: { id: tenantId } }).catch(() => null) : null;
+        if (!existingTenant && creatorId) {
+            const user = await prisma.user.findUnique({ where: { id: creatorId }, include: { tenant: true } }).catch(() => null);
+            if (user?.tenant) {
+                existingTenant = user.tenant;
+                tenantId = user.tenant.id;
+            }
+        }
+        if (!existingTenant) {
+            const firstTenant = await prisma.tenant.findFirst().catch(() => null);
+            if (firstTenant) {
+                existingTenant = firstTenant;
+                tenantId = firstTenant.id;
+            } else {
+                existingTenant = await prisma.tenant.create({
+                    data: {
+                        name: 'Empresa Principal',
+                        plan: 'basic',
+                        subscriptionStatus: 'active',
+                    }
+                }).catch(() => null);
+                tenantId = existingTenant?.id;
+            }
         }
 
         if (!tenantId) {
@@ -119,15 +139,20 @@ export async function POST(req: NextRequest) {
             },
         });
 
-        // Associar o criador como gestor do projeto se creatorId fornecido
+        // Associar o criador como gestor do projeto se creatorId fornecido e existir no PostgreSQL
         if (creatorId) {
-            await prisma.projectMember.create({
-                data: {
-                    projectId: newProject.id,
-                    userId: creatorId,
-                    role: 'manager',
-                },
-            }).catch(() => {});
+            const userExists = await prisma.user.findUnique({ where: { id: creatorId } }).catch(() => null);
+            if (userExists) {
+                await prisma.projectMember.upsert({
+                    where: { projectId_userId: { projectId: newProject.id, userId: creatorId } },
+                    update: { role: 'manager' },
+                    create: {
+                        projectId: newProject.id,
+                        userId: creatorId,
+                        role: 'manager',
+                    },
+                }).catch(() => {});
+            }
         }
 
         const projectCode = `PRJ-${newProject.id.substring(0, 4).toUpperCase()}-${newProject.createdAt.getFullYear()}`;

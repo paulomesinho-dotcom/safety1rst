@@ -9,7 +9,7 @@ import {
     Plus, Check, Shield, Building2, CheckCircle2, Clock, AlertCircle, 
     Copy, Search, Sparkles, UserPlus, Crown, CheckCheck, 
     XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound,
-    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter, Loader2
+    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter, Loader2, Bell
 } from 'lucide-react';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import AuthGuard from '@/components/AuthGuard';
@@ -227,9 +227,11 @@ export default function Home() {
         if (!currentUser) return [];
         return projects.filter((p: Project) => {
             if (isSuperAdmin) return true;
+            if (p.creatorId && p.creatorId === currentUser.id) return true;
+            if (userAccount && p.accountId === userAccount.id) return true;
             return currentUser.projectAccess?.some(pa => pa.projectId === p.id);
         });
-    }, [projects, currentUser, isSuperAdmin]);
+    }, [projects, currentUser, userAccount, isSuperAdmin]);
 
     const createdProjectsCount = useMemo(() => {
         if (!userAccount) return 0;
@@ -256,9 +258,10 @@ export default function Home() {
         if (!currentUser) return [];
         if (isSuperAdmin) return projects.map(p => p.id);
         return projects.filter(p => {
-            const isOwner = p.accountId === userAccount?.id;
+            const isCreator = p.creatorId === currentUser.id;
+            const isOwner = userAccount && p.accountId === userAccount.id;
             const isManager = currentUser.projectAccess?.some(pa => pa.projectId === p.id && pa.role === 'manager');
-            return isOwner || isManager;
+            return isCreator || isOwner || isManager;
         }).map(p => p.id);
     }, [projects, currentUser, userAccount, isSuperAdmin]);
 
@@ -660,6 +663,31 @@ export default function Home() {
                             )}
                         </div>
                     </div>
+
+                    {/* ── Notificação Visual de Pedidos de Acesso Pendentes ── */}
+                    {receivedRequests.length > 0 && activeTab !== 'requests' && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-sm animate-pulse">
+                                    <Bell size={20} />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                        {receivedRequests.length === 1 ? '1 Pedido de Acesso Pendente' : `${receivedRequests.length} Pedidos de Acesso Pendentes`}
+                                    </h4>
+                                    <p className="text-xs text-amber-800 dark:text-amber-300/80">
+                                        Existem entidades a aguardar a sua aprovação para ingressar na(s) sua(s) obra(s).
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setActiveTab('requests')}
+                                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 self-start sm:self-auto shrink-0"
+                            >
+                                <FileCheck size={14} /> Rever e Aprovar ({receivedRequests.length})
+                            </button>
+                        </div>
+                    )}
 
                     {/* ── Navigation Tabs ── */}
                     <div className="flex items-center gap-2 border-b border-[var(--border)] overflow-x-auto pb-1 scrollbar-none">
