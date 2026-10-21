@@ -9,13 +9,13 @@ import {
     Plus, Check, Shield, Building2, CheckCircle2, Clock, AlertCircle, 
     Copy, Search, Sparkles, UserPlus, Crown, CheckCheck, 
     XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound,
-    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter
+    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter, Loader2
 } from 'lucide-react';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import AuthGuard from '@/components/AuthGuard';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useTheme } from '@/providers/ThemeProvider';
-import type { PlanType, ProjectRole, User, Account, Project } from '@/types';
+import type { PlanType, ProjectRole, User, Account, Project, Company } from '@/types';
 
 type WorkplaceTab = 'projects' | 'requests' | 'company' | 'subscriptions' | 'client_management' | 'users_management';
 
@@ -108,6 +108,10 @@ export default function Home() {
     // Join Project State
     const [joinCode, setJoinCode] = useState('');
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
+    const [joinCompanyName, setJoinCompanyName] = useState('');
+    const [joinCompanyNif, setJoinCompanyNif] = useState('');
+    const [serverMatchedProject, setServerMatchedProject] = useState<Project | null>(null);
+    const [isSearchingProject, setIsSearchingProject] = useState(false);
     const [joinError, setJoinError] = useState('');
     const [joinSuccess, setJoinSuccess] = useState('');
 
@@ -267,24 +271,98 @@ export default function Home() {
         return projectRequests.filter(r => r.userId === currentUser.id);
     }, [projectRequests, currentUser]);
 
+    // Efeito para preencher automaticamente os dados da empresa caso o utilizador tenha conta
+    useEffect(() => {
+        if (isJoinOpen && userAccount) {
+            if (!joinCompanyName) setJoinCompanyName(userAccount.name || '');
+            if (!joinCompanyNif) setJoinCompanyNif(userAccount.vatNumber || '');
+        }
+    }, [isJoinOpen, userAccount]);
+
+    // Pesquisa assíncrona da obra no servidor caso não seja encontrada na cache local
+    useEffect(() => {
+        const query = joinCode.trim();
+        if (!query) {
+            setServerMatchedProject(null);
+            setIsSearchingProject(false);
+            return;
+        }
+
+        const clean = query.toUpperCase().replace(/\s+/g, '');
+        const localMatch = projects.find(p => {
+            const pCode = p.code ? p.code.toUpperCase().replace(/\s+/g, '') : '';
+            const cleanId = p.id.replace(/^prj_/, '').substring(0, 4).toUpperCase();
+            const year = new Date(p.createdAt || Date.now()).getFullYear();
+            const genCode = `PRJ-${cleanId}-${year}`;
+            return (
+                pCode === clean ||
+                p.id.toUpperCase() === clean ||
+                genCode === clean ||
+                clean.replace(/^PRJ-?/, '') === genCode.replace(/^PRJ-?/, '') ||
+                clean === cleanId
+            );
+        });
+
+        if (localMatch) {
+            setServerMatchedProject(null);
+            setIsSearchingProject(false);
+            return;
+        }
+
+        setIsSearchingProject(true);
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/platform/projects?code=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                if (res.ok && data.success && data.project) {
+                    setServerMatchedProject(data.project);
+                } else {
+                    setServerMatchedProject(null);
+                }
+            } catch {
+                setServerMatchedProject(null);
+            } finally {
+                setIsSearchingProject(false);
+            }
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [joinCode, projects]);
+
     // Matched Project for Join Modal
     const matchedJoinProject = useMemo(() => {
         if (!joinCode.trim()) return null;
-        const codeClean = joinCode.trim().toUpperCase();
-        return projects.find(p => {
-            const code = `PRJ-${p.id.substring(0, 4).toUpperCase()}-${new Date(p.createdAt || Date.now()).getFullYear()}`;
-            return code === codeClean || p.id.toUpperCase() === codeClean;
-        }) || null;
-    }, [joinCode, projects]);
+        const clean = joinCode.trim().toUpperCase().replace(/\s+/g, '');
+        const local = projects.find(p => {
+            const pCode = p.code ? p.code.toUpperCase().replace(/\s+/g, '') : '';
+            const cleanId = p.id.replace(/^prj_/, '').substring(0, 4).toUpperCase();
+            const year = new Date(p.createdAt || Date.now()).getFullYear();
+            const genCode = `PRJ-${cleanId}-${year}`;
+            return (
+                pCode === clean ||
+                p.id.toUpperCase() === clean ||
+                genCode === clean ||
+                clean.replace(/^PRJ-?/, '') === genCode.replace(/^PRJ-?/, '') ||
+                clean === cleanId
+            );
+        });
+        return local || serverMatchedProject || null;
+    }, [joinCode, projects, serverMatchedProject]);
 
     const companiesInMatchedProject = useMemo(() => {
         if (!matchedJoinProject) return [];
-        return companies.filter(c => c.projectId === matchedJoinProject.id);
+        const localComps = companies.filter(c => c.projectId === matchedJoinProject.id);
+        if (localComps.length > 0) return localComps;
+        if ((matchedJoinProject as any).companies && Array.isArray((matchedJoinProject as any).companies)) {
+            return (matchedJoinProject as any).companies as Company[];
+        }
+        return [];
     }, [matchedJoinProject, companies]);
 
     // Copy project invitation code
     const handleCopyCode = (project: Project) => {
-        const code = `PRJ-${project.id.substring(0, 4).toUpperCase()}-${new Date(project.createdAt || Date.now()).getFullYear()}`;
+        const cleanId = project.id.replace(/^prj_/, '').substring(0, 4).toUpperCase();
+        const code = project.code || `PRJ-${cleanId}-${new Date(project.createdAt || Date.now()).getFullYear()}`;
         navigator.clipboard.writeText(code);
         setCopiedCode(code);
         setTimeout(() => setCopiedCode(null), 2500);
@@ -341,19 +419,21 @@ export default function Home() {
             return;
         }
 
-        // Check company selection requirement
-        if (!selectedCompanyId) {
-            setJoinError('Deve selecionar a sua empresa da lista de empresas desta obra.');
+        const selectedCompany = companiesInMatchedProject.find(c => c.id === selectedCompanyId);
+        const finalCompanyName = selectedCompany ? selectedCompany.name : (joinCompanyName.trim() || userAccount?.name || 'Subempreiteiro');
+        const finalNif = selectedCompany ? selectedCompany.nif : (joinCompanyNif.trim() || userAccount?.vatNumber || '');
+
+        if (!selectedCompanyId && !finalCompanyName) {
+            setJoinError('Por favor indique o nome da empresa ou entidade.');
             return;
         }
-
-        const selectedCompany = companiesInMatchedProject.find(c => c.id === selectedCompanyId);
 
         addProjectRequest(
             currentUser.id, 
             matchedJoinProject.id, 
-            selectedCompanyId, 
-            selectedCompany?.name || 'Subempreiteiro'
+            selectedCompanyId || undefined, 
+            finalCompanyName,
+            finalNif
         );
 
         setJoinSuccess(`Pedido de acesso enviado com sucesso para a obra "${matchedJoinProject.name}"!`);
@@ -361,7 +441,10 @@ export default function Home() {
             setIsJoinOpen(false);
             setJoinCode('');
             setSelectedCompanyId('');
+            setJoinCompanyName('');
+            setJoinCompanyNif('');
             setJoinSuccess('');
+            setServerMatchedProject(null);
         }, 1800);
     };
 
@@ -710,7 +793,8 @@ export default function Home() {
                                             </thead>
                                             <tbody className="divide-y divide-[var(--border)]">
                                                 {visibleProjects.map((project: Project) => {
-                                                    const code = `PRJ-${project.id.substring(0, 4).toUpperCase()}-${new Date(project.createdAt || Date.now()).getFullYear()}`;
+                                                    const cleanId = project.id.replace(/^prj_/, '').substring(0, 4).toUpperCase();
+                                                    const code = project.code || `PRJ-${cleanId}-${new Date(project.createdAt || Date.now()).getFullYear()}`;
                                                     const isCopied = copiedCode === code;
                                                     const userAccess = currentUser.projectAccess?.find(pa => pa.projectId === project.id);
                                                     const roleLabel = isSuperAdmin ? 'SuperAdmin' : (userAccess?.role === 'manager' ? 'Gestor de Obra' : 'Subempreiteiro / Utilizador');
@@ -1999,7 +2083,12 @@ export default function Home() {
                         {/* Real-time Project Match Feedback */}
                         {joinCode.trim() && (
                             <div>
-                                {matchedJoinProject ? (
+                                {isSearchingProject ? (
+                                    <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                                        <Loader2 size={14} className="animate-spin shrink-0" />
+                                        <span>A pesquisar obra pelo código...</span>
+                                    </div>
+                                ) : matchedJoinProject ? (
                                     <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 space-y-3">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
@@ -2019,32 +2108,71 @@ export default function Home() {
                                             </div>
                                         )}
 
-                                        {/* Mandatory Company Selection */}
-                                        <div className="pt-2 border-t border-emerald-200 dark:border-emerald-800">
-                                            <label className="block text-xs font-bold text-gray-800 dark:text-gray-200 mb-1.5">
-                                                Selecione a sua Empresa nesta Obra *
+                                        {/* Company Association */}
+                                        <div className="pt-2 border-t border-emerald-200 dark:border-emerald-800 space-y-2.5">
+                                            <label className="block text-xs font-bold text-gray-800 dark:text-gray-200">
+                                                Identificação da Empresa / Subempreiteiro *
                                             </label>
-                                            <p className="text-[11px] text-gray-500 mb-2">
-                                                Identifique qual a empresa/subempreiteiro que representa para esta intervenção.
-                                            </p>
 
-                                            {companiesInMatchedProject.length > 0 ? (
-                                                <select
-                                                    required
-                                                    value={selectedCompanyId}
-                                                    onChange={e => setSelectedCompanyId(e.target.value)}
-                                                    className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-medium"
-                                                >
-                                                    <option value="">-- Escolha a sua empresa da lista da obra --</option>
-                                                    {companiesInMatchedProject.map(comp => (
-                                                        <option key={comp.id} value={comp.id}>
-                                                            {comp.name} {comp.nif ? `(NIF: ${comp.nif})` : ''}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <div className="text-[11px] text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
-                                                    Ainda não existem empresas ou subempreiteiros registados nesta obra pelo gestor.
+                                            {companiesInMatchedProject.length > 0 && (
+                                                <div>
+                                                    <label className="block text-[11px] text-gray-600 dark:text-gray-400 mb-1">
+                                                        Empresas já registadas nesta obra:
+                                                    </label>
+                                                    <select
+                                                        value={selectedCompanyId}
+                                                        onChange={e => {
+                                                            setSelectedCompanyId(e.target.value);
+                                                            if (e.target.value) {
+                                                                const found = companiesInMatchedProject.find(c => c.id === e.target.value);
+                                                                if (found) {
+                                                                    setJoinCompanyName(found.name);
+                                                                    setJoinCompanyNif(found.nif || '');
+                                                                }
+                                                            }
+                                                        }}
+                                                        className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-medium"
+                                                    >
+                                                        <option value="">-- Escolher da lista ou introduzir nova empresa abaixo --</option>
+                                                        {companiesInMatchedProject.map(comp => (
+                                                            <option key={comp.id} value={comp.id}>
+                                                                {comp.name} {comp.nif ? `(NIF: ${comp.nif})` : ''}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
+
+                                            {(!selectedCompanyId || companiesInMatchedProject.length === 0) && (
+                                                <div className="space-y-2 pt-1">
+                                                    <div>
+                                                        <label className="block text-[11px] font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                            Nome da Empresa / Entidade *
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            required
+                                                            placeholder={userAccount?.name || "ex: Construções Silva, Lda"}
+                                                            value={joinCompanyName}
+                                                            onChange={e => setJoinCompanyName(e.target.value)}
+                                                            className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[11px] font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                            NIF da Empresa (opcional)
+                                                        </label>
+                                                        <input
+                                                            type="text"
+                                                            placeholder={userAccount?.vatNumber || "ex: 501234567"}
+                                                            value={joinCompanyNif}
+                                                            onChange={e => setJoinCompanyNif(e.target.value)}
+                                                            className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-mono"
+                                                        />
+                                                        <p className="text-[10px] text-gray-500 mt-1">
+                                                            Não é obrigatório que este NIF já conste na obra. A empresa será associada mediante aprovação do gestor.
+                                                        </p>
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
@@ -2074,7 +2202,7 @@ export default function Home() {
 
                         <PrimaryButton 
                             type="submit" 
-                            disabled={!matchedJoinProject || !selectedCompanyId}
+                            disabled={!matchedJoinProject || (!selectedCompanyId && !joinCompanyName.trim() && !userAccount?.name)}
                             className="w-full py-2.5 text-xs font-bold"
                         >
                             Submeter Pedido de Acesso

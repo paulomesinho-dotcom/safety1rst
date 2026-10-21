@@ -11,6 +11,7 @@ export interface ProjectRequest {
     projectName?: string;
     companyId?: string;
     companyName?: string;
+    nif?: string;
     status: 'pending' | 'approved' | 'rejected';
     createdAt: string;
 }
@@ -148,7 +149,7 @@ export interface AppState {
     removeProjectAccess: (userId: string, projectId: string) => void;
 
     // Requests
-    addProjectRequest: (userId: string, projectId: string, companyId?: string, companyName?: string) => void;
+    addProjectRequest: (userId: string, projectId: string, companyId?: string, companyName?: string, nif?: string) => void;
     resolveProjectRequest: (requestId: string, status: 'approved' | 'rejected', role?: ProjectRole) => void;
     changeAccountPlan: (accountId: string, newPlan: PlanType) => void;
     associateCompanyUser: (companyAccountId: string, userEmail: string, userName?: string) => { success: boolean; message: string };
@@ -917,7 +918,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const res = await fetch('/api/platform/clients');
             const data = await res.json();
             if (res.ok && data.success) {
-                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs } = data;
+                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs, projects: srvProjects } = data;
 
                 set((state) => {
                     // Sincronizar Accounts: se vier do servidor, o servidor é a fonte da verdade para contas registadas
@@ -970,13 +971,33 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         }
                     }
 
+                    // Sincronizar Projects
+                    const existingProjectIds = new Set(state.projects.map(p => p.id));
+                    const mergedProjects = [...state.projects];
+                    if (Array.isArray(srvProjects)) {
+                        for (const p of srvProjects) {
+                            if (!existingProjectIds.has(p.id)) {
+                                mergedProjects.push(p);
+                                existingProjectIds.add(p.id);
+                                dbInsert('projects', p).catch(() => {});
+                            } else {
+                                const idx = mergedProjects.findIndex(proj => proj.id === p.id);
+                                if (idx !== -1) {
+                                    mergedProjects[idx] = { ...mergedProjects[idx], ...p };
+                                    dbUpdate('projects', p.id, p).catch(() => {});
+                                }
+                            }
+                        }
+                    }
+
                     return {
                         accounts: mergedAccounts,
                         users: mergedUsers,
                         subscriptionRequests: mergedReqs,
+                        projects: mergedProjects,
                     };
                 });
-                console.log(`[Store] Sincronização com o servidor concluída: ${srvAccounts?.length || 0} contas, ${srvUsers?.length || 0} utilizadores.`);
+                console.log(`[Store] Sincronização com o servidor concluída: ${srvAccounts?.length || 0} contas, ${srvUsers?.length || 0} utilizadores, ${srvProjects?.length || 0} projetos.`);
             }
         } catch (e) {
             console.warn('[Store] Falha ao sincronizar com servidor (offline fallback ativo):', e);
@@ -1148,9 +1169,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbInsert('worker_profiles', workProfile).catch(console.error);
         dbInsert('equipment_profiles', equipProfile).catch(console.error);
 
+        const code = project.code || `PRJ-${projectId.replace(/^prj_/, '').substring(0, 4).toUpperCase()}-${new Date().getFullYear()}`;
         const newProject = {
             ...project,
             id: projectId,
+            code,
             accountId: account?.id || userAccountId || MOCK_ACCOUNT_ID,
             createdAt,
             defaultCompanyProfileId: stdCompanyId,
@@ -1159,18 +1182,39 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         };
         dbInsert('projects', newProject).catch(console.error);
 
-        // Garantir acesso do criador como gestor ao novo projeto
+        // Notificar servidor central para persistência e disponibilidade a outros utilizadores
+        fetch('/api/platform/projects', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: newProject.id,
+                name: newProject.name,
+                code: newProject.code,
+                description: newProject.description,
+                address: newProject.address,
+                accountId: newProject.accountId,
+                creatorId: state.currentUser?.id,
+                status: newProject.status || 'active',
+            })
+        }).catch(console.error);
+
+        // Garantir acesso EXCLUSIVO do criador como gestor ao novo projeto (sem membros adicionais)
         const creatorId = state.currentUser?.id;
         let updatedUsers = state.users;
         let updatedCurrentUser = state.currentUser;
         if (creatorId) {
+            const newAccess = {
+                projectId,
+                role: 'manager' as ProjectRole,
+                allowedModules: MOCK_MODULES.map(m => m.id)
+            };
+
+            executeQuery(`INSERT OR REPLACE INTO project_members (id, project_id, user_id, role, allowed_modules) VALUES (?, ?, ?, ?, ?)`,
+                [nanoid(), projectId, creatorId, 'manager', JSON.stringify(newAccess.allowedModules)]
+            ).catch(console.error);
+
             updatedUsers = state.users.map(u => {
                 if (u.id !== creatorId) return u;
-                const newAccess = {
-                    projectId,
-                    role: 'manager' as ProjectRole,
-                    allowedModules: MOCK_MODULES.map(m => m.id)
-                };
                 const updated = {
                     ...u,
                     projectAccess: [...(u.projectAccess || []), newAccess]
@@ -1834,7 +1878,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
 
 
-    addProjectRequest: (userId, projectId, companyId, companyName) => set((state) => {
+    addProjectRequest: (userId, projectId, companyId, companyName, nif) => set((state) => {
         const user = state.users.find(u => u.id === userId) || state.currentUser;
         const proj = state.projects.find(p => p.id === projectId);
         const comp = companyId ? state.companies.find(c => c.id === companyId) : undefined;
@@ -1847,6 +1891,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             projectName: proj?.name,
             companyId,
             companyName: companyName || comp?.name,
+            nif: nif || comp?.nif,
             status: 'pending',
             createdAt: new Date().toISOString()
         };
@@ -1862,8 +1907,39 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
         let newUsers = state.users;
         let updatedCurrentUser = state.currentUser;
+        let updatedCompanies = state.companies;
 
         if (status === 'approved') {
+            let targetCompanyId = req.companyId;
+
+            // Se o NIF ou nome da empresa foi fornecido mas a empresa ainda não constava na obra
+            if (!targetCompanyId && (req.companyName || req.nif)) {
+                const existingComp = state.companies.find(c =>
+                    c.projectId === req.projectId &&
+                    ((req.nif && c.nif === req.nif) || (req.companyName && c.name.toLowerCase() === req.companyName.toLowerCase()))
+                );
+
+                if (existingComp) {
+                    targetCompanyId = existingComp.id;
+                } else {
+                    const newCompId = nanoid();
+                    const newComp: Company = {
+                        id: newCompId,
+                        name: req.companyName || 'Subempreiteiro',
+                        nif: req.nif || '999999990',
+                        email: req.userEmail || '',
+                        accountId: state.projects.find(p => p.id === req.projectId)?.accountId || state.currentUser?.accountId || 'default',
+                        projectId: req.projectId,
+                        companyRole: 'subempreiteiro',
+                        tier: 2,
+                        createdAt: new Date().toISOString(),
+                    };
+                    updatedCompanies = [...state.companies, newComp];
+                    dbInsert('companies', newComp).catch(console.error);
+                    targetCompanyId = newCompId;
+                }
+            }
+
             // Grant Access with requested company linked
             newUsers = state.users.map(u => {
                 if (u.id !== req.userId) return u;
@@ -1873,8 +1949,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     projectId: req.projectId,
                     role: (role || 'data_user') as ProjectRole,
                     allowedModules: MOCK_MODULES.map(m => m.id),
-                    companyIds: req.companyId ? [req.companyId] : undefined
+                    companyIds: targetCompanyId ? [targetCompanyId] : undefined
                 };
+
+                executeQuery(`INSERT OR REPLACE INTO project_members (id, project_id, user_id, role, allowed_modules, company_id) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [nanoid(), req.projectId, req.userId, newAccess.role, JSON.stringify(newAccess.allowedModules), targetCompanyId ? JSON.stringify([targetCompanyId]) : null]
+                ).catch(console.error);
+
                 const updatedUser = {
                     ...u,
                     projectAccess: [...(u.projectAccess || []), newAccess]
@@ -1889,6 +1970,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbUpdate('project_requests', requestId, { status }).catch(() => {});
 
         return {
+            companies: updatedCompanies,
             users: newUsers,
             currentUser: updatedCurrentUser,
             projectRequests: state.projectRequests.map(r => r.id === requestId ? { ...r, status } : r)

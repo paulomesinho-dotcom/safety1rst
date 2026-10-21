@@ -89,11 +89,23 @@ export async function GET() {
             updatedAt: r.updatedAt.toISOString(),
         }));
 
+        const allProjects = tenants.flatMap(t => (t.projects || []).filter(p => p.status !== 'deleted').map(p => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            address: p.address,
+            accountId: t.id,
+            status: p.status,
+            createdAt: p.createdAt.toISOString(),
+            code: `PRJ-${p.id.substring(0, 4).toUpperCase()}-${p.createdAt.getFullYear()}`,
+        })));
+
         return NextResponse.json({
             success: true,
             accounts,
             users,
             subscriptionRequests,
+            projects: allProjects,
         });
     } catch (error: any) {
         console.error('[API Platform Clients GET] Error:', error);

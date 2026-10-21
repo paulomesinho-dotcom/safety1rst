@@ -274,17 +274,15 @@ const ProjectSettings = () => {
         updateProjectSettings(projectId, { workflowCcList: currentList.filter(e => e !== email) });
     };
 
-    const inviteCode = `PRJ-${projectId?.substring(0, 4).toUpperCase()}-${new Date().getFullYear()}`;
+    const inviteCode = project?.code || `PRJ-${projectId?.replace(/^prj_/, '').substring(0, 4).toUpperCase()}-${new Date(project?.createdAt || Date.now()).getFullYear()}`;
     const pendingRequests = projectRequests.filter(r => r.projectId === projectId && r.status === 'pending');
 
     const projectUsers = users.filter(u => {
-        if (u.role === 'admin' || u.role === 'superadmin') return true;
-        if (u.projectAccess?.some(pa => pa.projectId === projectId)) return true;
-        return false;
+        return u.projectAccess?.some(pa => pa.projectId === projectId);
     }).filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const searchableUsers = users.filter(u => {
-        const inProject = u.role === 'admin' || u.role === 'superadmin' || u.projectAccess?.some(pa => pa.projectId === projectId);
+        const inProject = u.projectAccess?.some(pa => pa.projectId === projectId);
         return !inProject && u.name.toLowerCase().includes(addUserSearch.toLowerCase());
     });
 
