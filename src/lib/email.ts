@@ -26,7 +26,8 @@ export async function sendVerificationEmail({
     token: string;
 }) {
     const verifyUrl = `${APP_URL}/pt/verify-email?token=${token}`;
-    const planLabel = plan === 'premium' ? 'Profissional / Premium' : plan === 'enterprise' ? 'Enterprise' : 'Básico';
+    const isFreePlan = !plan || plan === 'free';
+    const planLabel = plan === 'premium' ? 'Profissional / Premium' : plan === 'enterprise' ? 'Enterprise' : plan === 'basic' ? 'Básico' : 'Gratuito';
 
     const html = `
     <!DOCTYPE html>
@@ -52,15 +53,22 @@ export async function sendVerificationEmail({
         </div>
         <div class="content">
           <p>Olá <strong>${name}</strong>,</p>
+          ${isFreePlan ? `
+          <p>Recebemos o registo da sua conta na plataforma <strong>SafetyFirst</strong> associada a <strong>${companyName}</strong>.</p>
+          <p>Para confirmar a autenticidade do seu endereço de email e ativar o seu acesso, por favor clique no botão abaixo:</p>
+          ` : `
           <p>Recebemos o pedido de adesão da sua empresa <strong>${companyName}</strong> à plataforma <strong>SafetyFirst</strong> com a subscrição:</p>
           <p><span class="badge">Plano ${planLabel}</span></p>
           <p>Para confirmar a autenticidade deste endereço de email e encaminhar o seu pedido para aprovação final da nossa equipa, por favor clique no botão abaixo:</p>
+          `}
           <div style="text-align: center; margin: 28px 0;">
             <a href="${verifyUrl}" class="button">Confirmar o meu E-mail</a>
           </div>
           <p style="font-size: 13px; color: #64748b;">Se o botão não funcionar, copie e cole o seguinte link no seu navegador:<br>
           <a href="${verifyUrl}" style="color: #2563eb; word-break: break-all;">${verifyUrl}</a></p>
-          <p style="font-size: 13px; color: #64748b; margin-top: 24px;">Após a confirmação, o seu pedido será analisado pela nossa equipa e receberá um aviso assim que a sua conta for ativada.</p>
+          <p style="font-size: 13px; color: #64748b; margin-top: 24px;">
+            ${isFreePlan ? 'Após a confirmação, o seu acesso fica imediatamente pronto para entrar na plataforma.' : 'Após a confirmação, o seu pedido será analisado pela nossa equipa e receberá um aviso assim que a sua conta for ativada.'}
+          </p>
         </div>
         <div class="footer">
           &copy; ${new Date().getFullYear()} SafetyFirst by Xispoli. Todos os direitos reservados.

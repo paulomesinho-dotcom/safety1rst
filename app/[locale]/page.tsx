@@ -72,7 +72,7 @@ export default function Home() {
     const [isJoinOpen, setIsJoinOpen] = useState(false);
     const [isInviteOpen, setIsInviteOpen] = useState(false);
     const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
-    const [selectedUpgradePlan, setSelectedUpgradePlan] = useState<PlanType>('basic');
+    const [selectedUpgradePlan, setSelectedUpgradePlan] = useState<PlanType>('premium');
     const [upgradeNotes, setUpgradeNotes] = useState('');
 
     // Join Project State
@@ -306,7 +306,7 @@ export default function Home() {
     };
 
     // Handle Subscription Request / Upgrade
-    const handleRequestUpgrade = (plan: PlanType) => {
+    const handleRequestUpgrade = (plan: PlanType = 'premium') => {
         setSelectedUpgradePlan(plan);
         setIsUpgradeModalOpen(true);
     };
@@ -435,19 +435,21 @@ export default function Home() {
                                 <KeyRound size={14} className="text-primary" /> Solicitar Projeto
                             </button>
 
-                            <button
-                                onClick={() => {
-                                    if (projectCreationLimit === 0) {
-                                        setActiveTab('subscriptions');
-                                        addNotification('warning', 'A criação de novos projetos requer uma subscrição Básico, Pro ou Enterprise.');
-                                    } else {
-                                        setIsCreateOpen(true);
-                                    }
-                                }}
-                                className="px-3.5 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white font-semibold text-xs shadow-sm transition-all flex items-center gap-2"
-                            >
-                                <Plus size={15} /> Criar Novo Projeto
-                            </button>
+                            {currentPlan !== 'free' && (
+                                <button
+                                    onClick={() => {
+                                        if (projectCreationLimit === 0) {
+                                            setActiveTab('subscriptions');
+                                            addNotification('warning', 'A criação de novos projetos requer uma subscrição Básico, Pro ou Enterprise.');
+                                        } else {
+                                            setIsCreateOpen(true);
+                                        }
+                                    }}
+                                    className="px-3.5 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white font-semibold text-xs shadow-sm transition-all flex items-center gap-2"
+                                >
+                                    <Plus size={15} /> Criar Novo Projeto
+                                </button>
+                            )}
                         </div>
                     </div>
 
@@ -1470,15 +1472,81 @@ export default function Home() {
 
                 {/* ════════ MODAL: PEDIDO DE SUBSCRIÇÃO / UPGRADE ════════ */}
                 <Modal 
-                    title={`Subscrever Plano ${selectedUpgradePlan.toUpperCase()}`}
+                    title="Subscrição e Upgrade de Plano"
                     isOpen={isUpgradeModalOpen} 
                     onClose={() => setIsUpgradeModalOpen(false)}
                 >
                     <div className="space-y-4">
-                        <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
-                            <div className="text-xs font-bold text-primary uppercase">Resumo da Subscrição</div>
-                            <div className="text-lg font-extrabold text-[var(--text)]">Plano {selectedUpgradePlan.toUpperCase()}</div>
-                            <p className="text-xs text-[var(--text-muted)]">
+                        <div>
+                            <label className="block text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                                Escolha o Plano Pretendido
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                {[
+                                    {
+                                        id: 'basic' as PlanType,
+                                        name: 'Básico',
+                                        badge: '1 Obra',
+                                        members: 'Até 5 colaboradores',
+                                        desc: 'Para pequenas equipas',
+                                    },
+                                    {
+                                        id: 'premium' as PlanType,
+                                        name: 'Premium',
+                                        badge: '3 Obras',
+                                        members: 'Até 10 colaboradores',
+                                        desc: 'CDE e IA avançados',
+                                        recommended: true,
+                                    },
+                                    {
+                                        id: 'enterprise' as PlanType,
+                                        name: 'Enterprise',
+                                        badge: 'Ilimitado',
+                                        members: 'Até 50 colaboradores',
+                                        desc: 'Grandes empreitadas',
+                                    },
+                                ].map((p) => {
+                                    const isSelected = selectedUpgradePlan === p.id;
+                                    return (
+                                        <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => setSelectedUpgradePlan(p.id)}
+                                            className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
+                                                isSelected
+                                                    ? 'border-primary bg-primary/10 ring-2 ring-primary/40 shadow-sm'
+                                                    : 'border-[var(--border)] bg-[var(--bg-card)] hover:border-primary/50'
+                                            }`}
+                                        >
+                                            {p.recommended && (
+                                                <span className="absolute -top-2 right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary text-white uppercase tracking-wider shadow-sm">
+                                                    Recomendado
+                                                </span>
+                                            )}
+                                            <div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="font-extrabold text-xs text-[var(--text)]">{p.name}</span>
+                                                    <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-[var(--bg-input)] text-primary">
+                                                        {p.badge}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-[var(--text-muted)] mt-1">{p.desc}</p>
+                                            </div>
+                                            <div className="mt-2.5 pt-2 border-t border-[var(--border)] text-[10px] font-medium text-[var(--text-muted)]">
+                                                {p.members}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-primary uppercase">Plano Selecionado</span>
+                                <span className="text-xs font-bold text-[var(--text)] uppercase">{selectedUpgradePlan}</span>
+                            </div>
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
                                 {selectedUpgradePlan === 'basic' && 'Permite criar 1 obra própria, associar até 5 membros da sua empresa e concede 15 acessos a obras em simultâneo (+10 bónus).'}
                                 {selectedUpgradePlan === 'premium' && 'Permite criar até 3 obras próprias, associar até 10 membros da sua empresa com CDE avançado e 15 acessos simultâneos.'}
                                 {selectedUpgradePlan === 'enterprise' && 'Obras próprias ilimitadas, até 50 utilizadores e acessos sem restrições com suporte dedicado.'}

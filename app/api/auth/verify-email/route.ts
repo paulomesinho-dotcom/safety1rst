@@ -22,22 +22,73 @@ export async function GET(req: NextRequest) {
 
             if (subRequest) {
                 if (subRequest.status === 'pending_email') {
-                    requestData = await prisma.subscriptionRequest.update({
-                        where: { id: subRequest.id },
-                        data: {
-                            status: 'pending_approval',
-                            emailVerifiedAt: new Date(),
-                        },
-                    });
+                    const isFreePlan = !subRequest.plan || subRequest.plan === 'free';
 
-                    // Notificar o Superadmin por email
-                    await sendAdminNewRequestNotification({
-                        companyName: subRequest.companyName,
-                        nif: subRequest.nif,
-                        contactName: subRequest.contactName,
-                        email: subRequest.email,
-                        plan: subRequest.plan,
-                    });
+                    if (isFreePlan) {
+                        // Ativação automática de conta gratuita
+                        let tenant = await prisma.tenant.findFirst({
+                            where: { name: subRequest.companyName },
+                        });
+
+                        if (!tenant) {
+                            tenant = await prisma.tenant.create({
+                                data: {
+                                    name: subRequest.companyName,
+                                    plan: 'free',
+                                    maxProjects: 0,
+                                    accessControlLimit: 600,
+                                    subscriptionStatus: 'active',
+                                    modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                },
+                            });
+                        }
+
+                        await prisma.user.upsert({
+                            where: { email: subRequest.email },
+                            update: {
+                                name: subRequest.contactName,
+                                role: 'client_admin',
+                                tenantId: tenant.id,
+                                emailVerified: new Date(),
+                            },
+                            create: {
+                                name: subRequest.contactName,
+                                email: subRequest.email,
+                                password: subRequest.password,
+                                role: 'client_admin',
+                                tenantId: tenant.id,
+                                emailVerified: new Date(),
+                            },
+                        });
+
+                        requestData = await prisma.subscriptionRequest.update({
+                            where: { id: subRequest.id },
+                            data: {
+                                status: 'approved',
+                                emailVerifiedAt: new Date(),
+                                reviewedBy: 'Auto-Verification',
+                                reviewedAt: new Date(),
+                            },
+                        });
+                    } else {
+                        // Planos pagos: aguarda validação da administração
+                        requestData = await prisma.subscriptionRequest.update({
+                            where: { id: subRequest.id },
+                            data: {
+                                status: 'pending_approval',
+                                emailVerifiedAt: new Date(),
+                            },
+                        });
+
+                        // Notificar o Superadmin por email
+                        await sendAdminNewRequestNotification({
+                            companyName: subRequest.companyName,
+                            nif: subRequest.nif,
+                            contactName: subRequest.contactName,
+                            email: subRequest.email,
+                            plan: subRequest.plan,
+                        });
+                    }
                 } else {
                     requestData = subRequest;
                 }

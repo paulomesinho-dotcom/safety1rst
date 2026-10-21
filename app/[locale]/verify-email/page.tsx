@@ -13,6 +13,9 @@ export default function VerifyEmailPage() {
 
     const updateSubscriptionRequest = useStore(state => state.updateSubscriptionRequest);
     const subscriptionRequests = useStore(state => state.subscriptionRequests);
+    const users = useStore(state => state.users);
+    const addAccount = useStore(state => state.addAccount);
+    const addUser = useStore(state => state.addUser);
 
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [details, setDetails] = useState<{ companyName: string; plan: string } | null>(null);
@@ -32,19 +35,86 @@ export default function VerifyEmailPage() {
                 const data = await res.json();
 
                 if (res.ok && data.success) {
+                    const verifiedPlan = data.plan || 'free';
                     setStatus('success');
                     setDetails({
                         companyName: data.companyName,
-                        plan: data.plan,
+                        plan: verifiedPlan,
                     });
+
+                    // Sincronizar store local se for conta gratuita
+                    const localReq = subscriptionRequests.find(r => r.verificationToken === token);
+                    if (localReq) {
+                        updateSubscriptionRequest(localReq.id, {
+                            status: verifiedPlan === 'free' ? 'approved' : 'pending_approval',
+                            emailVerifiedAt: new Date().toISOString(),
+                        });
+                        if (verifiedPlan === 'free') {
+                            const userExists = users.some(u => u.email?.trim().toLowerCase() === localReq.email.trim().toLowerCase());
+                            if (!userExists) {
+                                const newAccId = `acc_${localReq.id}`;
+                                addAccount({
+                                    id: newAccId,
+                                    name: localReq.companyName,
+                                    vatNumber: localReq.nif,
+                                    contactEmail: localReq.email,
+                                    plan: 'free',
+                                    status: 'active',
+                                    subscriptionStatus: 'active',
+                                    maxProjects: 0,
+                                    accessControlLimit: 600,
+                                    maxCompanyUsers: 1,
+                                    modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                });
+                                addUser({
+                                    id: `usr_${localReq.id}`,
+                                    accountId: newAccId,
+                                    name: localReq.contactName,
+                                    email: localReq.email,
+                                    password: localReq.password,
+                                    role: 'client_admin',
+                                    projectAccess: [],
+                                });
+                            }
+                        }
+                    }
                 } else {
                     // Fallback para estado do client store (se demo ou offline)
                     const localReq = subscriptionRequests.find(r => r.verificationToken === token);
                     if (localReq) {
+                        const isFree = localReq.plan === 'free' || !localReq.plan;
                         updateSubscriptionRequest(localReq.id, {
-                            status: 'pending_approval',
+                            status: isFree ? 'approved' : 'pending_approval',
                             emailVerifiedAt: new Date().toISOString(),
                         });
+                        if (isFree) {
+                            const userExists = users.some(u => u.email?.trim().toLowerCase() === localReq.email.trim().toLowerCase());
+                            if (!userExists) {
+                                const newAccId = `acc_${localReq.id}`;
+                                addAccount({
+                                    id: newAccId,
+                                    name: localReq.companyName,
+                                    vatNumber: localReq.nif,
+                                    contactEmail: localReq.email,
+                                    plan: 'free',
+                                    status: 'active',
+                                    subscriptionStatus: 'active',
+                                    maxProjects: 0,
+                                    accessControlLimit: 600,
+                                    maxCompanyUsers: 1,
+                                    modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                });
+                                addUser({
+                                    id: `usr_${localReq.id}`,
+                                    accountId: newAccId,
+                                    name: localReq.contactName,
+                                    email: localReq.email,
+                                    password: localReq.password,
+                                    role: 'client_admin',
+                                    projectAccess: [],
+                                });
+                            }
+                        }
                         setStatus('success');
                         setDetails({
                             companyName: localReq.companyName,
@@ -59,10 +129,39 @@ export default function VerifyEmailPage() {
                 // Fallback para client store
                 const localReq = subscriptionRequests.find(r => r.verificationToken === token);
                 if (localReq) {
+                    const isFree = localReq.plan === 'free' || !localReq.plan;
                     updateSubscriptionRequest(localReq.id, {
-                        status: 'pending_approval',
+                        status: isFree ? 'approved' : 'pending_approval',
                         emailVerifiedAt: new Date().toISOString(),
                     });
+                    if (isFree) {
+                        const userExists = users.some(u => u.email?.trim().toLowerCase() === localReq.email.trim().toLowerCase());
+                        if (!userExists) {
+                            const newAccId = `acc_${localReq.id}`;
+                            addAccount({
+                                id: newAccId,
+                                name: localReq.companyName,
+                                vatNumber: localReq.nif,
+                                contactEmail: localReq.email,
+                                plan: 'free',
+                                status: 'active',
+                                subscriptionStatus: 'active',
+                                maxProjects: 0,
+                                accessControlLimit: 600,
+                                maxCompanyUsers: 1,
+                                modules: ['companies', 'workers', 'equipment', 'access-control'],
+                            });
+                            addUser({
+                                id: `usr_${localReq.id}`,
+                                accountId: newAccId,
+                                name: localReq.contactName,
+                                email: localReq.email,
+                                password: localReq.password,
+                                role: 'client_admin',
+                                projectAccess: [],
+                            });
+                        }
+                    }
                     setStatus('success');
                     setDetails({
                         companyName: localReq.companyName,
@@ -76,7 +175,9 @@ export default function VerifyEmailPage() {
         };
 
         verify();
-    }, [token, subscriptionRequests, updateSubscriptionRequest]);
+    }, [token, subscriptionRequests, updateSubscriptionRequest, users, addAccount, addUser]);
+
+    const isFreePlan = !details?.plan || details.plan === 'free';
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 flex flex-col justify-center items-center px-4 py-12">
@@ -95,33 +196,47 @@ export default function VerifyEmailPage() {
                             <CheckCircle2 size={36} />
                         </div>
 
-                        <div>
-                            <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 mb-3">
-                                Email Confirmado
-                            </span>
-                            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Pedido em Análise</h1>
-                            <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                                {details?.companyName ? (
-                                    <>O pedido de adesão para <strong>{details.companyName}</strong> (Plano {details.plan.toUpperCase()}) foi encaminhado com sucesso para a nossa equipa.</>
-                                ) : (
-                                    <>O seu email foi confirmado com sucesso e o pedido de adesão foi registado.</>
-                                )}
-                            </p>
-                        </div>
+                        {isFreePlan ? (
+                            <div>
+                                <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 mb-3">
+                                    Email Confirmado
+                                </span>
+                                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Conta Ativada com Sucesso</h1>
+                                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                    O seu endereço de email foi verificado. A sua conta está pronta e já pode aceder ao Workplace da plataforma.
+                                </p>
+                            </div>
+                        ) : (
+                            <div>
+                                <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 mb-3">
+                                    Email Confirmado
+                                </span>
+                                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Pedido em Análise</h1>
+                                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                    {details?.companyName ? (
+                                        <>O pedido de adesão para <strong>{details.companyName}</strong> (Plano {details.plan.toUpperCase()}) foi encaminhado com sucesso para a nossa equipa.</>
+                                    ) : (
+                                        <>O seu email foi confirmado com sucesso e o pedido de adesão foi registado.</>
+                                    )}
+                                </p>
+                            </div>
+                        )}
 
-                        <div className="bg-slate-50 dark:bg-zinc-800/60 p-4 rounded-xl border border-slate-200 dark:border-zinc-700 text-left text-xs text-slate-600 dark:text-slate-300 space-y-2">
-                            <div className="flex items-start gap-2.5">
-                                <ShieldCheck className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-                                <span>A nossa administração irá verificar os dados e ativar a sua subscrição.</span>
+                        {!isFreePlan && (
+                            <div className="bg-slate-50 dark:bg-zinc-800/60 p-4 rounded-xl border border-slate-200 dark:border-zinc-700 text-left text-xs text-slate-600 dark:text-slate-300 space-y-2">
+                                <div className="flex items-start gap-2.5">
+                                    <ShieldCheck className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+                                    <span>A nossa administração irá verificar os dados e ativar a sua subscrição.</span>
+                                </div>
+                                <div className="flex items-start gap-2.5">
+                                    <Mail className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+                                    <span>Receberá um email automático assim que o seu acesso estiver pronto a utilizar.</span>
+                                </div>
                             </div>
-                            <div className="flex items-start gap-2.5">
-                                <Mail className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-                                <span>Receberá um email automático assim que o seu acesso estiver pronto a utilizar.</span>
-                            </div>
-                        </div>
+                        )}
 
                         <Link
-                            href="/login"
+                            href="/login?verified=true"
                             className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-lg shadow-blue-600/20 transition-all text-sm"
                         >
                             Ir para o Login <ArrowRight size={16} />

@@ -9,12 +9,14 @@ export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
         const { companyName, nif, contactName, name, email, phone, password, plan, consentRgpd } = body;
-        const finalContactName = (contactName || name || '').trim();
+        const finalContactName = (name || contactName || '').trim();
+        const cleanNif = (nif || '').trim();
+        const finalCompanyName = (companyName || (cleanNif ? `Empresa (${cleanNif})` : 'Empresa')).trim();
 
         // Validações
-        if (!companyName?.trim() || !nif?.trim() || !finalContactName || !email?.trim() || !password) {
+        if (!cleanNif || !finalContactName || !email?.trim() || !password) {
             return NextResponse.json(
-                { error: 'Todos os campos obrigatórios (Empresa, NIF, Nome do Responsável, Email e Palavra-passe) devem ser preenchidos.' },
+                { error: 'Todos os campos obrigatórios (Nome, Email, NIF da empresa e Palavra-passe) devem ser preenchidos.' },
                 { status: 400 }
             );
         }
@@ -22,6 +24,24 @@ export async function POST(req: NextRequest) {
         if (password.length < 8) {
             return NextResponse.json(
                 { error: 'A palavra-passe deve ter pelo menos 8 caracteres.' },
+                { status: 400 }
+            );
+        }
+        if (!/[A-Z]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 letra maiúscula.' },
+                { status: 400 }
+            );
+        }
+        if (!/[0-9]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 número.' },
+                { status: 400 }
+            );
+        }
+        if (!/[^A-Za-z0-9]/.test(password)) {
+            return NextResponse.json(
+                { error: 'A palavra-passe deve conter pelo menos 1 caráter especial.' },
                 { status: 400 }
             );
         }
@@ -36,7 +56,7 @@ export async function POST(req: NextRequest) {
         const cleanEmail = email.trim().toLowerCase();
         const verificationToken = nanoid(32);
         const hashedPassword = await bcrypt.hash(password, 10);
-        const selectedPlan = plan || 'basic';
+        const selectedPlan = plan || 'free';
 
         // 1. Guardar na base de dados Prisma
         try {
@@ -59,8 +79,8 @@ export async function POST(req: NextRequest) {
             // Criar pedido de subscrição
             await prisma.subscriptionRequest.create({
                 data: {
-                    companyName,
-                    nif,
+                    companyName: finalCompanyName,
+                    nif: cleanNif,
                     contactName: finalContactName,
                     email: cleanEmail,
                     phone: phone || null,
@@ -70,7 +90,7 @@ export async function POST(req: NextRequest) {
                     verificationToken,
                 },
             });
-            console.log(`[Register-Request] Pedido de ${cleanEmail} (${companyName}) gravado na base de dados Prisma com sucesso.`);
+            console.log(`[Register-Request] Pedido de ${cleanEmail} (${finalCompanyName}) gravado na base de dados Prisma com sucesso.`);
         } catch (dbErr: any) {
             console.error('[Register-Request DB Error]:', dbErr);
         }
@@ -79,7 +99,7 @@ export async function POST(req: NextRequest) {
         const emailResult = await sendVerificationEmail({
             to: cleanEmail,
             name: finalContactName,
-            companyName,
+            companyName: finalCompanyName,
             plan: selectedPlan,
             token: verificationToken,
         });

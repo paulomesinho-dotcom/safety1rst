@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { Shield, Mail, Lock, Building2, ArrowRight, Box, Smartphone, CheckCircle, FileText, HardHat, Truck, Check, Sparkles, User, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { PrimaryButton, Modal } from '@/components/Modal';
@@ -11,13 +11,19 @@ import { nanoid } from 'nanoid';
 
 export default function LoginPage() {
     const router = useRouter();
-    const { users, setCurrentUser, login, addSubscriptionRequest, addAccount, addUser } = useStore();
+    const searchParams = useSearchParams();
+    const verifiedParam = searchParams.get('verified') === 'true';
+    const { users, setCurrentUser, login, addSubscriptionRequest, subscriptionRequests } = useStore();
     const [isLogin, setIsLogin] = useState(true);
 
     // Login State
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+
+    // Registration Success / Email Pending State
+    const [isRegisteredSuccess, setIsRegisteredSuccess] = useState(false);
+    const [registeredEmail, setRegisteredEmail] = useState('');
 
     // Forgot Password State
     const [showForgotModal, setShowForgotModal] = useState(false);
@@ -78,12 +84,26 @@ export default function LoginPage() {
         e.preventDefault();
         setError('');
 
-        if (!email.trim() || !password) {
+        const cleanEmail = email.trim().toLowerCase();
+        if (!cleanEmail || !password) {
             setError('Por favor preencha o e-mail e a palavra-passe.');
             return;
         }
 
-        const success = await login(email.trim(), password);
+        // Verificar se tem verificação de email pendente
+        const pendingEmailReq = subscriptionRequests.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.status === 'pending_email');
+        if (pendingEmailReq) {
+            setError('O seu e-mail ainda não foi verificado. Por favor consulte a sua caixa de correio e clique na ligação para ativar a sua conta.');
+            return;
+        }
+
+        const pendingApprovalReq = subscriptionRequests.find(r => r.email?.trim().toLowerCase() === cleanEmail && r.status === 'pending_approval');
+        if (pendingApprovalReq) {
+            setError('O seu pedido de subscrição encontra-se a aguardar aprovação da equipa de administração.');
+            return;
+        }
+
+        const success = await login(cleanEmail, password);
 
         if (success) {
             router.push('/');
@@ -131,63 +151,44 @@ export default function LoginPage() {
         }
 
         setIsSubmitting(true);
-        const newAccountId = `acc_${nanoid(8)}`;
-        const newUserId = `usr_${nanoid(8)}`;
 
         try {
-            // 1. Criar a conta / tenant com plano inicial gratuito
-            addAccount({
-                id: newAccountId,
-                name: `Empresa (${regData.nif.trim()})`,
-                vatNumber: regData.nif.trim(),
-                contactEmail: emailClean,
-                contactPhone: undefined,
-                plan: 'free',
-                status: 'active',
-                subscriptionStatus: 'active',
-                maxProjects: 0,
-                accessControlLimit: 600,
-                maxCompanyUsers: 1,
-                modules: ['companies', 'workers', 'equipment', 'access-control'],
+            // Submeter pedido de registo e envio de email de verificação
+            const res = await fetch('/api/auth/register-request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: regData.name.trim(),
+                    email: emailClean,
+                    nif: regData.nif.trim(),
+                    companyName: `Empresa (${regData.nif.trim()})`,
+                    password: regData.password,
+                    plan: 'free',
+                    consentRgpd: true,
+                }),
             });
 
-            // 2. Criar o utilizador associado à conta
-            addUser({
-                id: newUserId,
-                accountId: newAccountId,
-                name: regData.name.trim(),
+            const data = await res.json();
+            if (!res.ok) {
+                setRegError(data.error || 'Ocorreu um erro ao submeter o registo. Por favor tente novamente.');
+                return;
+            }
+
+            // Registar pedido de subscrição pendente de email no store local
+            addSubscriptionRequest({
+                id: `req_${nanoid(8)}`,
+                companyName: `Empresa (${regData.nif.trim()})`,
+                nif: regData.nif.trim(),
+                contactName: regData.name.trim(),
                 email: emailClean,
-                phone: undefined,
                 password: regData.password,
-                role: 'client_admin',
-                projectAccess: [],
+                plan: 'free',
+                status: 'pending_email',
+                verificationToken: data.token || nanoid(32),
             });
 
-            // 3. Sincronizar com a API em background (com fallback graceful)
-            try {
-                await fetch('/api/auth/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: regData.name.trim(),
-                        email: emailClean,
-                        password: regData.password,
-                        nif: regData.nif.trim(),
-                        tenantName: `Empresa (${regData.nif.trim()})`,
-                    }),
-                });
-            } catch (apiErr) {
-                console.warn('[Auth] Server sync fallback:', apiErr);
-            }
-
-            // 4. Iniciar sessão imediatamente e avançar para o Workplace
-            const loggedIn = await login(emailClean, regData.password);
-            if (loggedIn) {
-                router.push('/');
-            } else {
-                setIsLogin(true);
-                setEmail(emailClean);
-            }
+            setRegisteredEmail(emailClean);
+            setIsRegisteredSuccess(true);
         } catch (err: any) {
             console.error('[Register] Error:', err);
             setRegError('Ocorreu um erro ao criar a conta. Por favor tente novamente.');
@@ -312,11 +313,18 @@ export default function LoginPage() {
                             <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
 
                             <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-6 text-center">
-                                {isLogin ? 'Iniciar Sessão' : 'Criar Conta'}
+                                {isLogin ? 'Iniciar Sessão' : (isRegisteredSuccess ? 'Confirmação de Registo' : 'Criar Conta')}
                             </h2>
 
                             {isLogin ? (
                                 <form className="space-y-5" onSubmit={handleLogin}>
+                                    {verifiedParam && (
+                                        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+                                            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                            <span>O seu endereço de e-mail foi validado com sucesso. Pode agora iniciar sessão com a sua palavra-passe.</span>
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">E-mail</label>
                                         <div className="relative">
@@ -366,9 +374,43 @@ export default function LoginPage() {
                                     </PrimaryButton>
 
                                     <p className="text-center text-sm text-gray-500 mt-4">
-                                        Não tem conta? <button type="button" onClick={() => setIsLogin(false)} className="font-semibold text-primary hover:text-primary hover:underline">Criar conta</button>
+                                        Não tem conta? <button type="button" onClick={() => { setIsLogin(false); setIsRegisteredSuccess(false); }} className="font-semibold text-primary hover:text-primary hover:underline">Criar conta</button>
                                     </p>
                                 </form>
+                            ) : isRegisteredSuccess ? (
+                                <div className="space-y-4 py-4 text-center animate-in fade-in zoom-in-95 duration-300">
+                                    <div className="w-14 h-14 bg-blue-100 text-primary rounded-full flex items-center justify-center mx-auto shadow-inner">
+                                        <Mail size={28} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Verifique o seu e-mail</h3>
+                                        <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                                            Enviámos uma mensagem com a ligação de confirmação para:
+                                            <br />
+                                            <strong className="text-gray-900 dark:text-white font-semibold">{registeredEmail}</strong>
+                                        </p>
+                                        <p className="text-[11px] text-gray-500 max-w-xs mx-auto">
+                                            Por favor abra a sua caixa de correio e clique na ligação para validar o seu e-mail antes de iniciar sessão.
+                                        </p>
+                                    </div>
+                                    <div className="pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setIsRegisteredSuccess(false);
+                                                setIsLogin(true);
+                                                setEmail(registeredEmail);
+                                                setPassword('');
+                                            }}
+                                            className="w-full py-2.5 px-4 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-md transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <ArrowRight size={14} /> Voltar ao Iniciar Sessão
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-400">
+                                        Não recebeu? Verifique a pasta de spam ou lixo eletrónico.
+                                    </p>
+                                </div>
                             ) : (
                                 <div className="space-y-4 animate-in fade-in duration-300">
                                     <div className="text-center pb-1">
@@ -474,7 +516,7 @@ export default function LoginPage() {
                                                 </span>
                                             ) : (
                                                 <span className="flex items-center gap-1.5">
-                                                    Criar Conta e Aceder ao Workplace <ArrowRight size={16} />
+                                                    Criar Conta <ArrowRight size={16} />
                                                 </span>
                                             )}
                                         </PrimaryButton>
