@@ -5,49 +5,77 @@ export interface FlatIconProps {
     size?: number;
     className?: string;
     style?: React.CSSProperties;
+    filled?: boolean;
 }
 
 /**
- * Factory helper for Flaticon UIcons (Solid + Straight corner style)
- * Based on: https://www.flaticon.com/uicons (weight=solid, corner=straight)
+ * Google Material Symbols icon font component
+ * Reference: https://fonts.google.com/icons
  */
-const createFlaticon = (iconClass: string, defaultSize = 18) => {
-    const Component: React.FC<FlatIconProps> = ({ size = defaultSize, className = '', style }) => (
-        <i
+export const GoogleMaterialIcon: React.FC<{
+    name: string;
+    size?: number;
+    className?: string;
+    style?: React.CSSProperties;
+    filled?: boolean;
+}> = ({ name, size = 20, className = '', style, filled = true }) => {
+    return (
+        <span
             className={cn(
-                "fi",
-                iconClass,
-                "inline-flex items-center justify-center leading-none text-center shrink-0 not-italic select-none",
+                "material-symbols-rounded inline-flex items-center justify-center leading-none text-center shrink-0 not-italic select-none",
                 className
             )}
-            style={{ fontSize: `${size}px`, width: `${size}px`, height: `${size}px`, ...style }}
+            style={{
+                fontSize: `${size}px`,
+                width: `${size}px`,
+                height: `${size}px`,
+                fontVariationSettings: `'FILL' ${filled ? 1 : 0}, 'wght' 500, 'GRAD' 0, 'opsz' 24`,
+                ...style,
+            }}
             aria-hidden="true"
+        >
+            {name}
+        </span>
+    );
+};
+
+/**
+ * Factory helper for Google Material Symbols
+ */
+const createGoogleIcon = (iconName: string, defaultSize = 20) => {
+    const Component: React.FC<FlatIconProps> = ({ size = defaultSize, className = '', style, filled = true }) => (
+        <GoogleMaterialIcon
+            name={iconName}
+            size={size}
+            className={className}
+            style={style}
+            filled={filled}
         />
     );
     return Component;
 };
 
-// --- Sidebar Navigation Icons (Flaticon UIcons Straight Solid) ---
-export const FlatDashboardIcon = createFlaticon('fi-ss-apps', 18);
-export const FlatCompaniesIcon = createFlaticon('fi-ss-building', 18);
-export const FlatWorkersIcon = createFlaticon('fi-ss-users', 18);
-export const FlatEquipmentIcon = createFlaticon('fi-ss-hard-hat', 18);
-export const FlatAccessControlIcon = createFlaticon('fi-ss-shield-check', 18);
-export const FlatAccidentsIcon = createFlaticon('fi-ss-triangle-warning', 18);
-export const FlatTrainingIcon = createFlaticon('fi-ss-graduation-cap', 18);
-export const FlatWorkplanIcon = createFlaticon('fi-ss-calendar-clock', 18);
-export const FlatFormsIcon = createFlaticon('fi-ss-clipboard-list', 18);
-export const FlatDocumentsIcon = createFlaticon('fi-ss-document', 18);
-export const FlatSettingsIcon = createFlaticon('fi-ss-settings', 18);
+// --- Sidebar Navigation Icons (Google Material Symbols) ---
+export const FlatDashboardIcon = createGoogleIcon('grid_view', 20);
+export const FlatCompaniesIcon = createGoogleIcon('domain', 20);
+export const FlatWorkersIcon = createGoogleIcon('groups', 20);
+export const FlatEquipmentIcon = createGoogleIcon('construction', 20);
+export const FlatAccessControlIcon = createGoogleIcon('verified_user', 20);
+export const FlatAccidentsIcon = createGoogleIcon('warning', 20);
+export const FlatTrainingIcon = createGoogleIcon('school', 20);
+export const FlatWorkplanIcon = createGoogleIcon('event_note', 20);
+export const FlatFormsIcon = createGoogleIcon('assignment', 20);
+export const FlatDocumentsIcon = createGoogleIcon('description', 20);
+export const FlatSettingsIcon = createGoogleIcon('settings', 20);
 
-// --- Workplace Hub Icons (Flaticon UIcons Straight Solid) ---
-export const FlatFolderIcon = createFlaticon('fi-ss-folder', 18);
-export const FlatCrownIcon = createFlaticon('fi-ss-crown', 18);
-export const FlatRequestsIcon = createFlaticon('fi-ss-bell', 18);
-export const FlatBriefcaseIcon = createFlaticon('fi-ss-briefcase', 18);
-export const FlatShieldUserIcon = createFlaticon('fi-ss-user-lock', 18);
+// --- Workplace Hub Icons (Google Material Symbols) ---
+export const FlatFolderIcon = createGoogleIcon('folder', 20);
+export const FlatCrownIcon = createGoogleIcon('workspace_premium', 20);
+export const FlatRequestsIcon = createGoogleIcon('notifications', 20);
+export const FlatBriefcaseIcon = createGoogleIcon('business_center', 20);
+export const FlatShieldUserIcon = createGoogleIcon('shield_person', 20);
 
-// --- Theme Icons (Flaticon UIcons Straight Solid) ---
-export const FlatSunIcon = createFlaticon('fi-ss-sun', 16);
-export const FlatMoonIcon = createFlaticon('fi-ss-moon', 16);
-export const FlatS1Icon = createFlaticon('fi-ss-sidebar', 16);
+// --- Theme Icons (Google Material Symbols) ---
+export const FlatSunIcon = createGoogleIcon('light_mode', 18);
+export const FlatMoonIcon = createGoogleIcon('dark_mode', 18);
+export const FlatS1Icon = createGoogleIcon('view_sidebar', 18);

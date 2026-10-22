@@ -1,3 +1,4 @@
+@import 'material-symbols/index.css';
 @import '@flaticon/flaticon-uicons/css/solid/straight.css';
 @import '@flaticon/flaticon-uicons/css/thin/straight.css';
 @tailwind base;
@@ -328,18 +329,18 @@
 
 /* 
  * ==========================================
- * TEMA S1 (Workspace Claro + Barra Lateral Azul Petróleo #084d6e)
+ * TEMA S1 (Workspace Claro + Barra Lateral Cinza Executivo)
  * ==========================================
  */
 .theme-s1 .sidebar-container,
 .theme-s1 aside.sidebar-container {
-    background: #084d6e !important;
-    border-right: 1px solid #063c56 !important;
+    background: #1e293b !important; /* Cinza ardósia / slate executivo */
+    border-right: 1px solid #334155 !important;
     color: #F8FAFC !important;
 }
 
 .theme-s1 .sidebar-container .border-b {
-    border-color: #0b5f87 !important;
+    border-color: #334155 !important;
 }
 
 .theme-s1 .sidebar-container span,
@@ -350,43 +351,49 @@
 }
 
 .theme-s1 .fjm-nav-label {
-    color: #93c5fd !important;
-    opacity: 0.85;
+    color: #94a3b8 !important;
+    opacity: 0.9;
 }
 
 .theme-s1 .fjm-nav-item {
-    color: #e0f2fe !important;
+    color: #cbd5e1 !important;
 }
 
-.theme-s1 .fjm-nav-item svg {
-    color: #bae6fd !important;
+.theme-s1 .fjm-nav-item .material-symbols-rounded,
+.theme-s1 .fjm-nav-item svg,
+.theme-s1 .fjm-nav-item i {
+    color: #94a3b8 !important;
 }
 
 .theme-s1 .fjm-nav-item:hover {
-    background: rgba(255, 255, 255, 0.12) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
     color: #FFFFFF !important;
 }
 
-.theme-s1 .fjm-nav-item:hover svg {
+.theme-s1 .fjm-nav-item:hover .material-symbols-rounded,
+.theme-s1 .fjm-nav-item:hover svg,
+.theme-s1 .fjm-nav-item:hover i {
     color: #FFFFFF !important;
 }
 
 .theme-s1 .fjm-nav-item.active {
-    background: rgba(255, 255, 255, 0.22) !important;
+    background: rgba(255, 255, 255, 0.16) !important;
     color: #FFFFFF !important;
 }
 
-.theme-s1 .fjm-nav-item.active svg {
-    color: #38bdf8 !important;
+.theme-s1 .fjm-nav-item.active .material-symbols-rounded,
+.theme-s1 .fjm-nav-item.active svg,
+.theme-s1 .fjm-nav-item.active i {
+    color: #60a5fa !important;
 }
 
 .theme-s1 .fjm-sidebar-footer {
-    border-top: 1px solid #0b5f87 !important;
+    border-top: 1px solid #334155 !important;
 }
 
 .theme-s1 .fjm-user-card {
-    background: #063c56 !important;
-    border: 1px solid #0b5f87 !important;
+    background: #0f172a !important;
+    border: 1px solid #334155 !important;
 }
 
 .theme-s1 .fjm-user-name {
@@ -394,5 +401,32 @@
 }
 
 .theme-s1 .fjm-user-role {
-    color: #bae6fd !important;
+    color: #94a3b8 !important;
+}
+
+/* 
+ * ==========================================
+ * GOOGLE MATERIAL SYMBOLS ICON FONTS
+ * https://fonts.google.com/icons
+ * ==========================================
+ */
+.material-symbols-rounded,
+.material-symbols-outlined,
+.material-symbols-sharp {
+    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', sans-serif;
+    font-weight: normal;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'liga';
+    font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
 }

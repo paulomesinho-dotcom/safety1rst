@@ -48,8 +48,8 @@ export function ThemeMenu() {
         },
         {
             id: 's1',
-            label: 'S1 (Azul Petróleo)',
-            icon: <FlatS1Icon size={16} className="text-[#084d6e] dark:text-[#38bdf8]" />,
+            label: 'S1 (Barra Cinza)',
+            icon: <FlatS1Icon size={18} className="text-slate-600 dark:text-slate-300" />,
         },
     ];
 
