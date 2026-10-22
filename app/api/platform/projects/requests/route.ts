@@ -103,7 +103,7 @@ export async function PATCH(req: NextRequest) {
     try {
         await ensureProjectRequestTable();
         const body = await req.json();
-        const { requestId, status, role = 'data_user' } = body;
+        const { requestId, status, role = 'none' } = body;
 
         if (!requestId || !['approved', 'rejected'].includes(status)) {
             return NextResponse.json({ error: 'requestId e status (approved/rejected) válidos são obrigatórios.' }, { status: 400 });
@@ -128,12 +128,13 @@ export async function PATCH(req: NextRequest) {
                         where: { projectId: r.projectId, userId: r.userId }
                     });
                     if (!existingMember) {
+                        const assignedRole = role || 'none';
                         await prisma.projectMember.create({
                             data: {
                                 projectId: r.projectId,
                                 userId: r.userId,
-                                role: role || 'data_user',
-                                allowedModules: ['general', 'safety', 'access', 'training', 'quality', 'environment', 'cde'],
+                                role: assignedRole,
+                                allowedModules: assignedRole === 'none' ? [] : ['general', 'safety', 'access', 'training', 'quality', 'environment', 'cde'],
                                 companyIds: r.companyId ? [r.companyId] : []
                             }
                         });

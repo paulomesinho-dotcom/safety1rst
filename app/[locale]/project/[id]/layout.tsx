@@ -80,7 +80,8 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
     const currentProject = projects.find(p => p.id === id);
     const { isDark } = useTheme();
 
-    const userRole = currentUser && currentProject ? getUserRoleInProject(currentUser.id, id) : null;
+    const isCreatorOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentProject?.creatorId === currentUser?.id;
+    const userRole = isCreatorOrAdmin ? 'manager' : (currentUser && currentProject ? getUserRoleInProject(currentUser.id, id) : null);
     const pendingProjectRequests = (projectRequests || []).filter(r => r.projectId === id && r.status === 'pending');
 
     const handleLogout = () => {
@@ -93,16 +94,25 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
             {!currentProject ? (
                 <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
                     <div className="text-center">
-                        <h1 className="text-xl font-medium text-[var(--text)]">Project Not Found</h1>
-                        <Link href="/" className="text-[#4285F4] hover:underline mt-2 inline-block">Return Home</Link>
+                        <h1 className="text-xl font-medium text-[var(--text)]">Obra Não Encontrada</h1>
+                        <Link href="/" className="text-[#4285F4] hover:underline mt-2 inline-block">Voltar ao Workplace</Link>
                     </div>
                 </div>
-            ) : !userRole ? (
-                <div className="flex h-screen items-center justify-center bg-[var(--bg)]">
-                    <div className="text-center">
-                        <h1 className="text-3xl font-bold text-[var(--text)] mb-2">Access Denied</h1>
-                        <p className="text-[var(--text-muted)] mb-4">You do not have permission to view this project.</p>
-                        <Link href="/" className="text-[#4285F4] hover:underline">Return Home</Link>
+            ) : (!userRole || userRole === 'none') ? (
+                <div className="flex h-screen items-center justify-center bg-[var(--bg)] px-4">
+                    <div className="max-w-md w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-8 text-center shadow-lg space-y-4">
+                        <div className="w-14 h-14 mx-auto rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                            <AlertTriangle size={28} />
+                        </div>
+                        <h1 className="text-xl font-bold text-[var(--text)]">Acesso sem Perfil Atribuído</h1>
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                            O seu pedido foi aceite na obra, mas o Gestor ou Administrador ainda não lhe definiu um perfil de acesso (Manager, Editor, Viewer, Data User ou Approval).
+                        </p>
+                        <div className="pt-2">
+                            <Link href="/" className="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all">
+                                Voltar ao Workplace
+                            </Link>
+                        </div>
                     </div>
                 </div>
             ) : (

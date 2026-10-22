@@ -374,14 +374,16 @@ const ProjectSettings = () => {
 
     const getRoleLabel = (role: string) => {
         switch (role) {
-            case 'manager': return 'Manager (Gestor)';
-            case 'data_user': return 'Data User (Subempreiteiro)';
+            case 'manager': return 'Manager';
             case 'editor': return 'Editor';
-            case 'viewer': return 'Viewer (Visualizador)';
-            case 'approval_user': return 'Approval User (Validador)';
+            case 'viewer': return 'Viewer';
+            case 'data_user': return 'Data User';
+            case 'approval_user':
+            case 'approval': return 'Approval';
             case 'admin':
-            case 'superadmin': return 'Administrador';
-            default: return 'Membro';
+            case 'superadmin': return 'Administrador da Conta';
+            case 'none': return 'Sem Perfil';
+            default: return role || 'Sem Perfil';
         }
     };
 
@@ -598,11 +600,11 @@ const ProjectSettings = () => {
                                                             onChange={(e) => setPendingRoles(prev => ({ ...prev, [req.id]: e.target.value as ProjectRole }))}
                                                             className="bg-[var(--bg-input)] border border-primary/40 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs text-[var(--text)] font-semibold outline-none cursor-pointer shadow-sm"
                                                         >
-                                                            <option value="data_user">Data User (Subempreiteiro)</option>
-                                                            <option value="viewer">Viewer (Visualizador / Fiscal)</option>
-                                                            <option value="editor">Editor (Encarregado / Preparador)</option>
-                                                            <option value="approval_user">Validador (Técnico SHST)</option>
-                                                            <option value="manager">Manager (Gestor de Obra)</option>
+                                                            <option value="manager">Manager</option>
+                                                            <option value="editor">Editor</option>
+                                                            <option value="viewer">Viewer</option>
+                                                            <option value="data_user">Data User</option>
+                                                            <option value="approval_user">Approval</option>
                                                         </select>
                                                     </td>
                                                     <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -654,11 +656,11 @@ const ProjectSettings = () => {
                                     className="bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer"
                                 >
                                     <option value="all">Todos os Perfis ({projectUsers.length})</option>
-                                    <option value="manager">Managers</option>
-                                    <option value="editor">Editores</option>
-                                    <option value="data_user">Data Users</option>
-                                    <option value="approval_user">Validadores</option>
-                                    <option value="viewer">Visualizadores</option>
+                                    <option value="manager">Manager</option>
+                                    <option value="editor">Editor</option>
+                                    <option value="viewer">Viewer</option>
+                                    <option value="data_user">Data User</option>
+                                    <option value="approval_user">Approval</option>
                                 </select>
                             </div>
 
@@ -688,8 +690,9 @@ const ProjectSettings = () => {
                                     {projectUsers.map(user => {
                                         const projectRole = getUserRoleInProject(user.id, projectId);
                                         const isSelf = user.id === currentUser?.id;
-                                        const isTargetManager = projectRole === 'manager';
-                                        const canEdit = !isSelf && !isTargetManager;
+                                        const isAccountAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || project?.creatorId === currentUser?.id;
+                                        const isTargetAccountAdmin = user.role === 'admin' || user.role === 'superadmin' || project?.creatorId === user.id;
+                                        const canEdit = !isSelf && (isAccountAdmin || (!isTargetAccountAdmin && projectRole !== 'manager'));
 
                                         return (
                                             <tr key={user.id} className="hover:bg-[var(--bg-input)]/30 transition-colors group">
@@ -707,13 +710,14 @@ const ProjectSettings = () => {
                                                 <td className="px-6 py-3.5 whitespace-nowrap">
                                                     <span className={cn(
                                                         "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide border",
-                                                        (user.role === 'admin' || user.role === 'superadmin') ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' :
+                                                        isTargetAccountAdmin ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' :
                                                             projectRole === 'manager' ? 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' :
-                                                                projectRole === 'data_user' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
-                                                                    projectRole === 'editor' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
-                                                                        'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20'
+                                                                projectRole === 'editor' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
+                                                                    projectRole === 'approval_user' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' :
+                                                                        projectRole === 'data_user' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
+                                                                            'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20'
                                                     )}>
-                                                        {(user.role === 'admin' || user.role === 'superadmin') ? 'Administrador' : getRoleLabel(projectRole || '')}
+                                                        {isTargetAccountAdmin ? 'Administrador da Conta' : getRoleLabel(projectRole || '')}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-3.5">
@@ -755,7 +759,7 @@ const ProjectSettings = () => {
                                                         </div>
                                                     ) : (
                                                         <span className="text-[11px] text-[var(--text-muted)] italic flex items-center justify-end gap-1">
-                                                            <Lock size={12} /> {isSelf ? 'Sua Conta' : 'Protegido'}
+                                                            <Lock size={12} /> {isSelf ? 'Sua Conta' : (isTargetAccountAdmin ? 'Administrador da Conta' : 'Protegido')}
                                                         </span>
                                                     )}
                                                 </td>
@@ -1519,7 +1523,7 @@ const ProjectSettings = () => {
                 <div className="space-y-5">
                     <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">Perfil de Acesso na Obra</label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {(['manager', 'editor', 'viewer', 'data_user', 'approval_user'] as ProjectRole[]).map(r => (
                                 <button
                                     key={r}
@@ -1533,16 +1537,16 @@ const ProjectSettings = () => {
                                     )}
                                 >
                                     <div className={cn("w-3 h-3 rounded-full border border-current shrink-0", role === r ? "bg-white" : "bg-transparent")} />
-                                    <span className="truncate">{getRoleLabel(r).split(' ')[0]}</span>
+                                    <span className="truncate">{getRoleLabel(r)}</span>
                                 </button>
                             ))}
                         </div>
                         <p className="text-[11px] text-[var(--text-muted)] mt-2 bg-[var(--bg-input)] p-2.5 rounded-xl border border-[var(--border)]">
-                            {role === 'manager' && "Controlo total. Pode gerir configurações, equipa, aprovações e todos os dados."}
-                            {role === 'editor' && "Pode adicionar e editar dados em módulos atribuídos. Não altera configurações da obra."}
-                            {role === 'viewer' && "Acesso exclusivo de consulta e leitura nos módulos permitidos."}
-                            {role === 'data_user' && "Restrito exclusivamente aos dados das empresas e subempreiteiros associados."}
-                            {role === 'approval_user' && "Perfil de auditoria e validação de requisitos de segurança (Reviewer)."}
+                            {role === 'manager' && "Manager: Gestor do projeto. Acesso e controlo total das operações da obra."}
+                            {role === 'editor' && "Editor: Pode adicionar e editar dados em módulos atribuídos. Não altera configurações da obra."}
+                            {role === 'viewer' && "Viewer: Acesso exclusivo de consulta e leitura nos módulos permitidos."}
+                            {role === 'data_user' && "Data User: Restrito exclusivamente aos dados das empresas e subempreiteiros associados."}
+                            {role === 'approval_user' && "Approval: Validação e aprovação de requisitos, conformidades e formulários de segurança."}
                         </p>
                     </div>
 

@@ -823,7 +823,22 @@ export default function Home() {
                                                     const code = project.code || `PRJ-${cleanId}-${new Date(project.createdAt || Date.now()).getFullYear()}`;
                                                     const isCopied = copiedCode === code;
                                                     const userAccess = currentUser.projectAccess?.find(pa => pa.projectId === project.id);
-                                                    const roleLabel = isSuperAdmin ? 'SuperAdmin' : (userAccess?.role === 'manager' ? 'Gestor de Obra' : 'Subempreiteiro / Utilizador');
+                                                    const isCreatorOrAdmin = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'client_admin' || project.creatorId === currentUser?.id;
+                                                    const roleLabel = isSuperAdmin 
+                                                        ? 'SuperAdmin' 
+                                                        : isCreatorOrAdmin 
+                                                            ? 'Administrador da Conta'
+                                                            : userAccess?.role === 'manager' 
+                                                                ? 'Manager'
+                                                                : userAccess?.role === 'editor'
+                                                                    ? 'Editor'
+                                                                    : (userAccess?.role === 'approval_user' || (userAccess?.role as string) === 'approval')
+                                                                        ? 'Approval'
+                                                                        : userAccess?.role === 'data_user'
+                                                                            ? 'Data User'
+                                                                            : userAccess?.role === 'viewer'
+                                                                                ? 'Viewer'
+                                                                                : 'Sem Perfil';
 
                                                     return (
                                                         <tr key={project.id} className="hover:bg-primary/5 transition-colors group">

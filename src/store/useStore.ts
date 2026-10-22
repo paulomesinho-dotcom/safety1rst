@@ -1970,7 +1970,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         };
     }),
 
-    resolveProjectRequest: (requestId, status, role = 'data_user') => set((state) => {
+    resolveProjectRequest: (requestId, status, role = 'none') => set((state) => {
         const req = state.projectRequests.find(r => r.id === requestId);
         if (!req || req.status !== 'pending') return state; // No op
 
@@ -2009,15 +2009,16 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 }
             }
 
-            // Grant Access with requested company linked
+            // Grant Access with requested company linked (Default role is 'none' until manager configures it)
+            const assignedRole: ProjectRole = (role || 'none') as ProjectRole;
             newUsers = state.users.map(u => {
                 if (u.id !== req.userId) return u;
                 const existing = u.projectAccess?.find(pa => pa.projectId === req.projectId);
                 if (existing) return u; // Already has access
                 const newAccess = {
                     projectId: req.projectId,
-                    role: (role || 'data_user') as ProjectRole,
-                    allowedModules: MOCK_MODULES.map(m => m.id),
+                    role: assignedRole,
+                    allowedModules: assignedRole === 'none' ? [] : (assignedRole === 'manager' ? MOCK_MODULES.map(m => m.id) : ['companies', 'workers', 'equipment', 'documents']),
                     companyIds: targetCompanyId ? [targetCompanyId] : undefined
                 };
 
@@ -3384,6 +3385,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         if (user.role === 'admin' || user.role === 'superadmin') return true;
 
         const role = state.getUserRoleInProject(userId, projectId);
+        if (!role || role === 'none') return false;
         if (role === 'manager') return true;
 
         const access = user.projectAccess?.find(pa => pa.projectId === projectId);
@@ -3439,36 +3441,19 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     canAssignRole: (userId, projectId, role, companyIds) => {
         const state = get();
 
-        // Check if trying to assign Manager role
+        // O Administrador da Conta pode sempre designar ou alterar o Manager do projeto
         if (role === 'manager') {
-            const existingManager = state.users.find(u =>
-                u.id !== userId && // Not the same user
-                u.projectAccess?.some(pa =>
-                    pa.projectId === projectId && pa.role === 'manager'
-                )
-            );
-            if (existingManager) {
-                return {
-                    allowed: false,
-                    reason: `O projeto já tem um Manager atribuído: ${existingManager.name}`
-                };
+            const proj = state.projects.find(p => p.id === projectId);
+            const isAccAdmin = state.currentUser?.role === 'admin' || state.currentUser?.role === 'superadmin' || proj?.creatorId === state.currentUser?.id;
+            if (!isAccAdmin) {
+                return { allowed: false, reason: 'Apenas o Administrador da Conta pode designar um Manager para o projeto.' };
             }
+            return { allowed: true };
         }
 
-        // Check if trying to assign Approval User role
-        if (role === 'approval_user') {
-            const existingApprover = state.users.find(u =>
-                u.id !== userId && // Not the same user
-                u.projectAccess?.some(pa =>
-                    pa.projectId === projectId && pa.role === 'approval_user'
-                )
-            );
-            if (existingApprover) {
-                return {
-                    allowed: false,
-                    reason: `O projeto já tem um Approval User atribuído: ${existingApprover.name}`
-                };
-            }
+        // Permitir atribuição do perfil Approval
+        if (role === 'approval_user' || (role as string) === 'approval') {
+            return { allowed: true };
         }
 
         // Check if trying to assign Data User role
@@ -3526,11 +3511,32 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 .catch(console.error);
         }
 
-        const newAccessList = existingMember
-            ? user.projectAccess?.map(pa => pa.projectId === access.projectId ? access : pa) || []
-            : [...(user.projectAccess || []), access];
+        const currentAccessList = user.projectAccess || [];
+        const existingIndex = currentAccessList.findIndex(pa => pa.projectId === access.projectId);
+        let newAccessList: ProjectAccess[];
+        if (existingIndex >= 0) {
+            newAccessList = [...currentAccessList];
+            newAccessList[existingIndex] = access;
+        } else {
+            newAccessList = [...currentAccessList, access];
+        }
 
-        const updatedUsers = state.users.map(u => u.id === userId ? { ...u, projectAccess: newAccessList } : u);
+        let intermediateUsers = state.users;
+        if (access.role === 'manager') {
+            const proj = state.projects.find(p => p.id === access.projectId);
+            intermediateUsers = intermediateUsers.map(u => {
+                if (u.id === userId) return u;
+                const isAccAdmin = u.role === 'admin' || u.role === 'superadmin' || proj?.creatorId === u.id;
+                if (!isAccAdmin && u.projectAccess?.some(pa => pa.projectId === access.projectId && pa.role === 'manager')) {
+                    const updatedPa = u.projectAccess.map(pa => pa.projectId === access.projectId ? { ...pa, role: 'editor' as ProjectRole } : pa);
+                    executeQuery(`UPDATE project_members SET role = 'editor' WHERE user_id = ? AND project_id = ?`, [u.id, access.projectId]).catch(console.error);
+                    return { ...u, projectAccess: updatedPa };
+                }
+                return u;
+            });
+        }
+
+        const updatedUsers = intermediateUsers.map(u => u.id === userId ? { ...u, projectAccess: newAccessList } : u);
 
         // Update Company Assignments (for Data Users)
         const updatedCompanies = state.companies.map(c => {
@@ -3552,8 +3558,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             return c;
         });
 
+        const updatedCurrentUser = state.currentUser?.id === userId
+            ? { ...state.currentUser, projectAccess: newAccessList }
+            : state.currentUser;
+
         return {
             users: updatedUsers,
+            currentUser: updatedCurrentUser,
             companies: updatedCompanies
         };
     }),

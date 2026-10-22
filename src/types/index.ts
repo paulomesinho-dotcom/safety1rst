@@ -1,7 +1,7 @@
 
 
 export type SystemRole = 'superadmin' | 'admin' | 'user' | 'manager' | 'editor' | 'data_user' | 'approval_user' | 'client_admin';
-export type ProjectRole = 'manager' | 'editor' | 'viewer' | 'data_user' | 'approval_user'; // Advanced, Basic, Preview, Data Provider (Company specific), Approval
+export type ProjectRole = 'manager' | 'editor' | 'viewer' | 'data_user' | 'approval_user' | 'none'; // Advanced, Basic, Preview, Data Provider, Approval, or None (Pending Role Assignment)
 
 export interface ProjectAccess {
     projectId: string;
