@@ -56,10 +56,8 @@ const ProjectSettings = () => {
     const [roleFilter, setRoleFilter] = useState<string>('all');
     const [selectedUser, setSelectedUser] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isAddUserOpen, setIsAddUserOpen] = useState(false);
-    const [addUserSearch, setAddUserSearch] = useState('');
     const [removeConfirmation, setRemoveConfirmation] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [pendingRoles, setPendingRoles] = useState<Record<string, ProjectRole>>({});
     const [roleError, setRoleError] = useState<string>('');
     const [role, setRole] = useState<ProjectRole>('viewer');
     const [allowedModules, setAllowedModules] = useState<string[]>([]);
@@ -322,11 +320,6 @@ const ProjectSettings = () => {
         return r === roleFilter;
     });
 
-    const searchableUsers = users.filter(u => {
-        const inProject = u.projectAccess?.some(pa => pa.projectId === projectId);
-        return !inProject && (u.name.toLowerCase().includes(addUserSearch.toLowerCase()) || u.email.toLowerCase().includes(addUserSearch.toLowerCase()));
-    });
-
     const handleCopyInviteCode = () => {
         navigator.clipboard.writeText(inviteCode);
         setCopiedCode(true);
@@ -366,20 +359,12 @@ const ProjectSettings = () => {
             companyIds: role === 'data_user' ? selectedCompanyIds : undefined
         });
         setIsModalOpen(false);
-        setIsAddUserOpen(false);
     };
 
     const handleRemove = (userId: string) => setRemoveConfirmation(userId);
 
-    const handleApproveRequest = (reqId: string) => resolveProjectRequest(reqId, 'approved', 'viewer');
-
-    const handleAddUserInit = (userId: string) => {
-        setSelectedUser(userId);
-        setRole('viewer');
-        setAllowedModules([]);
-        setRoleError('');
-        setIsAddUserOpen(false);
-        setIsModalOpen(true);
+    const handleApproveRequest = (reqId: string, roleToAssign: ProjectRole) => {
+        resolveProjectRequest(reqId, 'approved', roleToAssign);
     };
 
     const toggleModule = (modId: string) => {
@@ -427,100 +412,21 @@ const ProjectSettings = () => {
                 {/* Direct Executive Actions */}
                 <div className="flex flex-wrap items-center gap-2.5">
                     {/* Invite Code Pill */}
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] shadow-sm">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Código:</span>
-                        <code className="text-xs font-mono font-bold text-primary select-all">{inviteCode}</code>
+                    <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] shadow-sm">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Código de Adesão:</span>
+                        <code className="text-xs font-mono font-extrabold text-primary select-all px-2 py-0.5 rounded bg-primary/10 border border-primary/20">{inviteCode}</code>
                         <button 
                             type="button"
                             onClick={handleCopyInviteCode} 
-                            className="text-[var(--text-muted)] hover:text-primary transition-colors p-1 rounded" 
+                            className="text-[var(--text-muted)] hover:text-primary transition-colors p-1 rounded cursor-pointer" 
                             title="Copiar código de adesão"
                         >
                             {copiedCode ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                         </button>
                     </div>
-
-                    <button
-                        type="button"
-                        onClick={() => setIsAddUserOpen(true)}
-                        className="px-3.5 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white font-semibold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                        <UserPlus size={15} /> Adicionar Membro
-                    </button>
                 </div>
             </div>
 
-            {/* ── Quick Metrics Bar (Workplace Style) ── */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-                {/* Metric 1: Membros */}
-                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] flex items-center justify-between shadow-sm">
-                    <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">Equipa da Obra</span>
-                        <span className="text-xl font-extrabold text-[var(--text)] mt-0.5 block">{projectUsers.length}</span>
-                        <span className="text-[11px] text-[var(--text-muted)]">membros ativos</span>
-                    </div>
-                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-primary flex items-center justify-center shrink-0 border border-blue-500/20">
-                        <FlatWorkersIcon size={20} />
-                    </div>
-                </div>
-
-                {/* Metric 2: Pedidos Pendentes */}
-                <div className={cn(
-                    "p-4 rounded-xl border flex items-center justify-between shadow-sm transition-all",
-                    pendingRequests.length > 0 
-                        ? "bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-200" 
-                        : "border-[var(--border)] bg-[var(--bg-card)]"
-                )}>
-                    <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">Adesões Pendentes</span>
-                        <span className="text-xl font-extrabold mt-0.5 block">{pendingRequests.length}</span>
-                        <span className="text-[11px] text-[var(--text-muted)]">
-                            {pendingRequests.length > 0 ? 'requer validação' : 'nenhum pedido pendente'}
-                        </span>
-                    </div>
-                    <div className={cn(
-                        "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
-                        pendingRequests.length > 0 
-                            ? "bg-amber-500 text-white border-amber-600 animate-pulse" 
-                            : "bg-gray-500/10 text-[var(--text-muted)] border-[var(--border)]"
-                    )}>
-                        <FlatRequestsIcon size={20} />
-                    </div>
-                </div>
-
-                {/* Metric 3: Workflow de Aprovação */}
-                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] flex items-center justify-between shadow-sm">
-                    <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">Workflow Extra</span>
-                        <span className="text-xl font-extrabold text-[var(--text)] mt-0.5 block">
-                            {approvalSettings.companies || approvalSettings.workers || approvalSettings.equipment ? 'Ativo' : 'Padrão'}
-                        </span>
-                        <span className="text-[11px] text-[var(--text-muted)]">
-                            {approvalSettings.companies || approvalSettings.workers || approvalSettings.equipment ? 'com validação extra' : 'fluxo direto'}
-                        </span>
-                    </div>
-                    <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/20">
-                        <FlatSettingsIcon size={20} />
-                    </div>
-                </div>
-
-                {/* Metric 4: CDE Cloud */}
-                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] flex items-center justify-between shadow-sm">
-                    <div>
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">Ambiente CDE</span>
-                        <span className="text-xl font-extrabold text-[var(--text)] mt-0.5 block capitalize truncate max-w-[130px]">
-                            {project?.cdeConfig?.connected ? (project.cdeConfig.provider || 'Conectado') : 'Desconectado'}
-                        </span>
-                        <span className="text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
-                            <span className={cn("w-2 h-2 rounded-full", project?.cdeConfig?.connected ? "bg-emerald-500" : "bg-gray-400")} />
-                            {project?.cdeConfig?.connected ? 'sincronização ativa' : 'pasta local'}
-                        </span>
-                    </div>
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-                        <Cloud size={20} />
-                    </div>
-                </div>
-            </div>
 
             {/* ── Notificação Visual de Pedidos de Acesso Pendentes ── */}
             {pendingRequests.length > 0 && activeTab !== 'team' && (
@@ -615,299 +521,107 @@ const ProjectSettings = () => {
             {/* ══════════════════════════════════════════════════════════════ */}
             {activeTab === 'team' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {/* Pending Requests Box */}
-                    {pendingRequests.length > 0 && (
-                        <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-                            <h3 className="font-bold text-amber-900 dark:text-amber-200 mb-3 flex items-center gap-2 text-sm">
-                                <FlatRequestsIcon size={18} /> Pedidos de Adesão a Aguardar Decisão ({pendingRequests.length})
-                            </h3>
-                            <div className="space-y-2">
-                                {pendingRequests.map(req => {
-                                    const user = users.find(u => u.id === req.userId);
-                                    if (!user) return null;
-                                    return (
-                                        <div key={req.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-[var(--bg-card)] p-3.5 rounded-xl border border-amber-500/20 shadow-sm gap-3">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-9 h-9 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center text-xs font-bold shrink-0">
-                                                    {user.name.charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <span className="font-bold text-xs text-[var(--text)] block">{user.name}</span>
-                                                    <span className="text-[11px] text-[var(--text-muted)]">{user.email}</span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2 self-end sm:self-auto">
-                                                <button 
-                                                    type="button"
-                                                    onClick={() => resolveProjectRequest(req.id, 'rejected')} 
-                                                    className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
-                                                >
-                                                    Recusar
-                                                </button>
-                                                <button 
-                                                    type="button"
-                                                    onClick={() => handleApproveRequest(req.id)} 
-                                                    className="px-3.5 py-1.5 text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg shadow-sm transition-colors cursor-pointer"
-                                                >
-                                                    Aprovar Acesso
-                                                </button>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Filter & Controls Bar */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--bg-card)] border border-[var(--border)] p-3 rounded-2xl shadow-sm">
-                        <div className="flex flex-1 items-center gap-2">
-                            <div className="relative flex-1 max-w-sm">
-                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-                                <input
-                                    type="text"
-                                    placeholder="Pesquisar membro por nome ou email..."
-                                    className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-
-                            <select
-                                title="Filtrar por Perfil"
-                                value={roleFilter}
-                                onChange={e => setRoleFilter(e.target.value)}
-                                className="bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer"
-                            >
-                                <option value="all">Todos os Perfis</option>
-                                <option value="manager">Managers</option>
-                                <option value="editor">Editores</option>
-                                <option value="data_user">Data Users</option>
-                                <option value="approval_user">Validadores</option>
-                                <option value="viewer">Visualizadores</option>
-                            </select>
-                        </div>
-
-                        <div className="flex items-center gap-2 self-end sm:self-auto">
-                            <span className="text-[11px] text-[var(--text-muted)] hidden md:inline">
-                                {projectUsers.length} membro(s) encontrado(s)
-                            </span>
-                            <div className="flex bg-[var(--bg-input)] p-1 rounded-xl border border-[var(--border)]">
-                                <button
-                                    type="button"
-                                    onClick={() => setViewMode('grid')}
-                                    className={cn(
-                                        "p-1.5 rounded-lg transition-all text-xs font-semibold cursor-pointer",
-                                        viewMode === 'grid' 
-                                            ? "bg-[var(--bg-card)] text-primary shadow-sm" 
-                                            : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                    {/* 1. Pedidos de Adesão a Aguardar Decisão */}
+                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[var(--border)]">
+                            <div>
+                                <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2">
+                                    <FlatRequestsIcon size={18} className="text-amber-500" /> 
+                                    Pedidos de Adesão Pendentes
+                                    {pendingRequests.length > 0 && (
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-extrabold bg-amber-500 text-white shadow-sm">
+                                            {pendingRequests.length}
+                                        </span>
                                     )}
-                                    title="Visualização em Grelha"
-                                >
-                                    <LayoutGrid size={15} />
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setViewMode('list')}
-                                    className={cn(
-                                        "p-1.5 rounded-lg transition-all text-xs font-semibold cursor-pointer",
-                                        viewMode === 'list' 
-                                            ? "bg-[var(--bg-card)] text-primary shadow-sm" 
-                                            : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                                    )}
-                                    title="Visualização em Tabela"
-                                >
-                                    <List size={15} />
-                                </button>
+                                </h3>
+                                <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                    Utilizadores que solicitaram entrada nesta obra com o código do projeto. Selecione o perfil de acesso e decida a adesão.
+                                </p>
+                            </div>
+                            <div className="text-xs text-[var(--text-muted)] bg-[var(--bg-input)] px-3 py-1.5 rounded-xl border border-[var(--border)] self-start sm:self-auto flex items-center gap-1.5">
+                                Código da Obra: <code className="text-primary font-mono font-bold">{inviteCode}</code>
                             </div>
                         </div>
-                    </div>
 
-                    {/* Members List or Grid */}
-                    {viewMode === 'grid' ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {projectUsers.length === 0 && (
-                                <div className="col-span-full p-12 text-center text-[var(--text-muted)] border border-dashed border-[var(--border)] rounded-2xl bg-[var(--bg-card)]/50">
-                                    <FlatWorkersIcon size={32} className="mx-auto mb-2 opacity-50" />
-                                    <p className="font-semibold text-sm">Nenhum membro encontrado</p>
-                                    <p className="text-xs text-[var(--text-muted)] mt-1">Tente ajustar a pesquisa ou adicionar novos utilizadores à obra.</p>
-                                </div>
-                            )}
-                            {projectUsers.map(user => {
-                                const projectRole = getUserRoleInProject(user.id, projectId);
-                                const isSelf = user.id === currentUser?.id;
-                                const isTargetManager = projectRole === 'manager';
-                                const canEdit = !isSelf && !isTargetManager;
-
-                                return (
-                                    <div 
-                                        key={user.id} 
-                                        className="border border-[var(--border)] rounded-2xl p-5 bg-[var(--bg-card)] flex flex-col justify-between hover:shadow-md transition-all group"
-                                    >
-                                        <div>
-                                            <div className="flex items-start justify-between gap-2 mb-3">
-                                                <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-primary/10 to-blue-500/20 text-primary border border-primary/20 flex items-center justify-center font-bold text-sm shrink-0">
-                                                    {user.name.charAt(0).toUpperCase()}
-                                                </div>
-                                                <span className={cn(
-                                                    "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border",
-                                                    (user.role === 'admin' || user.role === 'superadmin') ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' :
-                                                        projectRole === 'manager' ? 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' :
-                                                            projectRole === 'data_user' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
-                                                                projectRole === 'editor' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
-                                                                    'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20'
-                                                )}>
-                                                    {(user.role === 'admin' || user.role === 'superadmin') ? 'Administrador' : getRoleLabel(projectRole || '')}
-                                                </span>
-                                            </div>
-
-                                            <h3 className="font-bold text-sm text-[var(--text)] truncate">{user.name}</h3>
-                                            <p className="text-xs text-[var(--text-muted)] truncate mb-4">{user.email}</p>
-
-                                            {/* Allowed modules preview */}
-                                            <div className="mb-4">
-                                                <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block mb-1.5">Permissões de Acesso</span>
-                                                <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-                                                    {projectRole === 'manager' ? (
-                                                        <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                                                            <Check size={13} /> Acesso Total à Obra
-                                                        </span>
-                                                    ) : (
-                                                        user.projectAccess?.find(pa => pa.projectId === projectId)?.allowedModules?.map(mId => {
-                                                            const mod = modules.find(m => m.id === mId);
-                                                            return mod ? (
-                                                                <span key={mId} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]">
-                                                                    {mod.name}
-                                                                </span>
-                                                            ) : null;
-                                                        }) || <span className="text-xs text-[var(--text-muted)] italic">Sem módulos restritos</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="pt-3 border-t border-[var(--border)]">
-                                            {canEdit ? (
-                                                <div className="flex gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenEdit(user.id)}
-                                                        className="flex-1 py-1.5 px-3 text-xs font-semibold border border-[var(--border)] rounded-xl hover:border-primary hover:text-primary transition-colors cursor-pointer bg-[var(--bg-input)]"
-                                                    >
-                                                        Editar Acessos
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleRemove(user.id)}
-                                                        className="p-1.5 border border-[var(--border)] rounded-xl hover:border-red-300 hover:text-red-600 transition-colors cursor-pointer text-[var(--text-muted)] bg-[var(--bg-input)]"
-                                                        title="Remover da Obra"
-                                                    >
-                                                        <Trash2 size={15} />
-                                                    </button>
-                                                </div>
-                                            ) : (
-                                                <div className="w-full py-1.5 text-xs text-center border border-[var(--border)] bg-[var(--bg-input)]/50 text-[var(--text-muted)] rounded-xl flex items-center justify-center gap-1.5 select-none">
-                                                    <Lock size={12} /> {isSelf ? 'Sua Conta (Ativa)' : 'Gestor Principal'}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    ) : (
-                        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                        {pendingRequests.length === 0 ? (
+                            <div className="p-6 text-center text-[var(--text-muted)] border border-dashed border-[var(--border)] rounded-xl bg-[var(--bg-input)]/20">
+                                <FlatRequestsIcon size={26} className="mx-auto mb-2 opacity-40 text-amber-500" />
+                                <p className="text-xs font-semibold text-[var(--text)]">Nenhum pedido de adesão pendente</p>
+                                <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-lg mx-auto">
+                                    Os membros do projeto entram sempre por solicitação. Partilhe o código <code className="font-mono text-primary font-bold">{inviteCode}</code> para que os colaboradores peçam adesão a partir do seu Workplace.
+                                </p>
+                            </div>
+                        ) : (
                             <div className="overflow-x-auto">
-                                <table className="w-full text-xs text-left min-w-[700px]">
+                                <table className="w-full text-xs text-left min-w-[760px]">
                                     <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[11px] border-b border-[var(--border)]">
                                         <tr>
-                                            <th className="px-6 py-3.5">Membro</th>
-                                            <th className="px-6 py-3.5">Perfil</th>
-                                            <th className="px-6 py-3.5">Módulos Autorizados</th>
-                                            <th className="px-6 py-3.5 text-right">Ações</th>
+                                            <th className="px-4 py-3">Utilizador</th>
+                                            <th className="px-4 py-3">Empresa Representada</th>
+                                            <th className="px-4 py-3">Data</th>
+                                            <th className="px-4 py-3">Perfil a Atribuir (Obrigatório)</th>
+                                            <th className="px-4 py-3 text-right">Decisão</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-[var(--border)]">
-                                        {projectUsers.length === 0 && (
-                                            <tr>
-                                                <td colSpan={4} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                                                    Nenhum membro encontrado.
-                                                </td>
-                                            </tr>
-                                        )}
-                                        {projectUsers.map(user => {
-                                            const projectRole = getUserRoleInProject(user.id, projectId);
-                                            const isSelf = user.id === currentUser?.id;
-                                            const isTargetManager = projectRole === 'manager';
-                                            const canEdit = !isSelf && !isTargetManager;
+                                        {pendingRequests.map(req => {
+                                            const user = users.find(u => u.id === req.userId);
+                                            const defaultRole: ProjectRole = (req.companyId || req.companyName) ? 'data_user' : 'viewer';
+                                            const chosenRole = pendingRoles[req.id] || defaultRole;
+                                            const companyName = req.companyName || (req.companyId ? companies.find(c => c.id === req.companyId)?.name : 'Não especificada');
 
                                             return (
-                                                <tr key={user.id} className="hover:bg-[var(--bg-input)]/30 transition-colors group">
-                                                    <td className="px-6 py-3.5 whitespace-nowrap">
+                                                <tr key={req.id} className="hover:bg-[var(--bg-input)]/30 transition-colors">
+                                                    <td className="px-4 py-3 whitespace-nowrap">
                                                         <div className="flex items-center gap-3">
-                                                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0 shadow-sm">
-                                                                {user.name.charAt(0).toUpperCase()}
+                                                            <div className="w-8 h-8 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 flex items-center justify-center text-xs font-bold shrink-0">
+                                                                {(user?.name || req.userName || 'U').charAt(0).toUpperCase()}
                                                             </div>
                                                             <div>
-                                                                <div className="font-bold text-xs text-[var(--text)]">{user.name}</div>
-                                                                <div className="text-[11px] text-[var(--text-muted)]">{user.email}</div>
+                                                                <div className="font-bold text-xs text-[var(--text)]">{user?.name || req.userName || 'Utilizador'}</div>
+                                                                <div className="text-[11px] text-[var(--text-muted)]">{user?.email || req.userEmail || ''}</div>
                                                             </div>
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-3.5 whitespace-nowrap">
-                                                        <span className={cn(
-                                                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide border",
-                                                            (user.role === 'admin' || user.role === 'superadmin') ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' :
-                                                                projectRole === 'manager' ? 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' :
-                                                                    projectRole === 'data_user' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
-                                                                        projectRole === 'editor' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
-                                                                            'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20'
-                                                        )}>
-                                                            {(user.role === 'admin' || user.role === 'superadmin') ? 'Administrador' : getRoleLabel(projectRole || '')}
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-input)] text-[var(--text)] border border-[var(--border)]">
+                                                            <Building2 size={13} className="text-primary" />
+                                                            {companyName}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-3.5">
-                                                        <div className="flex flex-wrap gap-1 max-w-sm">
-                                                            {projectRole === 'manager' ? (
-                                                                <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                                                                    <Check size={12} /> Acesso Total à Obra
-                                                                </span>
-                                                            ) : (
-                                                                user.projectAccess?.find(pa => pa.projectId === projectId)?.allowedModules?.map(mId => {
-                                                                    const mod = modules.find(m => m.id === mId);
-                                                                    return mod ? (
-                                                                        <span key={mId} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]">
-                                                                            {mod.name}
-                                                                        </span>
-                                                                    ) : null;
-                                                                }) || <span className="text-xs text-[var(--text-muted)] italic">Sem restrições</span>
-                                                            )}
-                                                        </div>
+                                                    <td className="px-4 py-3 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
+                                                        {req.createdAt ? new Date(req.createdAt).toLocaleDateString('pt-PT') : 'Hoje'}
                                                     </td>
-                                                    <td className="px-6 py-3.5 text-right whitespace-nowrap">
-                                                        {canEdit ? (
-                                                            <div className="flex items-center justify-end gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleOpenEdit(user.id)}
-                                                                    className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-[var(--border)] hover:border-primary hover:text-primary transition-colors cursor-pointer"
-                                                                >
-                                                                    Editar
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => handleRemove(user.id)}
-                                                                    className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
-                                                                    title="Remover"
-                                                                >
-                                                                    <Trash2 size={15} />
-                                                                </button>
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-[11px] text-[var(--text-muted)] italic flex items-center justify-end gap-1">
-                                                                <Lock size={12} /> {isSelf ? 'Sua Conta' : 'Protegido'}
-                                                            </span>
-                                                        )}
+                                                    <td className="px-4 py-3 whitespace-nowrap">
+                                                        <select
+                                                            value={chosenRole}
+                                                            onChange={(e) => setPendingRoles(prev => ({ ...prev, [req.id]: e.target.value as ProjectRole }))}
+                                                            className="bg-[var(--bg-input)] border border-primary/40 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs text-[var(--text)] font-semibold outline-none cursor-pointer shadow-sm"
+                                                        >
+                                                            <option value="data_user">Data User (Subempreiteiro)</option>
+                                                            <option value="viewer">Viewer (Visualizador / Fiscal)</option>
+                                                            <option value="editor">Editor (Encarregado / Preparador)</option>
+                                                            <option value="approval_user">Validador (Técnico SHST)</option>
+                                                            <option value="manager">Manager (Gestor de Obra)</option>
+                                                        </select>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => resolveProjectRequest(req.id, 'rejected')}
+                                                                className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                                                            >
+                                                                Recusar
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleApproveRequest(req.id, chosenRole)}
+                                                                className="px-3.5 py-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                                                            >
+                                                                <Check size={14} /> Aceitar no Projeto
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             );
@@ -915,8 +629,143 @@ const ProjectSettings = () => {
                                     </tbody>
                                 </table>
                             </div>
+                        )}
+                    </div>
+
+                    {/* 2. Membros Ativos da Obra */}
+                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex flex-1 items-center gap-2">
+                                <div className="relative flex-1 max-w-sm">
+                                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                    <input
+                                        type="text"
+                                        placeholder="Pesquisar membro por nome ou email..."
+                                        className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+
+                                <select
+                                    title="Filtrar por Perfil"
+                                    value={roleFilter}
+                                    onChange={e => setRoleFilter(e.target.value)}
+                                    className="bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none cursor-pointer"
+                                >
+                                    <option value="all">Todos os Perfis ({projectUsers.length})</option>
+                                    <option value="manager">Managers</option>
+                                    <option value="editor">Editores</option>
+                                    <option value="data_user">Data Users</option>
+                                    <option value="approval_user">Validadores</option>
+                                    <option value="viewer">Visualizadores</option>
+                                </select>
+                            </div>
+
+                            <span className="text-[11px] text-[var(--text-muted)] self-end sm:self-auto font-medium">
+                                {projectUsers.length} membro(s) ativo(s)
+                            </span>
                         </div>
-                    )}
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs text-left min-w-[700px]">
+                                <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[11px] border-b border-[var(--border)]">
+                                    <tr>
+                                        <th className="px-6 py-3.5">Membro</th>
+                                        <th className="px-6 py-3.5">Perfil</th>
+                                        <th className="px-6 py-3.5">Módulos Autorizados</th>
+                                        <th className="px-6 py-3.5 text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[var(--border)]">
+                                    {projectUsers.length === 0 && (
+                                        <tr>
+                                            <td colSpan={4} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                Nenhum membro encontrado.
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {projectUsers.map(user => {
+                                        const projectRole = getUserRoleInProject(user.id, projectId);
+                                        const isSelf = user.id === currentUser?.id;
+                                        const isTargetManager = projectRole === 'manager';
+                                        const canEdit = !isSelf && !isTargetManager;
+
+                                        return (
+                                            <tr key={user.id} className="hover:bg-[var(--bg-input)]/30 transition-colors group">
+                                                <td className="px-6 py-3.5 whitespace-nowrap">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0 shadow-sm">
+                                                            {user.name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-xs text-[var(--text)]">{user.name}</div>
+                                                            <div className="text-[11px] text-[var(--text-muted)]">{user.email}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-3.5 whitespace-nowrap">
+                                                    <span className={cn(
+                                                        "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide border",
+                                                        (user.role === 'admin' || user.role === 'superadmin') ? 'bg-purple-500/10 text-purple-600 border-purple-500/20' :
+                                                            projectRole === 'manager' ? 'bg-indigo-500/10 text-indigo-600 border-indigo-500/20' :
+                                                                projectRole === 'data_user' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
+                                                                    projectRole === 'editor' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
+                                                                        'bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20'
+                                                    )}>
+                                                        {(user.role === 'admin' || user.role === 'superadmin') ? 'Administrador' : getRoleLabel(projectRole || '')}
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-3.5">
+                                                    <div className="flex flex-wrap gap-1 max-w-sm">
+                                                        {projectRole === 'manager' ? (
+                                                            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                                                                <Check size={12} /> Acesso Total à Obra
+                                                            </span>
+                                                        ) : (
+                                                            user.projectAccess?.find(pa => pa.projectId === projectId)?.allowedModules?.map(mId => {
+                                                                const mod = modules.find(m => m.id === mId);
+                                                                return mod ? (
+                                                                    <span key={mId} className="inline-flex items-center px-2 py-0.5 rounded text-[10px] bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]">
+                                                                        {mod.name}
+                                                                    </span>
+                                                                ) : null;
+                                                            }) || <span className="text-xs text-[var(--text-muted)] italic">Sem restrições</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                                                    {canEdit ? (
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenEdit(user.id)}
+                                                                className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-[var(--border)] hover:border-primary hover:text-primary transition-colors cursor-pointer"
+                                                            >
+                                                                Editar Permissões
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemove(user.id)}
+                                                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                                                                title="Remover"
+                                                            >
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-[11px] text-[var(--text-muted)] italic flex items-center justify-end gap-1">
+                                                            <Lock size={12} /> {isSelf ? 'Sua Conta' : 'Protegido'}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1767,50 +1616,6 @@ const ProjectSettings = () => {
                     )}
 
                     <PrimaryButton onClick={handleSaveRoles}>Guardar Permissões</PrimaryButton>
-                </div>
-            </Modal>
-
-            {/* Modal: Adicionar Membro à Obra */}
-            <Modal title="Adicionar Membro à Obra" isOpen={isAddUserOpen} onClose={() => setIsAddUserOpen(false)}>
-                <div className="space-y-4">
-                    <div className="relative">
-                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-                        <input
-                            type="text"
-                            placeholder="Pesquisar utilizador por nome ou email..."
-                            className="bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2.5 text-xs w-full text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
-                            value={addUserSearch}
-                            onChange={e => setAddUserSearch(e.target.value)}
-                        />
-                    </div>
-                    <div className="max-h-64 overflow-y-auto space-y-2">
-                        {searchableUsers.length === 0 ? (
-                            <p className="text-xs text-[var(--text-muted)] text-center py-6">
-                                {addUserSearch ? 'Nenhum utilizador elegível encontrado.' : 'Comece a escrever para pesquisar utilizadores registados na plataforma...'}
-                            </p>
-                        ) : (
-                            searchableUsers.map(u => (
-                                <div key={u.id} className="flex items-center justify-between p-3 border border-[var(--border)] rounded-xl hover:bg-[var(--bg-input)]/40 transition-colors">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <div className="w-8 h-8 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center justify-center text-xs font-bold shrink-0">
-                                            {u.name.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div className="text-xs min-w-0">
-                                            <div className="font-bold text-[var(--text)] truncate">{u.name}</div>
-                                            <div className="text-[11px] text-[var(--text-muted)] truncate">{u.email}</div>
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleAddUserInit(u.id)}
-                                        className="text-xs font-bold text-primary hover:text-white hover:bg-primary border border-primary/30 px-3 py-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ml-2"
-                                    >
-                                        Selecionar
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                    </div>
                 </div>
             </Modal>
 
