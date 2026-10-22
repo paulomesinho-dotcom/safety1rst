@@ -1,3 +1,5 @@
+@import '@flaticon/flaticon-uicons/css/solid/straight.css';
+@import '@flaticon/flaticon-uicons/css/thin/straight.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

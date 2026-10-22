@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTheme, type Theme } from '@/providers/ThemeProvider';
 import { FlatSunIcon, FlatMoonIcon, FlatS1Icon } from '@/components/FlatIcons';
-import { ChevronDown, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function ThemeMenu() {
@@ -11,7 +11,7 @@ export function ThemeMenu() {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
 
-    // Close dropdown on outside click
+    // Close dropdown on outside click or Escape
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -35,24 +35,21 @@ export function ThemeMenu() {
         };
     }, [isOpen]);
 
-    const themes: { id: Theme; label: string; desc: string; icon: React.ReactNode }[] = [
+    const themes: { id: Theme; label: string; icon: React.ReactNode }[] = [
         {
             id: 'light',
             label: 'Claro',
-            desc: 'Tema claro clássico',
-            icon: <FlatSunIcon size={16} className="text-amber-500 shrink-0" />,
+            icon: <FlatSunIcon size={16} className="text-amber-500" />,
         },
         {
             id: 'dark',
             label: 'Escuro',
-            desc: 'Tema escuro de alto contraste',
-            icon: <FlatMoonIcon size={16} className="text-blue-400 shrink-0" />,
+            icon: <FlatMoonIcon size={16} className="text-blue-400" />,
         },
         {
             id: 's1',
             label: 'S1 (Azul Petróleo)',
-            desc: 'Workspace claro com barra lateral petróleo',
-            icon: <FlatS1Icon size={16} className="shrink-0" />,
+            icon: <FlatS1Icon size={16} className="text-[#084d6e] dark:text-[#38bdf8]" />,
         },
     ];
 
@@ -60,34 +57,31 @@ export function ThemeMenu() {
 
     return (
         <div className="relative inline-block text-left" ref={menuRef}>
-            {/* Top Bar Trigger Button */}
+            {/* Top Bar Trigger Button: APENAS o ícone visível na faixa */}
             <button
                 type="button"
                 onClick={() => setIsOpen(!isOpen)}
                 className={cn(
-                    "inline-flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-[var(--border)]",
+                    "w-9 h-9 rounded-lg flex items-center justify-center border border-[var(--border)]",
                     "bg-[var(--bg-input)] hover:bg-[var(--bg-card)] text-[var(--text)] transition-all shadow-sm select-none cursor-pointer",
                     isOpen && "ring-2 ring-primary/40 border-primary"
                 )}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
-                title="Alterar Tema da Aplicação"
+                title={`Tema: ${currentThemeInfo.label} (clique para escolher)`}
+                aria-label={`Tema atual: ${currentThemeInfo.label}`}
             >
-                <span className="flex items-center gap-1.5">
-                    {currentThemeInfo.icon}
-                    <span className="hidden sm:inline font-bold">{currentThemeInfo.label}</span>
-                </span>
-                <ChevronDown size={13} className={cn("text-[var(--text-muted)] transition-transform duration-200", isOpen && "rotate-180")} />
+                {currentThemeInfo.icon}
             </button>
 
             {/* Dropdown Menu */}
             {isOpen && (
                 <div 
-                    className="absolute right-0 mt-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1.5 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150"
+                    className="absolute right-0 mt-2 w-48 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-1.5 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-150"
                     role="menu"
                 >
-                    <div className="px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border)] mb-1">
-                        Selecionar Tema
+                    <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border)] mb-1">
+                        Tema
                     </div>
 
                     <div className="space-y-0.5">
@@ -102,7 +96,7 @@ export function ThemeMenu() {
                                         setIsOpen(false);
                                     }}
                                     className={cn(
-                                        "w-full flex items-center justify-between gap-3 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                                        "w-full flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
                                         isSelected
                                             ? "bg-primary/10 text-primary font-bold"
                                             : "text-[var(--text)] hover:bg-[var(--bg-input)]"
@@ -110,26 +104,14 @@ export function ThemeMenu() {
                                     role="menuitem"
                                 >
                                     <div className="flex items-center gap-2.5 min-w-0">
-                                        <div className={cn(
-                                            "w-7 h-7 rounded-md flex items-center justify-center shrink-0 border",
-                                            isSelected 
-                                                ? "border-primary/30 bg-primary/15" 
-                                                : "border-[var(--border)] bg-[var(--bg-input)]"
-                                        )}>
+                                        <div className="w-5 h-5 flex items-center justify-center shrink-0">
                                             {t.icon}
                                         </div>
-                                        <div className="min-w-0">
-                                            <div className="font-semibold text-xs leading-tight truncate">
-                                                {t.label}
-                                            </div>
-                                            <div className="text-[10px] text-[var(--text-muted)] truncate">
-                                                {t.desc}
-                                            </div>
-                                        </div>
+                                        <span className="truncate text-xs">{t.label}</span>
                                     </div>
 
                                     {isSelected && (
-                                        <Check size={14} className="text-primary shrink-0 ml-1" />
+                                        <Check size={14} className="text-primary shrink-0" />
                                     )}
                                 </button>
                             );
