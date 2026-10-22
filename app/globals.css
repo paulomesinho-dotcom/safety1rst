@@ -359,6 +359,7 @@
     color: #e2e8f0 !important;
 }
 
+.theme-s1 .fjm-nav-item .material-symbols-outlined,
 .theme-s1 .fjm-nav-item .material-symbols-rounded,
 .theme-s1 .fjm-nav-item svg,
 .theme-s1 .fjm-nav-item i {
@@ -370,6 +371,7 @@
     color: #FFFFFF !important;
 }
 
+.theme-s1 .fjm-nav-item:hover .material-symbols-outlined,
 .theme-s1 .fjm-nav-item:hover .material-symbols-rounded,
 .theme-s1 .fjm-nav-item:hover svg,
 .theme-s1 .fjm-nav-item:hover i {
@@ -381,6 +383,7 @@
     color: #FFFFFF !important;
 }
 
+.theme-s1 .fjm-nav-item.active .material-symbols-outlined,
 .theme-s1 .fjm-nav-item.active .material-symbols-rounded,
 .theme-s1 .fjm-nav-item.active svg,
 .theme-s1 .fjm-nav-item.active i {
@@ -413,7 +416,7 @@
 .material-symbols-rounded,
 .material-symbols-outlined,
 .material-symbols-sharp {
-    font-family: 'Material Symbols Rounded', 'Material Symbols Outlined', sans-serif;
+    font-family: 'Material Symbols Outlined', 'Material Symbols Rounded', sans-serif;
     font-weight: normal;
     font-style: normal;
     line-height: 1;
@@ -428,5 +431,5 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     font-feature-settings: 'liga';
-    font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+    font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
