@@ -329,18 +329,18 @@
 
 /* 
  * ==========================================
- * TEMA S1 (Workspace Claro + Barra Lateral Cinza com Degradê Suave)
+ * TEMA S1 (Workspace Claro + Barra Lateral com Degradê de Azul para Cinza)
  * ==========================================
  */
 .theme-s1 .sidebar-container,
 .theme-s1 aside.sidebar-container {
-    background: linear-gradient(180deg, #2e3035 0%, #1c1d20 100%) !important; /* Degradê cinza carvão/neutro com menos azul */
-    border-right: 1px solid #383a40 !important;
+    background: linear-gradient(180deg, #0e4f7a 0%, #173b57 35%, #222933 75%, #1c1f24 100%) !important;
+    border-right: 1px solid #1f384d !important;
     color: #F8FAFC !important;
 }
 
 .theme-s1 .sidebar-container .border-b {
-    border-color: #383a40 !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 .theme-s1 .sidebar-container span,
@@ -351,22 +351,22 @@
 }
 
 .theme-s1 .fjm-nav-label {
-    color: #a1a1aa !important;
+    color: #93c5fd !important;
     opacity: 0.9;
 }
 
 .theme-s1 .fjm-nav-item {
-    color: #d4d4d8 !important;
+    color: #e2e8f0 !important;
 }
 
 .theme-s1 .fjm-nav-item .material-symbols-rounded,
 .theme-s1 .fjm-nav-item svg,
 .theme-s1 .fjm-nav-item i {
-    color: #a1a1aa !important;
+    color: #bae6fd !important;
 }
 
 .theme-s1 .fjm-nav-item:hover {
-    background: rgba(255, 255, 255, 0.08) !important;
+    background: rgba(255, 255, 255, 0.12) !important;
     color: #FFFFFF !important;
 }
 
@@ -377,23 +377,23 @@
 }
 
 .theme-s1 .fjm-nav-item.active {
-    background: rgba(255, 255, 255, 0.16) !important;
+    background: rgba(255, 255, 255, 0.2) !important;
     color: #FFFFFF !important;
 }
 
 .theme-s1 .fjm-nav-item.active .material-symbols-rounded,
 .theme-s1 .fjm-nav-item.active svg,
 .theme-s1 .fjm-nav-item.active i {
-    color: #FFFFFF !important;
+    color: #38bdf8 !important;
 }
 
 .theme-s1 .fjm-sidebar-footer {
-    border-top: 1px solid #383a40 !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 
 .theme-s1 .fjm-user-card {
-    background: rgba(20, 21, 24, 0.85) !important;
-    border: 1px solid #383a40 !important;
+    background: rgba(15, 20, 26, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
 }
 
 .theme-s1 .fjm-user-name {
@@ -401,7 +401,7 @@
 }
 
 .theme-s1 .fjm-user-role {
-    color: #a1a1aa !important;
+    color: #94a3b8 !important;
 }
 
 /* 

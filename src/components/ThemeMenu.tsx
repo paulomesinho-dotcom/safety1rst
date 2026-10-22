@@ -48,8 +48,8 @@ export function ThemeMenu() {
         },
         {
             id: 's1',
-            label: 'S1 (Degradê Cinza)',
-            icon: <FlatS1Icon size={18} className="text-zinc-500 dark:text-zinc-300" />,
+            label: 'S1 (Azul para Cinza)',
+            icon: <FlatS1Icon size={18} className="text-sky-500 dark:text-sky-400" />,
         },
     ];
 
