@@ -329,18 +329,18 @@
 
 /* 
  * ==========================================
- * TEMA S1 (Workspace Claro + Barra Lateral Cinza Executivo)
+ * TEMA S1 (Workspace Claro + Barra Lateral Cinza com Degradê Suave)
  * ==========================================
  */
 .theme-s1 .sidebar-container,
 .theme-s1 aside.sidebar-container {
-    background: #1e293b !important; /* Cinza ardósia / slate executivo */
-    border-right: 1px solid #334155 !important;
+    background: linear-gradient(180deg, #2e3035 0%, #1c1d20 100%) !important; /* Degradê cinza carvão/neutro com menos azul */
+    border-right: 1px solid #383a40 !important;
     color: #F8FAFC !important;
 }
 
 .theme-s1 .sidebar-container .border-b {
-    border-color: #334155 !important;
+    border-color: #383a40 !important;
 }
 
 .theme-s1 .sidebar-container span,
@@ -351,18 +351,18 @@
 }
 
 .theme-s1 .fjm-nav-label {
-    color: #94a3b8 !important;
+    color: #a1a1aa !important;
     opacity: 0.9;
 }
 
 .theme-s1 .fjm-nav-item {
-    color: #cbd5e1 !important;
+    color: #d4d4d8 !important;
 }
 
 .theme-s1 .fjm-nav-item .material-symbols-rounded,
 .theme-s1 .fjm-nav-item svg,
 .theme-s1 .fjm-nav-item i {
-    color: #94a3b8 !important;
+    color: #a1a1aa !important;
 }
 
 .theme-s1 .fjm-nav-item:hover {
@@ -384,16 +384,16 @@
 .theme-s1 .fjm-nav-item.active .material-symbols-rounded,
 .theme-s1 .fjm-nav-item.active svg,
 .theme-s1 .fjm-nav-item.active i {
-    color: #60a5fa !important;
+    color: #FFFFFF !important;
 }
 
 .theme-s1 .fjm-sidebar-footer {
-    border-top: 1px solid #334155 !important;
+    border-top: 1px solid #383a40 !important;
 }
 
 .theme-s1 .fjm-user-card {
-    background: #0f172a !important;
-    border: 1px solid #334155 !important;
+    background: rgba(20, 21, 24, 0.85) !important;
+    border: 1px solid #383a40 !important;
 }
 
 .theme-s1 .fjm-user-name {
@@ -401,7 +401,7 @@
 }
 
 .theme-s1 .fjm-user-role {
-    color: #94a3b8 !important;
+    color: #a1a1aa !important;
 }
 
 /* 
