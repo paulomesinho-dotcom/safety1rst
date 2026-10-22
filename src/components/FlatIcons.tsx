@@ -59,7 +59,7 @@ const createGoogleIcon = (iconName: string, defaultSize = 20) => {
 export const FlatDashboardIcon = createGoogleIcon('grid_view', 20);
 export const FlatCompaniesIcon = createGoogleIcon('domain', 20);
 export const FlatWorkersIcon = createGoogleIcon('groups', 20);
-export const FlatEquipmentIcon = createGoogleIcon('construction', 20);
+export const FlatEquipmentIcon = createGoogleIcon('front_loader', 20);
 export const FlatAccessControlIcon = createGoogleIcon('verified_user', 20);
 export const FlatAccidentsIcon = createGoogleIcon('warning', 20);
 export const FlatTrainingIcon = createGoogleIcon('school', 20);
