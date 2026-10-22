@@ -14,8 +14,8 @@ import {
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import AuthGuard from '@/components/AuthGuard';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import { ThemeMenu } from '@/components/ThemeMenu';
 import { useTheme } from '@/providers/ThemeProvider';
-import { ThemeSelector } from '@/components/ThemeSelector';
 import { 
     FlatBriefcaseIcon, FlatRequestsIcon, FlatWorkersIcon, 
     FlatCrownIcon, FlatCompaniesIcon, FlatShieldUserIcon 
@@ -592,9 +592,8 @@ export default function Home() {
                             )}
                         </div>
 
+                        <ThemeMenu />
                         <LanguageSwitcher />
-
-                        <ThemeSelector variant="workplace" />
 
                         <div className="text-right hidden lg:block">
                             <span className="block text-xs font-bold text-[var(--text)]">{currentUser.name}</span>

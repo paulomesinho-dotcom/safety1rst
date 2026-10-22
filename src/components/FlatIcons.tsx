@@ -6,153 +6,118 @@ export interface FlatIconProps {
 }
 
 /**
- * Dashboard Flat Filled Icon
- * Modern 4-tile executive analytics dashboard layout
+ * Dashboard Flat Icon — 4 clean rounded tiles
  */
 export const FlatDashboardIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <rect x="3" y="3" width="8" height="10" rx="2" />
-        <rect x="13" y="3" width="8" height="6" rx="2" fillOpacity="0.8" />
-        <rect x="13" y="11" width="8" height="10" rx="2" />
-        <rect x="3" y="15" width="8" height="6" rx="2" fillOpacity="0.8" />
+        <rect x="3" y="3" width="7.5" height="7.5" rx="2" />
+        <rect x="13.5" y="3" width="7.5" height="7.5" rx="2" fillOpacity="0.75" />
+        <rect x="3" y="13.5" width="7.5" height="7.5" rx="2" fillOpacity="0.75" />
+        <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="2" />
     </svg>
 );
 
 /**
- * Companies / Organizações Flat Filled Icon
- * Solid corporate building silhouette with stylized window matrix
+ * Companies / Organizações Flat Icon — Simple corporate building duo
  */
 export const FlatCompaniesIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M3 21h18v-2H3v2z" />
-        <path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16H5z" />
-        <path d="M15 9h4a2 2 0 0 1 2 2v10h-6V9z" fillOpacity="0.75" />
-        {/* Cutouts for Windows */}
-        <circle cx="8" cy="7" r="1" fill="var(--bg-card, #fff)" />
-        <circle cx="12" cy="7" r="1" fill="var(--bg-card, #fff)" />
-        <circle cx="8" cy="11" r="1" fill="var(--bg-card, #fff)" />
-        <circle cx="12" cy="11" r="1" fill="var(--bg-card, #fff)" />
-        <circle cx="8" cy="15" r="1" fill="var(--bg-card, #fff)" />
-        <circle cx="12" cy="15" r="1" fill="var(--bg-card, #fff)" />
-        <rect x="9.5" y="18" width="3" height="3" fill="var(--bg-card, #fff)" rx="0.5" />
+        <path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16H4zm11-10h4a2 2 0 0 1 2 2v8h-6V11z" />
+        <rect x="7" y="6" width="2" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <rect x="10" y="6" width="2" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <rect x="7" y="10" width="2" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <rect x="10" y="10" width="2" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <rect x="7" y="14" width="2" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <rect x="10" y="14" width="2" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
     </svg>
 );
 
 /**
- * Workers / Pessoas Flat Filled Icon
- * Solid team silhouettes with clean head circles and rounded shoulders
+ * Workers / Pessoas Flat Icon — Clean team silhouettes
  */
 export const FlatWorkersIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        {/* Secondary Person */}
-        <circle cx="16.5" cy="7.5" r="3" fillOpacity="0.7" />
-        <path d="M14 13.5c1.2-.4 2.6-.6 4-.4 2.5.3 4 1.8 4 3.9V19h-7.5c.3-.9.4-1.9.3-3-.1-.9-.4-1.7-.8-2.5z" fillOpacity="0.7" />
-        {/* Primary Foreground Person */}
         <circle cx="9" cy="7" r="3.5" />
-        <path d="M2 19v-1.8c0-2.6 2.3-4.7 5.2-5.1 1.2-.2 2.4-.2 3.6 0 2.9.4 5.2 2.5 5.2 5.1V19H2z" />
+        <path d="M2 19c0-3.3 2.7-6 6-6h2c3.3 0 6 2.7 6 6v1H2v-1z" />
+        <circle cx="17.5" cy="8" r="2.5" fillOpacity="0.75" />
+        <path d="M15 15c1.2-.5 2.5-.7 3.8-.5 2 .3 3.2 1.6 3.2 3.5V19h-5.2c.2-.8.2-1.7-.1-2.5-.3-.6-.9-1.2-1.7-1.5z" fillOpacity="0.75" />
     </svg>
 );
 
 /**
- * Equipment / HardHat Flat Filled Icon
- * Industrial hardhat with curved shell and solid safety ridge
+ * Equipment / HardHat Flat Icon — Simple industrial helmet
  */
 export const FlatEquipmentIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M2 17a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1c0-.6-.4-1-1-1H3c-.6 0-1 .4-1 1z" />
-        <path d="M4 14.5c0-4.4 3.6-8 8-8s8 3.6 8 8c0 .5-.4 1-.9 1H4.9c-.5 0-.9-.5-.9-1z" />
-        {/* Central Ridge Bar */}
-        <path d="M10.5 4h3a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" fillOpacity="0.85" />
+        <path d="M12 4a8 8 0 0 0-8 8v2h16v-2a8 8 0 0 0-8-8z" />
+        <path d="M2 17a1.5 1.5 0 0 0 1.5 1.5h17A1.5 1.5 0 0 0 22 17v-1H2v1z" />
     </svg>
 );
 
 /**
- * Access Control Flat Filled Icon
- * Solid security shield with biometric badge / lock center
+ * Access Control Flat Icon — Simple security shield with verified tick
  */
 export const FlatAccessControlIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L4 5.5v6.2c0 5.4 3.4 10.4 8 11.8 4.6-1.4 8-6.4 8-11.8V5.5L12 2z" />
-        {/* Stylized Badge Scanner Checkmark Cutout */}
-        <path d="M10.5 15.5l-3-3 1.4-1.4 1.6 1.6 4.6-4.6 1.4 1.4-6 6z" fill="var(--bg-card, #fff)" />
+        <path d="M12 2L4 5.5v6c0 5.5 3.4 10.5 8 12 4.6-1.5 8-6.5 8-12v-6L12 2z" />
+        <path d="M10.5 14.5l-2.5-2.5 1.4-1.4 1.1 1.1 4.1-4.1 1.4 1.4-5.5 5.5z" fill="var(--bg-card, #fff)" />
     </svg>
 );
 
 /**
- * Accidents / Safety & Risks Flat Filled Icon
- * Bold triangular warning badge with exclamation cutout
+ * Accidents / Safety & Risks Flat Icon — Warning triangle
  */
 export const FlatAccidentsIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M10.3 3.2c.7-1.3 2.7-1.3 3.4 0l8.9 15.5c.7 1.3-.2 2.8-1.7 2.8H3.1c-1.5 0-2.4-1.6-1.7-2.8L10.3 3.2z" />
-        {/* Cutout Exclamation */}
-        <rect x="11" y="8" width="2" height="6" rx="1" fill="var(--bg-card, #fff)" />
-        <circle cx="12" cy="17" r="1.25" fill="var(--bg-card, #fff)" />
+        <path d="M10.3 3.5c.7-1.3 2.7-1.3 3.4 0l8.9 15.5c.7 1.3-.2 2.8-1.7 2.8H3.1c-1.5 0-2.4-1.6-1.7-2.8L10.3 3.5z" />
+        <rect x="11" y="8.5" width="2" height="5.5" rx="1" fill="var(--bg-card, #fff)" />
+        <circle cx="12" cy="17" r="1.2" fill="var(--bg-card, #fff)" />
     </svg>
 );
 
 /**
- * Training / Formação Flat Filled Icon
- * Solid mortarboard graduation cap and scroll ribbon
+ * Training / Formação Flat Icon — Graduation cap
  */
 export const FlatTrainingIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
         <path d="M12 3L1 8.5 12 14l9-4.5V16h2V8.5L12 3z" />
-        <path d="M5 12.2V16c0 3 3.1 5.5 7 5.5s7-2.5 7-5.5v-3.8l-7 3.5-7-3.5z" fillOpacity="0.8" />
+        <path d="M5 12.5V16c0 3 3.1 5.5 7 5.5s7-2.5 7-5.5v-3.5l-7 3.5-7-3.5z" fillOpacity="0.75" />
     </svg>
 );
 
 /**
- * Workplan / Plano de Trabalhos Flat Filled Icon
- * Solid clipboard with completed task checkmarks
+ * Workplan / Plano de Trabalhos Flat Icon — Clipboard
  */
 export const FlatWorkplanIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
         <path d="M19 4h-3.2c-.4-1.2-1.5-2-2.8-2s-2.4.8-2.8 2H7c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-6-1c.6 0 1 .4 1 1s-.4 1-1 1-1-.4-1-1 .4-1 1-1z" />
-        {/* Checklist rows cutout */}
-        <rect x="8" y="9" width="3" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="12" y="9" width="6" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="8" y="13" width="3" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="12" y="13" width="6" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="8" y="17" width="3" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="12" y="17" width="4" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <path d="M9 11l1.5 1.5 3.5-3.5 1.2 1.2-4.7 4.7-2.7-2.7 1.2-1.2z" fill="var(--bg-card, #fff)" />
     </svg>
 );
 
 /**
- * Forms / Formulários Flat Filled Icon
- * Solid form sheet with input check markers
+ * Forms / Formulários Flat Icon — Form sheet
  */
 export const FlatFormsIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M19 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" />
-        <circle cx="7.5" cy="7.5" r="1.5" fill="var(--bg-card, #fff)" />
-        <rect x="11" y="6.5" width="7" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <circle cx="7.5" cy="12" r="1.5" fill="var(--bg-card, #fff)" />
-        <rect x="11" y="11" width="7" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <circle cx="7.5" cy="16.5" r="1.5" fill="var(--bg-card, #fff)" />
-        <rect x="11" y="15.5" width="7" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <rect x="4" y="3" width="16" height="18" rx="2.5" />
+        <rect x="7" y="7" width="10" height="2" rx="1" fill="var(--bg-card, #fff)" />
+        <rect x="7" y="11" width="10" height="2" rx="1" fill="var(--bg-card, #fff)" />
+        <rect x="7" y="15" width="6" height="2" rx="1" fill="var(--bg-card, #fff)" />
     </svg>
 );
 
 /**
- * Documents / Documentos Flat Filled Icon
- * Solid document with folded corner and preview stripes
+ * Documents / Documentos Flat Icon — File with preview
  */
 export const FlatDocumentsIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z" />
-        <path d="M14 2v5a1 1 0 0 0 1 1h5l-6-6z" fill="var(--bg-card, #fff)" fillOpacity="0.4" />
-        {/* Content rows cutout */}
-        <rect x="8" y="11" width="8" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="8" y="14.5" width="8" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
-        <rect x="8" y="18" width="5" height="2" rx="0.5" fill="var(--bg-card, #fff)" />
+        <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 15H8v-2h8v2zm0-4H8v-2h8v2z" />
     </svg>
 );
 
 /**
- * Settings / Configurações Flat Filled Icon
- * Solid mechanical gear with precision teeth and center hub
+ * Settings / Configurações Flat Icon — Mechanical gear
  */
 export const FlatSettingsIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -161,7 +126,7 @@ export const FlatSettingsIcon: React.FC<FlatIconProps> = ({ size = 18, className
 );
 
 /**
- * All Projects / Folder Flat Filled Icon
+ * All Projects / Folder Flat Icon
  */
 export const FlatFolderIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -170,20 +135,16 @@ export const FlatFolderIcon: React.FC<FlatIconProps> = ({ size = 18, className =
 );
 
 /**
- * Crown / Subscriptions Flat Filled Icon
+ * Crown / Subscriptions Flat Icon
  */
 export const FlatCrownIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
-        <path d="M2.5 19h19a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-19a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1z" />
-        <path d="M2 17l2.5-11 5 6 4.5-9 4.5 9 5-6 2.5 11H2z" />
-        <circle cx="2" cy="6" r="1.5" />
-        <circle cx="12" cy="3" r="1.5" />
-        <circle cx="22" cy="6" r="1.5" />
+        <path d="M2 18h20v2H2v-2zm0-2l3-10 4.5 6L14 3l4.5 9 3-6 2.5 10H2z" />
     </svg>
 );
 
 /**
- * Requests / FileCheck Flat Filled Icon
+ * Requests / FileCheck Flat Icon
  */
 export const FlatRequestsIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -192,7 +153,7 @@ export const FlatRequestsIcon: React.FC<FlatIconProps> = ({ size = 18, className
 );
 
 /**
- * Briefcase Flat Filled Icon
+ * Briefcase Flat Icon
  */
 export const FlatBriefcaseIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -201,7 +162,7 @@ export const FlatBriefcaseIcon: React.FC<FlatIconProps> = ({ size = 18, classNam
 );
 
 /**
- * Shield User / GDPR Flat Filled Icon
+ * Shield User / GDPR Flat Icon
  */
 export const FlatShieldUserIcon: React.FC<FlatIconProps> = ({ size = 18, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -210,7 +171,7 @@ export const FlatShieldUserIcon: React.FC<FlatIconProps> = ({ size = 18, classNa
 );
 
 /**
- * Sun Flat Filled Icon
+ * Sun Flat Icon
  */
 export const FlatSunIcon: React.FC<FlatIconProps> = ({ size = 16, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -220,7 +181,7 @@ export const FlatSunIcon: React.FC<FlatIconProps> = ({ size = 16, className = ''
 );
 
 /**
- * Moon Flat Filled Icon
+ * Moon Flat Icon
  */
 export const FlatMoonIcon: React.FC<FlatIconProps> = ({ size = 16, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -229,15 +190,15 @@ export const FlatMoonIcon: React.FC<FlatIconProps> = ({ size = 16, className = '
 );
 
 /**
- * S1 Flat Icon: Visualizes Dark Sidebar + Light Content
+ * S1 Flat Icon: Visualizes Petroleum Blue Sidebar + Light Content
  */
 export const FlatS1Icon: React.FC<FlatIconProps> = ({ size = 16, className = '' }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-        <rect x="2" y="3" width="20" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-        {/* Dark Left Sidebar */}
-        <path d="M2 6a3 3 0 0 1 3-3h4v18H5a3 3 0 0 1-3-3V6z" fill="currentColor" />
-        {/* Mini Accent Dot on Workspace */}
-        <circle cx="15.5" cy="9.5" r="2" fill="currentColor" fillOpacity="0.4" />
-        <rect x="13.5" y="13.5" width="5.5" height="1.8" rx="0.9" fill="currentColor" fillOpacity="0.3" />
+        <rect x="2" y="3" width="20" height="18" rx="3" stroke="currentColor" strokeWidth="1.8" />
+        {/* Petroleum Blue Left Sidebar */}
+        <path d="M2 6a3 3 0 0 1 3-3h5v18H5a3 3 0 0 1-3-3V6z" fill="#084d6e" />
+        {/* Simple Content Lines */}
+        <rect x="13" y="7" width="6" height="2" rx="1" fill="currentColor" fillOpacity="0.5" />
+        <rect x="13" y="11" width="4" height="2" rx="1" fill="currentColor" fillOpacity="0.3" />
     </svg>
 );

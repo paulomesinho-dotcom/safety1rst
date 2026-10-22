@@ -326,41 +326,42 @@
 
 /* 
  * ==========================================
- * TEMA S1 (Workspace Claro + Barra Lateral Escura)
+ * TEMA S1 (Workspace Claro + Barra Lateral Azul Petróleo #084d6e)
  * ==========================================
  */
 .theme-s1 .sidebar-container,
 .theme-s1 aside.sidebar-container {
-    background: #0F172A !important;
-    border-right: 1px solid #1E293B !important;
-    color: #F1F5F9 !important;
+    background: #084d6e !important;
+    border-right: 1px solid #063c56 !important;
+    color: #F8FAFC !important;
 }
 
 .theme-s1 .sidebar-container .border-b {
-    border-color: #1E293B !important;
+    border-color: #0b5f87 !important;
 }
 
 .theme-s1 .sidebar-container span,
 .theme-s1 .sidebar-container h1,
 .theme-s1 .sidebar-container h2,
 .theme-s1 .sidebar-container h3 {
-    color: #F1F5F9;
+    color: #F8FAFC;
 }
 
 .theme-s1 .fjm-nav-label {
-    color: #64748B !important;
+    color: #93c5fd !important;
+    opacity: 0.85;
 }
 
 .theme-s1 .fjm-nav-item {
-    color: #94A3B8 !important;
+    color: #e0f2fe !important;
 }
 
 .theme-s1 .fjm-nav-item svg {
-    color: #94A3B8 !important;
+    color: #bae6fd !important;
 }
 
 .theme-s1 .fjm-nav-item:hover {
-    background: rgba(66, 133, 244, 0.12) !important;
+    background: rgba(255, 255, 255, 0.12) !important;
     color: #FFFFFF !important;
 }
 
@@ -369,27 +370,27 @@
 }
 
 .theme-s1 .fjm-nav-item.active {
-    background: rgba(66, 133, 244, 0.22) !important;
+    background: rgba(255, 255, 255, 0.22) !important;
     color: #FFFFFF !important;
 }
 
 .theme-s1 .fjm-nav-item.active svg {
-    color: #4285F4 !important;
+    color: #38bdf8 !important;
 }
 
 .theme-s1 .fjm-sidebar-footer {
-    border-top: 1px solid #1E293B !important;
+    border-top: 1px solid #0b5f87 !important;
 }
 
 .theme-s1 .fjm-user-card {
-    background: #1E293B !important;
-    border: 1px solid #334155 !important;
+    background: #063c56 !important;
+    border: 1px solid #0b5f87 !important;
 }
 
 .theme-s1 .fjm-user-name {
-    color: #F1F5F9 !important;
+    color: #FFFFFF !important;
 }
 
 .theme-s1 .fjm-user-role {
-    color: #94A3B8 !important;
+    color: #bae6fd !important;
 }

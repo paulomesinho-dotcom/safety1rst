@@ -23,7 +23,6 @@ import {
 import { cn } from '@/lib/utils';
 import AuthGuard from '@/components/AuthGuard';
 import { useTheme } from '@/providers/ThemeProvider';
-import { ThemeSelector } from '@/components/ThemeSelector';
 import {
     FlatDashboardIcon,
     FlatCompaniesIcon,
@@ -265,15 +264,10 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                             </ul>
                         </nav>
 
-                        {/* Sidebar Footer: Theme Selector & User Card (FundacaoJM style) */}
+                        {/* Sidebar Footer: User Card (FundacaoJM style) */}
                         <div className="fjm-sidebar-footer">
-                            {/* Theme Selector (Claro | Escuro | S1) */}
-                            <div className="mb-2">
-                                <ThemeSelector variant="sidebar" isCollapsed={isCollapsed} />
-                            </div>
-
                             {/* User Card with Logout */}
-                            <div className={cn("fjm-user-card mt-2.5", isCollapsed && "justify-center p-1.5")}>
+                            <div className={cn("fjm-user-card", isCollapsed && "justify-center p-1.5")}>
                                 <div className="fjm-user-avatar" title={currentUser?.name}>
                                     {getInitials(currentUser?.name)}
                                 </div>
