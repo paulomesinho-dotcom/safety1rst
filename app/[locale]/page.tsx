@@ -15,13 +15,18 @@ import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/
 import AuthGuard from '@/components/AuthGuard';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useTheme } from '@/providers/ThemeProvider';
+import { ThemeSelector } from '@/components/ThemeSelector';
+import { 
+    FlatBriefcaseIcon, FlatRequestsIcon, FlatWorkersIcon, 
+    FlatCrownIcon, FlatCompaniesIcon, FlatShieldUserIcon 
+} from '@/components/FlatIcons';
 import type { PlanType, ProjectRole, User, Account, Project, Company } from '@/types';
 
 type WorkplaceTab = 'projects' | 'requests' | 'company' | 'subscriptions' | 'client_management' | 'users_management';
 
 export default function Home() {
     const router = useRouter();
-    const { isDark, toggleTheme } = useTheme();
+    const { isDark } = useTheme();
 
     const { 
         projects, 
@@ -589,13 +594,7 @@ export default function Home() {
 
                         <LanguageSwitcher />
 
-                        <button
-                            onClick={toggleTheme}
-                            className="p-2 rounded-lg hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-                            title={isDark ? "Mudar para modo claro" : "Mudar para modo escuro"}
-                        >
-                            {isDark ? <Sun size={18} className="text-amber-400" /> : <Moon size={18} className="text-slate-400" />}
-                        </button>
+                        <ThemeSelector variant="workplace" />
 
                         <div className="text-right hidden lg:block">
                             <span className="block text-xs font-bold text-[var(--text)]">{currentUser.name}</span>
@@ -699,7 +698,7 @@ export default function Home() {
                                     : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]'
                             }`}
                         >
-                            <Briefcase size={16} /> Os Meus Projetos ({joinedProjects.length})
+                            <FlatBriefcaseIcon size={16} /> Os Meus Projetos ({joinedProjects.length})
                         </button>
 
                         <button
@@ -710,7 +709,7 @@ export default function Home() {
                                     : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]'
                             }`}
                         >
-                            <FileCheck size={16} /> Solicitações de Acesso
+                            <FlatRequestsIcon size={16} /> Solicitações de Acesso
                             {receivedRequests.length > 0 && (
                                 <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-400 text-amber-950">
                                     {receivedRequests.length}
@@ -726,7 +725,7 @@ export default function Home() {
                                     : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]'
                             }`}
                         >
-                            <Users size={16} /> Membros da Empresa ({companyMembers.length})
+                            <FlatWorkersIcon size={16} /> Membros da Empresa ({companyMembers.length})
                         </button>
 
                         <button
@@ -737,7 +736,7 @@ export default function Home() {
                                     : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]'
                             }`}
                         >
-                            <Crown size={16} /> As Minhas Subscrições
+                            <FlatCrownIcon size={16} /> As Minhas Subscrições
                         </button>
 
                         {isSuperAdmin && (
@@ -750,7 +749,7 @@ export default function Home() {
                                             : 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50'
                                     }`}
                                 >
-                                    <Shield size={16} /> Gestão de Clientes & Subscrições
+                                    <FlatCompaniesIcon size={16} /> Gestão de Clientes & Subscrições
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('users_management')}
@@ -760,7 +759,7 @@ export default function Home() {
                                             : 'text-purple-700 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950/40 border border-purple-200 dark:border-purple-900/50'
                                     }`}
                                 >
-                                    <UserCheck size={16} /> Gestão de Utilizadores & RGPD ({users.length})
+                                    <FlatShieldUserIcon size={16} /> Gestão de Utilizadores & RGPD ({users.length})
                                 </button>
                             </>
                         )}

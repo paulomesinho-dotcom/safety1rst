@@ -18,28 +18,38 @@ import {
     GraduationCap,
     ChevronLeft,
     ChevronRight,
-    Settings as SettingsIcon,
-    ClipboardList,
-    Folder,
     LogOut,
-    Sun,
-    Moon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AuthGuard from '@/components/AuthGuard';
 import { useTheme } from '@/providers/ThemeProvider';
+import { ThemeSelector } from '@/components/ThemeSelector';
+import {
+    FlatDashboardIcon,
+    FlatCompaniesIcon,
+    FlatWorkersIcon,
+    FlatEquipmentIcon,
+    FlatAccessControlIcon,
+    FlatAccidentsIcon,
+    FlatTrainingIcon,
+    FlatFormsIcon,
+    FlatDocumentsIcon,
+    FlatWorkplanIcon,
+    FlatSettingsIcon,
+    FlatFolderIcon,
+} from '@/components/FlatIcons';
 
 const iconMap: Record<string, React.FC<any>> = {
-    'dashboard': LayoutDashboard,
-    'companies': Building2,
-    'workers': Users,
-    'equipment': HardHat,
-    'access-control': Scan,
-    'accidents': AlertTriangle,
-    'training': GraduationCap,
-    'forms': FileInput,
-    'documents': FileText,
-    'settings': SettingsIcon,
+    'dashboard': FlatDashboardIcon,
+    'companies': FlatCompaniesIcon,
+    'workers': FlatWorkersIcon,
+    'equipment': FlatEquipmentIcon,
+    'access-control': FlatAccessControlIcon,
+    'accidents': FlatAccidentsIcon,
+    'training': FlatTrainingIcon,
+    'forms': FlatFormsIcon,
+    'documents': FlatDocumentsIcon,
+    'settings': FlatSettingsIcon,
 };
 
 const nameMap: Record<string, string> = {
@@ -69,7 +79,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
     const [isCollapsed, setIsCollapsed] = useState(false);
     const { projects, modules, currentUser, setCurrentUser, getUserRoleInProject, canAccessModule, projectRequests } = useStore();
     const currentProject = projects.find(p => p.id === id);
-    const { isDark, toggleTheme } = useTheme();
+    const { isDark } = useTheme();
 
     const userRole = currentUser && currentProject ? getUserRoleInProject(currentUser.id, id) : null;
     const pendingProjectRequests = (projectRequests || []).filter(r => r.projectId === id && r.status === 'pending');
@@ -132,7 +142,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                                 )}
                                 title="Todos os Projectos"
                             >
-                                <Folder size={18} className="shrink-0 text-[var(--text-muted)]" />
+                                <FlatFolderIcon size={18} className="shrink-0" />
                                 {!isCollapsed && <span className="truncate">Todos os Projectos</span>}
                             </Link>
                         </div>
@@ -162,7 +172,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                                                 )}
                                                 title={isCollapsed ? "Dashboard" : undefined}
                                             >
-                                                <LayoutDashboard size={18} className="shrink-0" />
+                                                <FlatDashboardIcon size={18} className="shrink-0" />
                                                 {!isCollapsed && <span className="truncate">Dashboard</span>}
                                             </Link>
                                         );
@@ -217,7 +227,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                                                 )}
                                                 title={isCollapsed ? "Plano de Trabalhos" : undefined}
                                             >
-                                                <ClipboardList size={18} className="shrink-0" />
+                                                <FlatWorkplanIcon size={18} className="shrink-0" />
                                                 {!isCollapsed && <span className="truncate">Plano de Trabalhos</span>}
                                             </Link>
                                         </li>
@@ -241,7 +251,7 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                                                 )}
                                                 title={isCollapsed ? "Configurações da Obra" : undefined}
                                             >
-                                                <SettingsIcon size={18} className="shrink-0" />
+                                                <FlatSettingsIcon size={18} className="shrink-0" />
                                                 {!isCollapsed && <span className="truncate">Configurações</span>}
                                                 {pendingProjectRequests.length > 0 && (
                                                     <span className="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white animate-pulse">
@@ -255,24 +265,11 @@ export default function ProjectLayout({ children }: { children: React.ReactNode 
                             </ul>
                         </nav>
 
-                        {/* Sidebar Footer: Theme Toggle & User Card (FundacaoJM style) */}
+                        {/* Sidebar Footer: Theme Selector & User Card (FundacaoJM style) */}
                         <div className="fjm-sidebar-footer">
-                            {/* Theme Toggle */}
-                            <div
-                                className="fjm-theme-toggle"
-                                onClick={toggleTheme}
-                                title={isDark ? "Mudar para modo claro" : "Mudar para modo escuro"}
-                                style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-                            >
-                                <div className="fjm-theme-toggle-switch">
-                                    <div className="fjm-theme-toggle-knob" />
-                                </div>
-                                {!isCollapsed && (
-                                    <span className="text-xs font-medium text-[var(--text-muted)] flex items-center gap-1.5 ml-1">
-                                        {isDark ? <Sun size={14} className="text-amber-400 shrink-0" /> : <Moon size={14} className="text-slate-400 shrink-0" />}
-                                        {isDark ? 'Modo Claro' : 'Modo Escuro'}
-                                    </span>
-                                )}
+                            {/* Theme Selector (Claro | Escuro | S1) */}
+                            <div className="mb-2">
+                                <ThemeSelector variant="sidebar" isCollapsed={isCollapsed} />
                             </div>
 
                             {/* User Card with Logout */}

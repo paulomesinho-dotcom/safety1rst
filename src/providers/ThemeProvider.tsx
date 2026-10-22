@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Theme = 'light' | 'dark';
+export type Theme = 'light' | 'dark' | 's1';
 
 interface ThemeProviderProps {
     children: React.ReactNode;
@@ -48,7 +48,7 @@ export function ThemeProvider({
     useEffect(() => {
         try {
             const saved = localStorage.getItem(storageKey) as Theme | null;
-            if (saved === 'light' || saved === 'dark') {
+            if (saved === 'light' || saved === 'dark' || saved === 's1') {
                 setThemeState(saved);
             } else {
                 setThemeState(defaultTheme);
@@ -64,16 +64,18 @@ export function ThemeProvider({
         const root = document.documentElement;
         const body = document.body;
 
+        root.classList.remove('dark', 'light', 'theme-s1');
+        body.classList.remove('dark', 'light', 'theme-s1');
+
         if (theme === 'dark') {
             root.classList.add('dark');
-            root.classList.remove('light');
             body.classList.add('dark');
-            body.classList.remove('light');
+        } else if (theme === 's1') {
+            root.classList.add('light', 'theme-s1');
+            body.classList.add('light', 'theme-s1');
         } else {
             root.classList.add('light');
-            root.classList.remove('dark');
             body.classList.add('light');
-            body.classList.remove('dark');
         }
 
         try {
@@ -92,7 +94,7 @@ export function ThemeProvider({
     };
 
     const toggleTheme = () => {
-        setThemeState((prev) => (prev === 'dark' ? 'light' : 'dark'));
+        setThemeState((prev) => (prev === 'dark' ? 'light' : prev === 'light' ? 's1' : 'dark'));
     };
 
     const value: ThemeProviderState = {

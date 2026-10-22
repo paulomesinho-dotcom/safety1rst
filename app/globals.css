@@ -323,3 +323,73 @@
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
 }
+
+/* 
+ * ==========================================
+ * TEMA S1 (Workspace Claro + Barra Lateral Escura)
+ * ==========================================
+ */
+.theme-s1 .sidebar-container,
+.theme-s1 aside.sidebar-container {
+    background: #0F172A !important;
+    border-right: 1px solid #1E293B !important;
+    color: #F1F5F9 !important;
+}
+
+.theme-s1 .sidebar-container .border-b {
+    border-color: #1E293B !important;
+}
+
+.theme-s1 .sidebar-container span,
+.theme-s1 .sidebar-container h1,
+.theme-s1 .sidebar-container h2,
+.theme-s1 .sidebar-container h3 {
+    color: #F1F5F9;
+}
+
+.theme-s1 .fjm-nav-label {
+    color: #64748B !important;
+}
+
+.theme-s1 .fjm-nav-item {
+    color: #94A3B8 !important;
+}
+
+.theme-s1 .fjm-nav-item svg {
+    color: #94A3B8 !important;
+}
+
+.theme-s1 .fjm-nav-item:hover {
+    background: rgba(66, 133, 244, 0.12) !important;
+    color: #FFFFFF !important;
+}
+
+.theme-s1 .fjm-nav-item:hover svg {
+    color: #FFFFFF !important;
+}
+
+.theme-s1 .fjm-nav-item.active {
+    background: rgba(66, 133, 244, 0.22) !important;
+    color: #FFFFFF !important;
+}
+
+.theme-s1 .fjm-nav-item.active svg {
+    color: #4285F4 !important;
+}
+
+.theme-s1 .fjm-sidebar-footer {
+    border-top: 1px solid #1E293B !important;
+}
+
+.theme-s1 .fjm-user-card {
+    background: #1E293B !important;
+    border: 1px solid #334155 !important;
+}
+
+.theme-s1 .fjm-user-name {
+    color: #F1F5F9 !important;
+}
+
+.theme-s1 .fjm-user-role {
+    color: #94A3B8 !important;
+}
