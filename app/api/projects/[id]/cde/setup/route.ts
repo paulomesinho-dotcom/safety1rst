@@ -17,13 +17,24 @@ export async function POST(
         if (session?.user) {
             const role = (session.user as any).role;
             if (role !== 'superadmin' && role !== 'admin') {
-                const member = await prisma.projectMember.findUnique({
-                    where: { projectId_userId: { projectId, userId: session.user.id! } }
-                });
-                if (!member || member.role !== 'manager') {
-                    return NextResponse.json({ 
-                        error: 'Permissão negada. Apenas o Gestor (Manager) da obra pode configurar as integrações CDE.' 
-                    }, { status: 403 });
+                const project = await prisma.project.findUnique({ where: { id: projectId } });
+                if (project) {
+                    const member = await prisma.projectMember.findUnique({
+                        where: { projectId_userId: { projectId, userId: session.user.id! } }
+                    });
+                    if (!member || member.role !== 'manager') {
+                        return NextResponse.json({ 
+                            error: 'Permissão negada. Apenas o Gestor (Manager) da obra pode configurar as integrações CDE.' 
+                        }, { status: 403 });
+                    }
+                } else {
+                    const company = await prisma.company.findUnique({ where: { id: projectId } });
+                    if (company) {
+                        const user = await prisma.user.findUnique({ where: { id: session.user.id! } });
+                        if (user?.tenantId !== company.tenantId && (session.user as any).accountId !== company.tenantId) {
+                            return NextResponse.json({ error: 'Permissão negada para esta empresa.' }, { status: 403 });
+                        }
+                    }
                 }
             }
         }

@@ -9,12 +9,13 @@ import Header from '@/components/Header';
 import { useTranslations } from 'next-intl';
 import { 
     Building2, Users, Wrench, GraduationCap, Folder, 
-    ArrowLeft, Plus, Search, Trash2, Edit2, Check, 
+    ArrowLeft, ArrowRight, Plus, Search, Trash2, Edit2, Check, 
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
     LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
-    User, Briefcase, Activity, AlertTriangle, X
+    User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter
 } from 'lucide-react';
+import { CDESettingsModal } from '@/components/CDESettingsModal';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
     FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon 
@@ -234,6 +235,17 @@ export default function MyCompanyPage() {
     const [selectedWorkerForExport, setSelectedWorkerForExport] = useState<Worker | null>(null);
     const [selectedEquipForExport, setSelectedEquipForExport] = useState<Equipment | null>(null);
 
+    // CDE Modal State
+    const [isCdeModalOpen, setIsCdeModalOpen] = useState(false);
+
+    // Multi-select & Filters for Workers
+    const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
+    const [workerProjectFilter, setWorkerProjectFilter] = useState<string>('all');
+
+    // Multi-select & Filters for Equipment
+    const [selectedEquipIds, setSelectedEquipIds] = useState<string[]>([]);
+    const [equipProjectFilter, setEquipProjectFilter] = useState<string>('all');
+
     // Only projects that the user has on the Workplace "Os Meus Projetos" page
     const userProjects = useMemo(() => {
         if (!currentUser) return [];
@@ -265,6 +277,70 @@ export default function MyCompanyPage() {
         return base.filter(c => (c.name || '').toLowerCase().includes(q) || (c.nif || '').toLowerCase().includes(q));
     }, [masterCompany, companyForm, companySearchTerm]);
 
+    // Helper: Synced projects for company
+    const syncedCompanyProjects = useMemo(() => {
+        const masterId = masterCompany?.id;
+        const masterNif = masterCompany?.nif || companyForm.nif;
+
+        const matched = companies.filter(c => 
+            c.projectId && (
+                (masterId && c.corporateCompanyId === masterId) ||
+                (masterNif && c.nif && c.nif === masterNif) ||
+                (userAccount?.id && c.accountId === userAccount.id && c.projectId)
+            )
+        );
+
+        const uniquePids = Array.from(new Set(matched.map(c => c.projectId!)));
+        return uniquePids.map(pid => {
+            const prj = projects.find(p => p.id === pid);
+            const compInPrj = matched.find(c => c.projectId === pid);
+            return {
+                projectId: pid,
+                projectName: prj?.name || `Obra ${pid}`,
+                projectAddress: prj?.address,
+                companyRole: compInPrj?.companyRole || 'subempreiteiro',
+                status: compInPrj?.status || 'active',
+                workflowStatus: compInPrj?.workflowStatus || 'validated'
+            };
+        });
+    }, [companies, masterCompany?.id, masterCompany?.nif, companyForm.nif, userAccount?.id, projects]);
+
+    // Helper: Synced projects for a worker
+    const getWorkerSyncedProjects = (workerId: string, workerNif?: string) => {
+        const matches = workers.filter(w => 
+            w.projectId && (
+                w.corporateWorkerId === workerId || 
+                (workerNif && w.nif && w.nif === workerNif)
+            )
+        );
+        return matches.map(w => {
+            const prj = projects.find(p => p.id === w.projectId);
+            return {
+                projectId: w.projectId!,
+                projectName: prj?.name || `Obra ${w.projectId}`,
+                status: w.workflowStatus || w.status
+            };
+        });
+    };
+
+    // Helper: Synced projects for an equipment
+    const getEquipmentSyncedProjects = (equipId: string, serialNumber?: string) => {
+        const matches = equipment.filter(e => 
+            e.projectId && (
+                e.corporateEquipmentId === equipId || 
+                (serialNumber && e.serialNumber && e.serialNumber === serialNumber)
+            )
+        );
+        return matches.map(e => {
+            const prj = projects.find(p => p.id === e.projectId);
+            return {
+                projectId: e.projectId!,
+                projectName: prj?.name || `Obra ${e.projectId}`,
+                status: e.workflowStatus || e.status
+            };
+        });
+    };
+
     const handlePerformExport = (e: React.FormEvent) => {
         e.preventDefault();
         if (!exportTargetProjectId) {
@@ -294,30 +370,48 @@ export default function MyCompanyPage() {
                 addNotification('success', 'Empresa sincronizada com sucesso na obra!');
             }
         } else if (exportEntityType === 'worker') {
-            if (!selectedWorkerForExport) return;
+            const workersToSync = selectedWorkerIds.length > 0
+                ? companyWorkers.filter(w => selectedWorkerIds.includes(w.id))
+                : (selectedWorkerForExport ? [selectedWorkerForExport] : []);
+
+            if (workersToSync.length === 0) return;
+
             let targetProjCompany = companies.find(c => c.projectId === exportTargetProjectId && (c.corporateCompanyId === compId || c.nif === companyForm.nif));
             if (!targetProjCompany) {
                 targetProjCompany = importCompanyToProject(compId, exportTargetProjectId, exportProjectRole) || undefined;
             }
             if (targetProjCompany) {
-                const imported = importWorkerToProject(selectedWorkerForExport.id, exportTargetProjectId, targetProjCompany.id);
-                if (imported) {
-                    setIsExportModalOpen(false);
-                    addNotification('success', 'Colaborador sincronizado com sucesso na obra!');
+                let successCount = 0;
+                for (const w of workersToSync) {
+                    const imported = importWorkerToProject(w.id, exportTargetProjectId, targetProjCompany.id);
+                    if (imported) successCount++;
                 }
+                setIsExportModalOpen(false);
+                setSelectedWorkerIds([]);
+                setSelectedWorkerForExport(null);
+                addNotification('success', `${successCount} colaborador(es) sincronizado(s) com sucesso na obra!`);
             }
         } else if (exportEntityType === 'equipment') {
-            if (!selectedEquipForExport) return;
+            const equipsToSync = selectedEquipIds.length > 0
+                ? companyEquipment.filter(e => selectedEquipIds.includes(e.id))
+                : (selectedEquipForExport ? [selectedEquipForExport] : []);
+
+            if (equipsToSync.length === 0) return;
+
             let targetProjCompany = companies.find(c => c.projectId === exportTargetProjectId && (c.corporateCompanyId === compId || c.nif === companyForm.nif));
             if (!targetProjCompany) {
                 targetProjCompany = importCompanyToProject(compId, exportTargetProjectId, exportProjectRole) || undefined;
             }
             if (targetProjCompany) {
-                const imported = importEquipmentToProject(selectedEquipForExport.id, exportTargetProjectId, targetProjCompany.id);
-                if (imported) {
-                    setIsExportModalOpen(false);
-                    addNotification('success', 'Equipamento sincronizado com sucesso na obra!');
+                let successCount = 0;
+                for (const eq of equipsToSync) {
+                    const imported = importEquipmentToProject(eq.id, exportTargetProjectId, targetProjCompany.id);
+                    if (imported) successCount++;
                 }
+                setIsExportModalOpen(false);
+                setSelectedEquipIds([]);
+                setSelectedEquipForExport(null);
+                addNotification('success', `${successCount} equipamento(s) sincronizado(s) com sucesso na obra!`);
             }
         }
     };
@@ -333,6 +427,66 @@ export default function MyCompanyPage() {
 
     // Search & Filter
     const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredWorkers = useMemo(() => {
+        return companyWorkers.filter(w => {
+            const q = searchTerm.toLowerCase();
+            const matchesSearch = !searchTerm.trim() || 
+                (w.name || '').toLowerCase().includes(q) || 
+                (w.email && w.email.toLowerCase().includes(q)) ||
+                (w.nif && w.nif.includes(searchTerm));
+            if (!matchesSearch) return false;
+
+            if (workerProjectFilter === 'all') return true;
+            const synced = getWorkerSyncedProjects(w.id, w.nif);
+            if (workerProjectFilter === 'unsynced') {
+                return synced.length === 0;
+            }
+            return synced.some(p => p.projectId === workerProjectFilter);
+        });
+    }, [companyWorkers, searchTerm, workerProjectFilter, workers, projects]);
+
+    const filteredEquipment = useMemo(() => {
+        return companyEquipment.filter(eq => {
+            const q = searchTerm.toLowerCase();
+            const matchesSearch = !searchTerm.trim() ||
+                (eq.name || '').toLowerCase().includes(q) ||
+                (eq.serialNumber && eq.serialNumber.toLowerCase().includes(q)) ||
+                (eq.brand && eq.brand.toLowerCase().includes(q));
+            if (!matchesSearch) return false;
+
+            if (equipProjectFilter === 'all') return true;
+            const synced = getEquipmentSyncedProjects(eq.id, eq.serialNumber);
+            if (equipProjectFilter === 'unsynced') {
+                return synced.length === 0;
+            }
+            return synced.some(p => p.projectId === equipProjectFilter);
+        });
+    }, [companyEquipment, searchTerm, equipProjectFilter, equipment, projects]);
+
+    const toggleSelectWorker = (id: string) => {
+        setSelectedWorkerIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const toggleSelectAllWorkers = () => {
+        if (selectedWorkerIds.length === filteredWorkers.length && filteredWorkers.length > 0) {
+            setSelectedWorkerIds([]);
+        } else {
+            setSelectedWorkerIds(filteredWorkers.map(w => w.id));
+        }
+    };
+
+    const toggleSelectEquip = (id: string) => {
+        setSelectedEquipIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const toggleSelectAllEquip = () => {
+        if (selectedEquipIds.length === filteredEquipment.length && filteredEquipment.length > 0) {
+            setSelectedEquipIds([]);
+        } else {
+            setSelectedEquipIds(filteredEquipment.map(e => e.id));
+        }
+    };
 
     const tRoles = useTranslations('workerRoles');
 
@@ -804,6 +958,15 @@ export default function MyCompanyPage() {
 
                                 {/* Action Buttons based on Tab */}
                                 <div className="flex items-center gap-2 self-start sm:self-auto">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCdeModalOpen(true)}
+                                        className="px-3.5 py-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border border-[var(--border)]"
+                                        title="Configurar Ambiente Comum de Dados (CDE) da Empresa"
+                                    >
+                                        <Cloud size={14} className="text-primary" />
+                                        <span>CDE da Empresa</span>
+                                    </button>
                                     {activeTab === 'organization' && (
                                         <>
                                             <button
@@ -864,7 +1027,8 @@ export default function MyCompanyPage() {
 
                             {/* ════════ TAB: ORGANIZAÇÃO (Listagem) ════════ */}
                             {activeTab === 'organization' && (
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                <div className="space-y-6">
+                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
                                     <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
                                         <div className="relative flex-1 max-w-sm">
                                             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
@@ -1014,239 +1178,483 @@ export default function MyCompanyPage() {
                                         </table>
                                     </div>
                                 </div>
+
+                                {/* Obras / Projetos Sincronizados com a Organização */}
+                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                <Share2 size={16} />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-sm font-bold text-[var(--text)]">
+                                                    Obras e Projetos Sincronizados ({syncedCompanyProjects.length})
+                                                </h3>
+                                                <p className="text-[11px] text-[var(--text-muted)]">
+                                                    Estaleiros onde esta organização está integrada com conformidade DL 273/2003 e CDE.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setExportEntityType('company');
+                                                setExportTargetProjectId(userProjects[0]?.id || '');
+                                                setIsExportModalOpen(true);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer self-start sm:self-auto"
+                                        >
+                                            <Share2 size={13} /> Sincronizar com Obra
+                                        </button>
+                                    </div>
+
+                                    {syncedCompanyProjects.length === 0 ? (
+                                        <div className="p-6 text-center rounded-xl bg-[var(--bg-input)]/30 border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)]">
+                                            Esta organização ainda não está sincronizada com nenhuma das suas obras.
+                                            Utilize o botão <strong className="text-[var(--text)]">"Sincronizar com Obra"</strong> para disponibilizar a empresa e a sua documentação nos estaleiros.
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                            {syncedCompanyProjects.map(proj => (
+                                                <div key={proj.projectId} className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] hover:border-primary/40 transition-all flex flex-col justify-between gap-3">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="font-bold text-xs text-[var(--text)] truncate" title={proj.projectName}>
+                                                                {proj.projectName}
+                                                            </span>
+                                                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
+                                                                Sincronizada
+                                                            </span>
+                                                        </div>
+                                                        {proj.projectAddress && (
+                                                            <p className="text-[10px] text-[var(--text-muted)] truncate">
+                                                                {proj.projectAddress}
+                                                            </p>
+                                                        )}
+                                                        <div className="text-[10px] text-[var(--text-muted)] pt-1">
+                                                            Função: <span className="font-medium text-[var(--text)]">{getCompanyRoleLabel(proj.companyRole)}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between text-xs">
+                                                        <span className="text-[10px] font-mono text-[var(--text-muted)]">ID: {proj.projectId.slice(0, 8)}</span>
+                                                        <Link
+                                                            href={`/projects/${proj.projectId}`}
+                                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                                                        >
+                                                            <span>Abrir Obra</span>
+                                                            <ArrowRight size={12} />
+                                                        </Link>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                </div>
                             )}
 
                             {/* ════════ TAB: PESSOAS ════════ */}
                             {activeTab === 'workers' && (
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
-                                    <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
-                                        <div className="relative flex-1 max-w-sm">
-                                            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-                                            <input
-                                                type="text"
-                                                placeholder="Pesquisar colaborador por nome ou email..."
-                                                className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
-                                                value={searchTerm}
-                                                onChange={e => setSearchTerm(e.target.value)}
-                                            />
+                                <div className="space-y-4">
+                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                        <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                            <div className="relative flex-1 max-w-sm">
+                                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Pesquisar colaborador por nome, email ou NIF..."
+                                                    className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
+                                                    value={searchTerm}
+                                                    onChange={e => setSearchTerm(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-2.5 py-1.5">
+                                                    <Filter size={13} className="text-primary shrink-0" />
+                                                    <select
+                                                        value={workerProjectFilter}
+                                                        onChange={e => setWorkerProjectFilter(e.target.value)}
+                                                        className="bg-transparent text-xs text-[var(--text)] outline-none cursor-pointer"
+                                                    >
+                                                        <option value="all">Todas as Obras ({companyWorkers.length})</option>
+                                                        <option value="unsynced">Não Sincronizados</option>
+                                                        {userProjects.map(p => (
+                                                            <option key={p.id} value={p.id}>Obra: {p.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <span className="text-xs text-[var(--text-muted)] font-medium hidden sm:inline">
+                                                    {filteredWorkers.length} colaborador(es)
+                                                </span>
+                                            </div>
                                         </div>
-                                        <span className="text-xs text-[var(--text-muted)] font-medium">
-                                            {companyWorkers.length} colaborador(es) registado(s)
-                                        </span>
-                                    </div>
 
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-xs text-left min-w-[700px]">
-                                            <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
-                                                <tr>
-                                                    <th className="px-5 py-3.5">Colaborador</th>
-                                                    <th className="px-5 py-3.5">Função (Norma IFC)</th>
-                                                    <th className="px-5 py-3.5">Vínculo / Categoria</th>
-                                                    <th className="px-5 py-3.5">Contacto</th>
-                                                    <th className="px-5 py-3.5">Aptidão Médica (FAT)</th>
-                                                    <th className="px-5 py-3.5 text-right">Ação</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-[var(--border)]">
-                                                {companyWorkers.length === 0 ? (
+                                        {/* Batch Actions Bar */}
+                                        {selectedWorkerIds.length > 0 && (
+                                            <div className="mx-4 my-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
+                                                <div className="flex items-center gap-2 text-xs font-bold text-primary">
+                                                    <CheckCircle2 size={16} />
+                                                    <span>{selectedWorkerIds.length} colaborador(es) selecionado(s)</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleSelectAllWorkers}
+                                                        className="px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] font-medium cursor-pointer"
+                                                    >
+                                                        Desmarcar todos
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setExportEntityType('worker');
+                                                            setExportTargetProjectId(userProjects[0]?.id || '');
+                                                            setIsExportModalOpen(true);
+                                                        }}
+                                                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Share2 size={13} /> Sincronizar Selecionados com Obra
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-xs text-left min-w-[760px]">
+                                                <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
                                                     <tr>
-                                                        <td colSpan={6} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                                                            Nenhum colaborador registado nesta empresa. Adicione os seus colaboradores com padrão IFC.
-                                                        </td>
+                                                        <th className="w-10 px-4 py-3.5 text-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedWorkerIds.length === filteredWorkers.length && filteredWorkers.length > 0}
+                                                                onChange={toggleSelectAllWorkers}
+                                                                className="rounded text-primary cursor-pointer"
+                                                                title="Selecionar todos"
+                                                            />
+                                                        </th>
+                                                        <th className="px-5 py-3.5">Colaborador</th>
+                                                        <th className="px-5 py-3.5">Função (Norma IFC)</th>
+                                                        <th className="px-5 py-3.5">Vínculo / Categoria</th>
+                                                        <th className="px-5 py-3.5">Aptidão Médica (FAT)</th>
+                                                        <th className="px-5 py-3.5">Sincronização</th>
+                                                        <th className="px-5 py-3.5 text-right">Ação</th>
                                                     </tr>
-                                                ) : (
-                                                    companyWorkers
-                                                        .filter(w => w.name.toLowerCase().includes(searchTerm.toLowerCase()) || (w.email && w.email.toLowerCase().includes(searchTerm.toLowerCase())))
-                                                        .map(w => (
-                                                            <tr 
-                                                                key={w.id} 
-                                                                onClick={() => handleOpenViewWorker(w)}
-                                                                className="hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group"
-                                                            >
-                                                                <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                    <div className="flex items-center gap-3">
-                                                                        <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                                                                            {getInitials(w.name)}
-                                                                        </div>
-                                                                        <div>
-                                                                            <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
-                                                                                {w.name}
-                                                                                {w.isForeign && (
-                                                                                    <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                                                                                        {w.foreignCountry || 'Estrangeiro'}
-                                                                                    </span>
-                                                                                )}
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border)]">
+                                                    {filteredWorkers.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={7} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                                Nenhum colaborador encontrado com os filtros atuais.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        filteredWorkers.map(w => {
+                                                            const syncedPrjs = getWorkerSyncedProjects(w.id, w.nif);
+                                                            const isSelected = selectedWorkerIds.includes(w.id);
+                                                            return (
+                                                                <tr 
+                                                                    key={w.id} 
+                                                                    onClick={() => handleOpenViewWorker(w)}
+                                                                    className={cn(
+                                                                        "hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group",
+                                                                        isSelected && "bg-primary/5"
+                                                                    )}
+                                                                >
+                                                                    <td className="w-10 px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() => toggleSelectWorker(w.id)}
+                                                                            className="rounded text-primary cursor-pointer"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                                                {getInitials(w.name)}
                                                                             </div>
-                                                                            {w.nif && <div className="text-[10px] font-mono text-[var(--text-muted)]">NIF: {w.nif}</div>}
+                                                                            <div>
+                                                                                <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
+                                                                                    {w.name}
+                                                                                    {w.isForeign && (
+                                                                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                                                                            {w.foreignCountry || 'Estrangeiro'}
+                                                                                        </span>
+                                                                                    )}
+                                                                                </div>
+                                                                                {w.nif && <div className="text-[10px] font-mono text-[var(--text-muted)]">NIF: {w.nif}</div>}
+                                                                            </div>
                                                                         </div>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
-                                                                    <span className="font-medium">{w.role || 'Colaborador'}</span>
-                                                                    <div className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
-                                                                        <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary font-semibold">IFC:</span> 
-                                                                        {w.ifcLaborType || w.ifcActorRole || w.occupation || 'IfcLaborResource'}
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap text-xs">
-                                                                    <div className="font-medium text-[var(--text)]">{getContractTypeLabel(w.contractType)}</div>
-                                                                    <div className="text-[10px] text-[var(--text-muted)]">{getProfessionCategoryLabel(w.professionCategory)}</div>
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
-                                                                    <div>{w.email || '—'}</div>
-                                                                    <div className="text-[10px]">{w.phone || ''}</div>
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                    {(() => {
-                                                                        const badge = getMedicalFitnessBadge(w.medicalFitness, w.medicalExpiry);
-                                                                        return (
-                                                                            <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border", badge.color)}>
-                                                                                <Check size={10} /> {badge.label}
-                                                                                {w.medicalExpiry && <span className="opacity-80">({new Date(w.medicalExpiry).toLocaleDateString()})</span>}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
+                                                                        <span className="font-medium">{w.role || 'Colaborador'}</span>
+                                                                        <div className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
+                                                                            <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary font-semibold">IFC:</span> 
+                                                                            {w.ifcLaborType || w.ifcActorRole || w.occupation || 'IfcLaborResource'}
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs">
+                                                                        <div className="font-medium text-[var(--text)]">{getContractTypeLabel(w.contractType)}</div>
+                                                                        <div className="text-[10px] text-[var(--text-muted)]">{getProfessionCategoryLabel(w.professionCategory)}</div>
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                        {(() => {
+                                                                            const badge = getMedicalFitnessBadge(w.medicalFitness, w.medicalExpiry);
+                                                                            return (
+                                                                                <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border", badge.color)}>
+                                                                                    <Check size={10} /> {badge.label}
+                                                                                    {w.medicalExpiry && <span className="opacity-80">({new Date(w.medicalExpiry).toLocaleDateString()})</span>}
+                                                                                </span>
+                                                                            );
+                                                                        })()}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                        {syncedPrjs.length > 0 ? (
+                                                                            <span
+                                                                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                                                title={`Sincronizado com: ${syncedPrjs.map(p => p.projectName).join(', ')}`}
+                                                                            >
+                                                                                <Share2 size={11} className="text-emerald-600" />
+                                                                                <span>{syncedPrjs.length} {syncedPrjs.length === 1 ? 'Obra' : 'Obras'}</span>
                                                                             </span>
-                                                                        );
-                                                                    })()}
-                                                                </td>
-                                                                <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                    <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setSelectedWorkerForExport(w);
-                                                                                setExportEntityType('worker');
-                                                                                setExportTargetProjectId(userProjects[0]?.id || '');
-                                                                                setIsExportModalOpen(true);
-                                                                            }}
-                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Sincronizar com Obra"
-                                                                        >
-                                                                            <Share2 size={14} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => handleOpenViewWorker(w)}
-                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Ver Ficha do Colaborador"
-                                                                        >
-                                                                            <Eye size={14} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => handleOpenEditWorker(w)}
-                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Editar Dados"
-                                                                        >
-                                                                            <Edit2 size={14} />
-                                                                        </button>
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        ))
-                                                )}
-                                            </tbody>
-                                        </table>
+                                                                        ) : (
+                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)]">
+                                                                                Não sincronizado
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                                                                        <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setSelectedWorkerForExport(w);
+                                                                                    setExportEntityType('worker');
+                                                                                    setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                                    setIsExportModalOpen(true);
+                                                                                }}
+                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                title="Sincronizar com Obra"
+                                                                            >
+                                                                                <Share2 size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleOpenViewWorker(w)}
+                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                title="Ver Ficha do Colaborador"
+                                                                            >
+                                                                                <Eye size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleOpenEditWorker(w)}
+                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                title="Editar Dados"
+                                                                            >
+                                                                                <Edit2 size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
                                 </div>
                             )}
 
                             {/* ════════ TAB: EQUIPAMENTOS ════════ */}
                             {activeTab === 'equipment' && (
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
-                                    <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
-                                        <div className="relative flex-1 max-w-sm">
-                                            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-                                            <input
-                                                type="text"
-                                                placeholder="Pesquisar equipamento por nome ou número de série..."
-                                                className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
-                                                value={searchTerm}
-                                                onChange={e => setSearchTerm(e.target.value)}
-                                            />
+                                <div className="space-y-4">
+                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                        <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                            <div className="relative flex-1 max-w-sm">
+                                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                                <input
+                                                    type="text"
+                                                    placeholder="Pesquisar equipamento por nome ou número de série..."
+                                                    className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
+                                                    value={searchTerm}
+                                                    onChange={e => setSearchTerm(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-2.5 py-1.5">
+                                                    <Filter size={13} className="text-primary shrink-0" />
+                                                    <select
+                                                        value={equipProjectFilter}
+                                                        onChange={e => setEquipProjectFilter(e.target.value)}
+                                                        className="bg-transparent text-xs text-[var(--text)] outline-none cursor-pointer"
+                                                    >
+                                                        <option value="all">Todas as Obras ({companyEquipment.length})</option>
+                                                        <option value="unsynced">Não Sincronizados</option>
+                                                        {userProjects.map(p => (
+                                                            <option key={p.id} value={p.id}>Obra: {p.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <span className="text-xs text-[var(--text-muted)] font-medium hidden sm:inline">
+                                                    {filteredEquipment.length} equipamento(s)
+                                                </span>
+                                            </div>
                                         </div>
-                                        <span className="text-xs text-[var(--text-muted)] font-medium">
-                                            {companyEquipment.length} equipamento(s)
-                                        </span>
-                                    </div>
 
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-xs text-left min-w-[650px]">
-                                            <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
-                                                <tr>
-                                                    <th className="px-5 py-3.5">Equipamento</th>
-                                                    <th className="px-5 py-3.5">N.º Série</th>
-                                                    <th className="px-5 py-3.5">Marca / Modelo</th>
-                                                    <th className="px-5 py-3.5">Conformidade CE</th>
-                                                    <th className="px-5 py-3.5 text-right">Ação</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-[var(--border)]">
-                                                {companyEquipment.length === 0 ? (
+                                        {/* Batch Actions Bar */}
+                                        {selectedEquipIds.length > 0 && (
+                                            <div className="mx-4 my-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
+                                                <div className="flex items-center gap-2 text-xs font-bold text-primary">
+                                                    <CheckCircle2 size={16} />
+                                                    <span>{selectedEquipIds.length} equipamento(s) selecionado(s)</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={toggleSelectAllEquip}
+                                                        className="px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] font-medium cursor-pointer"
+                                                    >
+                                                        Desmarcar todos
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setExportEntityType('equipment');
+                                                            setExportTargetProjectId(userProjects[0]?.id || '');
+                                                            setIsExportModalOpen(true);
+                                                        }}
+                                                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Share2 size={13} /> Sincronizar Selecionados com Obra
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-xs text-left min-w-[700px]">
+                                                <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
                                                     <tr>
-                                                        <td colSpan={5} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                                                            Nenhum equipamento registado. Adicione ferramentas e máquinas da sua empresa.
-                                                        </td>
+                                                        <th className="w-10 px-4 py-3.5 text-center">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedEquipIds.length === filteredEquipment.length && filteredEquipment.length > 0}
+                                                                onChange={toggleSelectAllEquip}
+                                                                className="rounded text-primary cursor-pointer"
+                                                                title="Selecionar todos"
+                                                            />
+                                                        </th>
+                                                        <th className="px-5 py-3.5">Equipamento</th>
+                                                        <th className="px-5 py-3.5">N.º Série</th>
+                                                        <th className="px-5 py-3.5">Marca / Modelo</th>
+                                                        <th className="px-5 py-3.5">Conformidade CE</th>
+                                                        <th className="px-5 py-3.5">Sincronização</th>
+                                                        <th className="px-5 py-3.5 text-right">Ação</th>
                                                     </tr>
-                                                ) : (
-                                                    companyEquipment
-                                                        .filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) || (e.serialNumber && e.serialNumber.toLowerCase().includes(searchTerm.toLowerCase())))
-                                                        .map(eq => (
-                                                            <tr key={eq.id} className="hover:bg-[var(--bg-input)]/30 transition-colors">
-                                                                <td className="px-5 py-3.5 whitespace-nowrap font-bold text-xs text-[var(--text)]">
-                                                                    {eq.name}
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono text-[var(--text-muted)]">
-                                                                    {eq.serialNumber || '—'}
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text-muted)]">
-                                                                    {eq.brand || eq.model ? `${eq.brand || ''} ${eq.model || ''}` : '—'}
-                                                                </td>
-                                                                <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                    {eq.ceMarking ? (
-                                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                                                            Conforme CE
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
-                                                                            Sem Certificado
-                                                                        </span>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border)]">
+                                                    {filteredEquipment.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={7} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                                Nenhum equipamento encontrado com os filtros atuais.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        filteredEquipment.map(eq => {
+                                                            const syncedPrjs = getEquipmentSyncedProjects(eq.id, eq.serialNumber);
+                                                            const isSelected = selectedEquipIds.includes(eq.id);
+                                                            return (
+                                                                <tr 
+                                                                    key={eq.id} 
+                                                                    className={cn(
+                                                                        "hover:bg-[var(--bg-input)]/30 transition-colors",
+                                                                        isSelected && "bg-primary/5"
                                                                     )}
-                                                                </td>
-                                                                <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                    <div className="flex items-center justify-end gap-1">
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setSelectedEquipForExport(eq);
-                                                                                setExportEntityType('equipment');
-                                                                                setIsExportModalOpen(true);
-                                                                            }}
-                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Compatibilizar / Importar para Obra"
-                                                                        >
-                                                                            <Share2 size={14} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => {
-                                                                                setEditingEquipId(eq.id);
-                                                                                setEquipForm({
-                                                                                    name: eq.name,
-                                                                                    type: (eq.type as any) || 'vehicle',
-                                                                                    serialNumber: eq.serialNumber || '',
-                                                                                    brand: eq.brand || '',
-                                                                                    model: eq.model || '',
-                                                                                    inspectionDate: eq.inspectionDueDate || '',
-                                                                                    ceCertified: eq.ceMarking ?? true
-                                                                                });
-                                                                                setIsEquipModalOpen(true);
-                                                                            }}
-                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Editar"
-                                                                        >
-                                                                            <Edit2 size={14} />
-                                                                        </button>
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        ))
-                                                )}
-                                            </tbody>
-                                        </table>
+                                                                >
+                                                                    <td className="w-10 px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isSelected}
+                                                                            onChange={() => toggleSelectEquip(eq.id)}
+                                                                            className="rounded text-primary cursor-pointer"
+                                                                        />
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap font-bold text-xs text-[var(--text)]">
+                                                                        {eq.name}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono text-[var(--text-muted)]">
+                                                                        {eq.serialNumber || '—'}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text-muted)]">
+                                                                        {eq.brand || eq.model ? `${eq.brand || ''} ${eq.model || ''}` : '—'}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                        {eq.ceMarking ? (
+                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                                                Conforme CE
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
+                                                                                Sem Certificado
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                        {syncedPrjs.length > 0 ? (
+                                                                            <span
+                                                                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                                                title={`Sincronizado com: ${syncedPrjs.map(p => p.projectName).join(', ')}`}
+                                                                            >
+                                                                                <Share2 size={11} className="text-emerald-600" />
+                                                                                <span>{syncedPrjs.length} {syncedPrjs.length === 1 ? 'Obra' : 'Obras'}</span>
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)]">
+                                                                                Não sincronizado
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                                                                        <div className="flex items-center justify-end gap-1">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setSelectedEquipForExport(eq);
+                                                                                    setExportEntityType('equipment');
+                                                                                    setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                                    setIsExportModalOpen(true);
+                                                                                }}
+                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                title="Sincronizar com Obra"
+                                                                            >
+                                                                                <Share2 size={14} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setEditingEquipId(eq.id);
+                                                                                    setEquipForm({
+                                                                                        name: eq.name,
+                                                                                        type: (eq.type as any) || 'vehicle',
+                                                                                        serialNumber: eq.serialNumber || '',
+                                                                                        brand: eq.brand || '',
+                                                                                        model: eq.model || '',
+                                                                                        inspectionDate: eq.inspectionDueDate || '',
+                                                                                        ceCertified: eq.ceMarking ?? true
+                                                                                    });
+                                                                                    setIsEquipModalOpen(true);
+                                                                                }}
+                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                title="Editar"
+                                                                            >
+                                                                                <Edit2 size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        })
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -1627,15 +2035,10 @@ export default function MyCompanyPage() {
                                 </div>
 
                                 {/* Modal Footer (View Mode) */}
-                                <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
+                                <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
                                     <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
                                         Fechar
                                     </SecondaryButton>
-                                    <div className="flex items-center gap-2">
-                                        <PrimaryButton type="button" onClick={() => setWorkerModalMode('edit')}>
-                                            <Edit2 size={13} className="mr-1.5 inline" /> Editar Dados
-                                        </PrimaryButton>
-                                    </div>
                                 </div>
                             </div>
                         ) : (
@@ -2097,7 +2500,7 @@ export default function MyCompanyPage() {
                                     >
                                         Cancelar
                                     </SecondaryButton>
-                                    <PrimaryButton type="submit" className="px-6 py-2.5 text-xs font-bold shadow-md">
+                                    <PrimaryButton type="submit" className="px-4 py-2 text-xs font-bold">
                                         <Save size={14} className="mr-1.5 inline" />
                                         {editingWorkerId ? "Guardar Alterações" : "Adicionar Colaborador à Empresa"}
                                     </PrimaryButton>
@@ -2206,7 +2609,7 @@ export default function MyCompanyPage() {
                                     onClick={() => setCompanyModalMode('edit')}
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
                                 >
-                                    <Edit2 size={13} /> Mudar para Modo de Edição
+                                    <Edit2 size={13} /> Editar Empresa
                                 </button>
                             ) : (
                                 <button
@@ -2214,7 +2617,7 @@ export default function MyCompanyPage() {
                                     onClick={() => setCompanyModalMode('view')}
                                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[var(--text)] bg-[var(--bg-input)] hover:bg-[var(--border)] transition-all cursor-pointer border border-[var(--border)]"
                                 >
-                                    <Eye size={13} /> Voltar à Visualização
+                                    <Eye size={13} /> Ver Ficha
                                 </button>
                             )
                         }
@@ -2252,17 +2655,10 @@ export default function MyCompanyPage() {
                                                 setExportTargetProjectId(userProjects[0]?.id || '');
                                                 setIsExportModalOpen(true);
                                             }}
-                                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
                                             title="Sincronizar com uma das suas obras"
                                         >
                                             <Share2 size={13} /> Sincronizar com Obra
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setCompanyModalMode('edit')}
-                                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-primary text-white hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
-                                        >
-                                            <Edit2 size={13} /> Editar Dados
                                         </button>
                                     </div>
                                 </div>
@@ -2420,17 +2816,10 @@ export default function MyCompanyPage() {
                                     </div>
                                 </div>
 
-                                <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--border)]">
+                                <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
                                     <SecondaryButton type="button" onClick={() => setIsCompanyModalOpen(false)}>
                                         Fechar
                                     </SecondaryButton>
-                                    <button
-                                        type="button"
-                                        onClick={() => setCompanyModalMode('edit')}
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
-                                    >
-                                        <Edit2 size={14} /> Mudar para Modo de Edição
-                                    </button>
                                 </div>
                             </div>
                         ) : (
@@ -2782,7 +3171,27 @@ export default function MyCompanyPage() {
                                         </>
                                     )}
 
-                                    {exportEntityType === 'worker' && selectedWorkerForExport && (
+                                    {exportEntityType === 'worker' && selectedWorkerIds.length > 0 && (
+                                        <div className="p-3.5 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+                                            <div className="text-xs font-bold text-primary flex items-center gap-1.5">
+                                                <Users size={14} />
+                                                <span>Sincronizar {selectedWorkerIds.length} Colaboradores Selecionados</span>
+                                            </div>
+                                            <p className="text-[11px] text-[var(--text-muted)]">
+                                                Os colaboradores selecionados e todas as suas respetivas formações profissionais serão sincronizados automaticamente com a obra de destino.
+                                            </p>
+                                            <div className="max-h-28 overflow-y-auto space-y-1 pt-1">
+                                                {companyWorkers.filter(w => selectedWorkerIds.includes(w.id)).map(w => (
+                                                    <div key={w.id} className="text-[11px] flex items-center justify-between py-0.5 px-2 rounded bg-[var(--bg-input)]/50">
+                                                        <span className="font-medium text-[var(--text)]">{w.name}</span>
+                                                        <span className="text-[10px] text-[var(--text-muted)]">{w.role || 'Colaborador'}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {exportEntityType === 'worker' && selectedWorkerIds.length === 0 && selectedWorkerForExport && (
                                         <div className="p-3.5 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl space-y-2">
                                             <div className="text-[11px] font-bold text-[var(--text)]">
                                                 {selectedWorkerForExport.name} ({selectedWorkerForExport.role || 'Colaborador'})
@@ -2798,11 +3207,35 @@ export default function MyCompanyPage() {
                                                     <span>Cartão de Acesso / NIF:</span>
                                                     <span className="font-mono text-[var(--text)]">{selectedWorkerForExport.nif || selectedWorkerForExport.accessCardCode || '—'}</span>
                                                 </div>
+                                                <div className="flex items-center justify-between pt-1 border-t border-[var(--border)]">
+                                                    <span className="text-primary font-medium">Formação Profissional:</span>
+                                                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Segue com o trabalhador</span>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
 
-                                    {exportEntityType === 'equipment' && selectedEquipForExport && (
+                                    {exportEntityType === 'equipment' && selectedEquipIds.length > 0 && (
+                                        <div className="p-3.5 bg-primary/5 border border-primary/20 rounded-xl space-y-2">
+                                            <div className="text-xs font-bold text-primary flex items-center gap-1.5">
+                                                <Wrench size={14} />
+                                                <span>Sincronizar {selectedEquipIds.length} Equipamentos Selecionados</span>
+                                            </div>
+                                            <p className="text-[11px] text-[var(--text-muted)]">
+                                                As máquinas e equipamentos selecionados serão registados no estaleiro com respetiva conformidade legal CE.
+                                            </p>
+                                            <div className="max-h-28 overflow-y-auto space-y-1 pt-1">
+                                                {companyEquipment.filter(e => selectedEquipIds.includes(e.id)).map(e => (
+                                                    <div key={e.id} className="text-[11px] flex items-center justify-between py-0.5 px-2 rounded bg-[var(--bg-input)]/50">
+                                                        <span className="font-medium text-[var(--text)]">{e.name}</span>
+                                                        <span className="text-[10px] font-mono text-[var(--text-muted)]">{e.serialNumber || 'S/N'}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {exportEntityType === 'equipment' && selectedEquipIds.length === 0 && selectedEquipForExport && (
                                         <div className="p-3.5 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl space-y-2">
                                             <div className="text-[11px] font-bold text-[var(--text)]">
                                                 {selectedEquipForExport.name} {selectedEquipForExport.serialNumber ? `(S/N: ${selectedEquipForExport.serialNumber})` : ''}
@@ -2843,6 +3276,14 @@ export default function MyCompanyPage() {
                             )}
                         </form>
                     </Modal>
+
+                    {/* Modal CDE da Empresa */}
+                    <CDESettingsModal
+                        isOpen={isCdeModalOpen}
+                        onClose={() => setIsCdeModalOpen(false)}
+                        projectId={masterCompany?.id || 'comp_master'}
+                        title="Ambiente Comum de Dados (CDE) da Empresa"
+                    />
                 </div>
             )}
         </AuthGuard>

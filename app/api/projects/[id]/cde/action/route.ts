@@ -13,15 +13,26 @@ export async function POST(
         const { id: projectId } = await context.params;
         const session = await auth();
 
-        // Verificação de autenticação: utilizador tem de ter acesso ao projeto
+        // Verificação de autenticação: utilizador tem de ter acesso ao projeto ou à empresa
         if (session?.user) {
             const role = (session.user as any).role;
             if (role !== 'superadmin' && role !== 'admin') {
-                const member = await prisma.projectMember.findUnique({
-                    where: { projectId_userId: { projectId, userId: session.user.id! } }
-                });
-                if (!member) {
-                    return NextResponse.json({ error: 'Acesso negado: utilizador não pertence a esta obra.' }, { status: 403 });
+                const project = await prisma.project.findUnique({ where: { id: projectId } });
+                if (project) {
+                    const member = await prisma.projectMember.findUnique({
+                        where: { projectId_userId: { projectId, userId: session.user.id! } }
+                    });
+                    if (!member) {
+                        return NextResponse.json({ error: 'Acesso negado: utilizador não pertence a esta obra.' }, { status: 403 });
+                    }
+                } else {
+                    const company = await prisma.company.findUnique({ where: { id: projectId } });
+                    if (company) {
+                        const user = await prisma.user.findUnique({ where: { id: session.user.id! } });
+                        if (user?.tenantId !== company.tenantId && (session.user as any).accountId !== company.tenantId) {
+                            return NextResponse.json({ error: 'Permissão negada para esta empresa.' }, { status: 403 });
+                        }
+                    }
                 }
             }
         }

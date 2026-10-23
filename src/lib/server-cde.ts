@@ -23,45 +23,74 @@ export interface DecryptedCdeConfig {
  * Loads and decrypts the CDE configuration for a given project from the database.
  * This runs ONLY on the server.
  */
-export async function getProjectCdeConfig(projectId: string): Promise<DecryptedCdeConfig | null> {
+export async function getProjectCdeConfig(id: string): Promise<DecryptedCdeConfig | null> {
     const project = await prisma.project.findUnique({
-        where: { id: projectId },
+        where: { id },
         select: { id: true, cdeConfig: true }
     });
 
-    if (!project || !project.cdeConfig || typeof project.cdeConfig !== 'object') {
-        return null;
+    if (project && project.cdeConfig && typeof project.cdeConfig === 'object') {
+        const raw = project.cdeConfig as Record<string, any>;
+        return {
+            provider: raw.provider || null,
+            connected: Boolean(raw.connected),
+            lastSync: raw.lastSync,
+            siteUrl: raw.siteUrl,
+            folderUrl: raw.folderUrl,
+            folderPath: raw.folderPath,
+            folderId: raw.folderId,
+            tenantId: raw.tenantId,
+            clientId: raw.clientId,
+            appKey: raw.appKey,
+            // Decrypt sensitive secrets in memory on the server
+            clientSecret: decryptSecret(raw.clientSecret),
+            appSecret: decryptSecret(raw.appSecret),
+            refreshToken: decryptSecret(raw.refreshToken),
+            accessToken: decryptSecret(raw.accessToken),
+            serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+        };
     }
 
-    const raw = project.cdeConfig as Record<string, any>;
+    // Fallback: check if id is a Company record
+    const company = await prisma.company.findUnique({
+        where: { id },
+        select: { id: true, customDocuments: true }
+    });
 
-    return {
-        provider: raw.provider || null,
-        connected: Boolean(raw.connected),
-        lastSync: raw.lastSync,
-        siteUrl: raw.siteUrl,
-        folderUrl: raw.folderUrl,
-        folderPath: raw.folderPath,
-        folderId: raw.folderId,
-        tenantId: raw.tenantId,
-        clientId: raw.clientId,
-        appKey: raw.appKey,
-        // Decrypt sensitive secrets in memory on the server
-        clientSecret: decryptSecret(raw.clientSecret),
-        appSecret: decryptSecret(raw.appSecret),
-        refreshToken: decryptSecret(raw.refreshToken),
-        accessToken: decryptSecret(raw.accessToken),
-        serviceAccountKey: decryptSecret(raw.serviceAccountKey),
-    };
+    if (company && company.customDocuments && typeof company.customDocuments === 'object') {
+        const cd = company.customDocuments as Record<string, any>;
+        const raw = cd.__cdeConfig || (cd.provider ? cd : null);
+        if (raw) {
+            return {
+                provider: raw.provider || null,
+                connected: Boolean(raw.connected),
+                lastSync: raw.lastSync,
+                siteUrl: raw.siteUrl,
+                folderUrl: raw.folderUrl,
+                folderPath: raw.folderPath,
+                folderId: raw.folderId,
+                tenantId: raw.tenantId,
+                clientId: raw.clientId,
+                appKey: raw.appKey,
+                clientSecret: decryptSecret(raw.clientSecret),
+                appSecret: decryptSecret(raw.appSecret),
+                refreshToken: decryptSecret(raw.refreshToken),
+                accessToken: decryptSecret(raw.accessToken),
+                serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+            };
+        }
+    }
+
+    return null;
 }
 
 /**
  * Saves and securely encrypts CDE configuration into the database.
  * Preserves previously stored secrets if user submitted a masked value or left blank.
  */
-export async function saveProjectCdeConfig(projectId: string, incoming: Record<string, any>) {
+export async function saveProjectCdeConfig(id: string, incoming: Record<string, any>) {
     // 1. Fetch existing config to preserve secrets if masked
-    const existing = await getProjectCdeConfig(projectId);
+    const existing = await getProjectCdeConfig(id);
 
     // Helper: keep existing secret if input is empty or masked
     const resolveSecret = (incomingVal: any, existingVal?: string) => {
@@ -99,34 +128,71 @@ export async function saveProjectCdeConfig(projectId: string, incoming: Record<s
         accessToken: finalAccessToken ? encryptSecret(finalAccessToken) : '',
     };
 
-    const updated = await prisma.project.update({
-        where: { id: projectId },
-        data: {
-            cdeConfig: encryptedConfig as any
-        },
-        select: { id: true, cdeConfig: true }
-    });
-
-    return sanitizeCdeConfig(updated.cdeConfig);
+    const isProject = await prisma.project.findUnique({ where: { id } });
+    if (isProject) {
+        const updated = await prisma.project.update({
+            where: { id },
+            data: {
+                cdeConfig: encryptedConfig as any
+            },
+            select: { id: true, cdeConfig: true }
+        });
+        return sanitizeCdeConfig(updated.cdeConfig);
+    } else {
+        const company = await prisma.company.findUnique({ where: { id }, select: { id: true, customDocuments: true } });
+        const existingDocs = (company?.customDocuments as Record<string, any>) || {};
+        const updated = await prisma.company.update({
+            where: { id },
+            data: {
+                customDocuments: {
+                    ...existingDocs,
+                    __cdeConfig: encryptedConfig
+                } as any
+            },
+            select: { id: true, customDocuments: true }
+        });
+        const cd = updated.customDocuments as Record<string, any>;
+        return sanitizeCdeConfig(cd.__cdeConfig);
+    }
 }
 
 /**
- * Disconnects and purges CDE secrets for a project.
+ * Disconnects and purges CDE secrets for a project or company.
  */
-export async function disconnectProjectCde(projectId: string) {
-    const updated = await prisma.project.update({
-        where: { id: projectId },
-        data: {
-            cdeConfig: {
-                provider: null,
-                connected: false,
-                lastSync: new Date().toISOString()
-            } as any
-        },
-        select: { id: true, cdeConfig: true }
-    });
-
-    return sanitizeCdeConfig(updated.cdeConfig);
+export async function disconnectProjectCde(id: string) {
+    const isProject = await prisma.project.findUnique({ where: { id } });
+    if (isProject) {
+        const updated = await prisma.project.update({
+            where: { id },
+            data: {
+                cdeConfig: {
+                    provider: null,
+                    connected: false,
+                    lastSync: new Date().toISOString()
+                } as any
+            },
+            select: { id: true, cdeConfig: true }
+        });
+        return sanitizeCdeConfig(updated.cdeConfig);
+    } else {
+        const company = await prisma.company.findUnique({ where: { id }, select: { id: true, customDocuments: true } });
+        const existingDocs = (company?.customDocuments as Record<string, any>) || {};
+        const emptyConfig = {
+            provider: null,
+            connected: false,
+            lastSync: new Date().toISOString()
+        };
+        await prisma.company.update({
+            where: { id },
+            data: {
+                customDocuments: {
+                    ...existingDocs,
+                    __cdeConfig: emptyConfig
+                } as any
+            }
+        });
+        return sanitizeCdeConfig(emptyConfig);
+    }
 }
 
 /**

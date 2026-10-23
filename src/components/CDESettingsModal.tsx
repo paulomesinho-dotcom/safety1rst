@@ -9,9 +9,10 @@ interface CDESettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
     projectId: string;
+    title?: string;
 }
 
-export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onClose, projectId }) => {
+export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onClose, projectId, title }) => {
     const { projects, updateProjectCDE } = useStore();
     const project = projects.find(p => p.id === projectId);
 
@@ -366,7 +367,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 dark:bg-[#131314]">
                     <h3 className="font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                         <Cloud size={20} className="text-primary" />
-                        Ambiente Comum de Dados (CDE)
+                        {title || "Ambiente Comum de Dados (CDE)"}
                     </h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors" aria-label="Close">
                         <X size={20} />

@@ -1782,12 +1782,27 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             profileId,
             status: 'active',
             workflowStatus: 'validation_pending',
-            createdAt: new Date().toISOString()
         };
 
-        set(s => ({ workers: [...s.workers, newProjectWorker] }));
+        // Clone any corporate training records to the project worker
+        const relatedRecords = state.workerTrainingRecords.filter(r => r.workerId === master.id || r.workerId === corporateWorkerId);
+        const clonedRecords = relatedRecords.map(r => ({
+            ...r,
+            id: `wtr_proj_${nanoid(8)}`,
+            workerId: newProjectWorker.id,
+            projectId: targetProjectId,
+            createdAt: new Date().toISOString()
+        }));
+
+        set(s => ({ 
+            workers: [...s.workers, newProjectWorker],
+            workerTrainingRecords: clonedRecords.length > 0 ? [...s.workerTrainingRecords, ...clonedRecords] : s.workerTrainingRecords
+        }));
+
         dbInsert('workers', newProjectWorker).catch(console.error);
-        get().addNotification('success', `Colaborador "${master.name}" importado para a obra.`);
+        clonedRecords.forEach(cr => dbInsert('worker_training_records', cr).catch(console.error));
+
+        get().addNotification('success', `Colaborador "${master.name}" sincronizado com a obra (com ${clonedRecords.length} registo(s) de formação incluídos).`);
         return newProjectWorker;
     },
 
