@@ -113,12 +113,17 @@ export interface AppState {
     // Actions now support optional projectId context
     addProject: (project: Omit<Project, 'id' | 'accountId' | 'createdAt'>) => void;
     updateProject: (id: string, updates: Partial<Project>) => void;
-    addCompany: (company: Omit<Company, 'id' | 'accountId' | 'createdAt'> & { id?: string }) => void;
+    addCompany: (company: Omit<Company, 'id' | 'accountId' | 'createdAt'> & { id?: string; accountId?: string }) => void;
     updateCompany: (id: string, updates: Partial<Company>) => void;
-    addWorker: (worker: Omit<Worker, 'id' | 'accountId' | 'createdAt'>) => void;
+    addWorker: (worker: Omit<Worker, 'id' | 'accountId' | 'createdAt'> & { accountId?: string }) => void;
     updateWorker: (id: string, updates: Partial<Worker>) => void;
-    addEquipment: (equipment: Omit<Equipment, 'id' | 'accountId' | 'createdAt'>) => void;
+    addEquipment: (equipment: Omit<Equipment, 'id' | 'accountId' | 'createdAt'> & { accountId?: string }) => void;
     updateEquipment: (id: string, updates: Partial<Equipment>) => void;
+
+    // Importações e Compatibilização entre Espaço Corporativo e Obras
+    importCompanyToProject: (corporateCompanyId: string, targetProjectId: string, roleInProject?: string, parentId?: string) => Company | null;
+    importWorkerToProject: (corporateWorkerId: string, targetProjectId: string, targetCompanyId: string) => Worker | null;
+    importEquipmentToProject: (corporateEquipmentId: string, targetProjectId: string, targetCompanyId: string) => Equipment | null;
 
     submitEquipment: (id: string) => void;
     validateEquipment: (id: string) => void;
@@ -1308,7 +1313,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
     updateAccount: (id, updates) => set((state) => {
         dbUpdate('accounts', id, updates).catch(console.error);
-        return { accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) };
+        return { 
+            account: state.account?.id === id ? { ...state.account, ...updates } : state.account,
+            accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) 
+        };
     }),
 
     deleteAccount: async (accountId: string) => {
@@ -1501,7 +1509,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             id,
             number: companyNumber,
             profileId,
-            accountId: MOCK_ACCOUNT_ID,
+            accountId: company.accountId || (project ? project.accountId : (state.currentUser?.accountId || MOCK_ACCOUNT_ID)),
             ifcActorRole: getIfcRoleFromCompanyRole(company.companyRole ?? ''),
             ifcGlobalId: company.ifcGlobalId || generateIfcGuid(),
             createdAt: new Date().toISOString()
@@ -1601,7 +1609,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             ...worker,
             id,
             profileId,
-            accountId: MOCK_ACCOUNT_ID,
+            accountId: worker.accountId || (project ? project.accountId : (state.currentUser?.accountId || MOCK_ACCOUNT_ID)),
             accessCardCode: worker.accessCardCode || generateSFCode(),
             ifcLaborType: getIfcTypeFromOccupation(worker.occupation ?? ''),
             ifcGlobalId: worker.ifcGlobalId || generateIfcGuid(),
@@ -1662,7 +1670,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             ...equipment,
             id,
             profileId,
-            accountId: MOCK_ACCOUNT_ID,
+            accountId: equipment.accountId || (project ? project.accountId : (state.currentUser?.accountId || MOCK_ACCOUNT_ID)),
             type: getEquipmentTypeLabel(equipment.equipmentType ?? ''),
             ifcElementType: getIfcTypeFromEquipment(equipment.equipmentType ?? ''),
             ifcGlobalId: equipment.ifcGlobalId || generateIfcGuid(),
@@ -1708,6 +1716,115 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbUpdate('equipment', id, finalUpdates).catch(console.error);
         return { equipment: state.equipment.map(e => e.id === id ? { ...e, ...finalUpdates } : e) };
     }),
+
+    importCompanyToProject: (corporateCompanyId, targetProjectId, roleInProject, parentId) => {
+        const state = get();
+        const master = state.companies.find(c => c.id === corporateCompanyId);
+        if (!master) {
+            get().addNotification('error', 'Empresa corporativa não encontrada.');
+            return null;
+        }
+
+        // Check if already in project
+        const existing = state.companies.find(c => c.projectId === targetProjectId && (c.corporateCompanyId === corporateCompanyId || c.nif === master.nif));
+        if (existing) {
+            get().addNotification('warning', `A empresa "${master.name}" já se encontra associada a esta obra.`);
+            return existing;
+        }
+
+        const project = state.projects.find(p => p.id === targetProjectId);
+        const profileId = project?.defaultCompanyProfileId || `profile_std_company_${targetProjectId}`;
+
+        const newProjectCompany: Company = {
+            ...master,
+            id: `comp_proj_${nanoid(8)}`,
+            projectId: targetProjectId,
+            corporateCompanyId: master.id,
+            profileId,
+            parentId: parentId || undefined,
+            tier: parentId ? 2 : 1,
+            companyRole: roleInProject || master.companyRole || 'subempreiteiro',
+            status: 'active',
+            workflowStatus: 'validation_pending',
+            createdAt: new Date().toISOString()
+        };
+
+        set(s => ({ companies: [...s.companies, newProjectCompany] }));
+        dbInsert('companies', newProjectCompany).catch(console.error);
+
+        get().addNotification('success', `Empresa "${master.name}" importada para a obra com sucesso! Compatibilização documental iniciada.`);
+        return newProjectCompany;
+    },
+
+    importWorkerToProject: (corporateWorkerId, targetProjectId, targetCompanyId) => {
+        const state = get();
+        const master = state.workers.find(w => w.id === corporateWorkerId);
+        if (!master) {
+            get().addNotification('error', 'Colaborador corporativo não encontrado.');
+            return null;
+        }
+
+        const existing = state.workers.find(w => w.projectId === targetProjectId && (w.corporateWorkerId === corporateWorkerId || (w.nif && w.nif === master.nif)));
+        if (existing) {
+            get().addNotification('warning', `O colaborador "${master.name}" já está associado a esta obra.`);
+            return existing;
+        }
+
+        const project = state.projects.find(p => p.id === targetProjectId);
+        const profileId = project?.defaultWorkerProfileId || `profile_std_worker_${targetProjectId}`;
+
+        const newProjectWorker: Worker = {
+            ...master,
+            id: `w_proj_${nanoid(8)}`,
+            projectId: targetProjectId,
+            companyId: targetCompanyId,
+            corporateWorkerId: master.id,
+            profileId,
+            status: 'active',
+            workflowStatus: 'validation_pending',
+            createdAt: new Date().toISOString()
+        };
+
+        set(s => ({ workers: [...s.workers, newProjectWorker] }));
+        dbInsert('workers', newProjectWorker).catch(console.error);
+        get().addNotification('success', `Colaborador "${master.name}" importado para a obra.`);
+        return newProjectWorker;
+    },
+
+    importEquipmentToProject: (corporateEquipmentId, targetProjectId, targetCompanyId) => {
+        const state = get();
+        const master = state.equipment.find(e => e.id === corporateEquipmentId);
+        if (!master) {
+            get().addNotification('error', 'Equipamento corporativo não encontrado.');
+            return null;
+        }
+
+        const existing = state.equipment.find(e => e.projectId === targetProjectId && (e.corporateEquipmentId === corporateEquipmentId || (e.serialNumber && e.serialNumber === master.serialNumber)));
+        if (existing) {
+            get().addNotification('warning', `O equipamento "${master.name}" já está associado a esta obra.`);
+            return existing;
+        }
+
+        const project = state.projects.find(p => p.id === targetProjectId);
+        const profileId = project?.defaultEquipmentProfileId || `profile_std_equipment_${targetProjectId}`;
+
+        const newProjectEquipment: Equipment = {
+            ...master,
+            id: `eq_proj_${nanoid(8)}`,
+            projectId: targetProjectId,
+            companyId: targetCompanyId,
+            corporateEquipmentId: master.id,
+            profileId,
+            status: 'operational',
+            workflowStatus: 'validation_pending',
+            createdAt: new Date().toISOString()
+        };
+
+        set(s => ({ equipment: [...s.equipment, newProjectEquipment] }));
+        dbInsert('equipment', newProjectEquipment).catch(console.error);
+        get().addNotification('success', `Equipamento "${master.name}" importado para a obra.`);
+        return newProjectEquipment;
+    },
 
     submitEquipment: (id) => set((state) => ({
         equipment: state.equipment.map(e => e.id === id ? { ...e, workflowStatus: 'validation_pending' } : e)

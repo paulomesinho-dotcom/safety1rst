@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter, Link } from '@/navigation';
 import { useStore } from '@/store/useStore';
 import AuthGuard from '@/components/AuthGuard';
@@ -11,16 +11,22 @@ import {
     ArrowLeft, Plus, Search, Trash2, Edit2, Check, 
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
-    LogOut
+    LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle
 } from 'lucide-react';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
     FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon 
 } from '@/components/FlatIcons';
+import { 
+    COMPANY_ROLE_OPTIONS, 
+    COMPANY_ROLE_GROUPS, 
+    getIfcRoleFromCompanyRole,
+    getCompanyRoleLabel 
+} from '@/lib/company-ifc-map';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
-import type { Worker, Equipment } from '@/types';
+import type { Worker, Equipment, Company } from '@/types';
 
 type CompanyTab = 'organization' | 'workers' | 'equipment' | 'training' | 'documents';
 
@@ -40,18 +46,24 @@ export default function MyCompanyPage() {
         setCurrentUser,
         account, 
         accounts,
+        updateAccount,
         companies, 
         workers, 
         equipment, 
         trainings,
         courses,
+        projects,
+        companyProfiles,
         updateCompany,
         addCompany,
         addWorker,
         updateWorker,
         addEquipment,
         updateEquipment,
-        addNotification
+        addNotification,
+        importCompanyToProject,
+        importWorkerToProject,
+        importEquipmentToProject
     } = useStore();
 
     const handleLogout = () => {
@@ -67,7 +79,7 @@ export default function MyCompanyPage() {
     const currentPlan = userAccount?.plan || 'free';
     const isPaidOrAdmin = currentPlan !== 'free' || currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
 
-    // Find or init the master company entity for this account (without project link)
+    // Find or init the master company entity for this account (without project link or fallback)
     const masterCompany = companies.find(c => c.accountId === userAccount?.id && !c.projectId) || 
                           companies.find(c => c.accountId === userAccount?.id);
 
@@ -77,6 +89,10 @@ export default function MyCompanyPage() {
         nif: masterCompany?.nif || userAccount?.vatNumber || '',
         activity: masterCompany?.activity || '',
         caeCode: masterCompany?.caeCode || '',
+        companyRole: masterCompany?.companyRole || 'empresa_construcao',
+        companyRoleCustom: masterCompany?.companyRoleCustom || '',
+        legalForm: (masterCompany?.legalForm as any) || 'lda',
+        status: (masterCompany?.status as any) || 'active',
         impic: masterCompany?.impic || '',
         email: masterCompany?.email || userAccount?.contactEmail || currentUser?.email || '',
         phone: masterCompany?.phone || userAccount?.contactPhone || '',
@@ -88,7 +104,110 @@ export default function MyCompanyPage() {
         cleanSSDate: masterCompany?.cleanSSDate || '',
         cleanFinDate: masterCompany?.cleanFinDate || '',
     });
+
+    const isFormEditedRef = useRef(false);
+
+    // Keep form synced if master company or account is loaded/updated, unless user is typing
+    useEffect(() => {
+        if (!isFormEditedRef.current && (masterCompany || userAccount)) {
+            setCompanyForm(prev => ({
+                ...prev,
+                name: masterCompany?.name || userAccount?.name || prev.name,
+                nif: masterCompany?.nif || userAccount?.vatNumber || prev.nif,
+                activity: masterCompany?.activity ?? prev.activity,
+                caeCode: masterCompany?.caeCode ?? prev.caeCode,
+                companyRole: masterCompany?.companyRole ?? prev.companyRole,
+                companyRoleCustom: masterCompany?.companyRoleCustom ?? prev.companyRoleCustom,
+                legalForm: (masterCompany?.legalForm as any) ?? prev.legalForm,
+                status: (masterCompany?.status as any) ?? prev.status,
+                impic: masterCompany?.impic ?? prev.impic,
+                email: masterCompany?.email || userAccount?.contactEmail || currentUser?.email || prev.email,
+                phone: masterCompany?.phone || userAccount?.contactPhone || prev.phone,
+                address: masterCompany?.address ?? prev.address,
+                insuranceWorkAccPolicy: masterCompany?.insuranceWorkAccPolicy ?? prev.insuranceWorkAccPolicy,
+                insuranceWorkAccDate: masterCompany?.insuranceWorkAccDate ?? prev.insuranceWorkAccDate,
+                insuranceCivilPolicy: masterCompany?.insuranceCivilPolicy ?? prev.insuranceCivilPolicy,
+                insuranceCivilDate: masterCompany?.insuranceCivilDate ?? prev.insuranceCivilDate,
+                cleanSSDate: masterCompany?.cleanSSDate ?? prev.cleanSSDate,
+                cleanFinDate: masterCompany?.cleanFinDate ?? prev.cleanFinDate,
+            }));
+        }
+    }, [masterCompany, userAccount]);
+
     const [savedNotice, setSavedNotice] = useState(false);
+
+    // Export / Import Modal State
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportEntityType, setExportEntityType] = useState<'company' | 'worker' | 'equipment'>('company');
+    const [exportTargetProjectId, setExportTargetProjectId] = useState<string>('');
+    const [exportProjectRole, setExportProjectRole] = useState<string>('subempreiteiro');
+    const [selectedWorkerForExport, setSelectedWorkerForExport] = useState<Worker | null>(null);
+    const [selectedEquipForExport, setSelectedEquipForExport] = useState<Equipment | null>(null);
+
+    // Active projects for export selection
+    const activeProjects = useMemo(() => {
+        return (projects || []).filter(p => p.status === 'active');
+    }, [projects]);
+
+    useEffect(() => {
+        if (isExportModalOpen && !exportTargetProjectId && activeProjects.length > 0) {
+            setExportTargetProjectId(activeProjects[0].id);
+        }
+    }, [isExportModalOpen, exportTargetProjectId, activeProjects]);
+
+    const handlePerformExport = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!exportTargetProjectId) {
+            addNotification('error', 'Selecione uma obra de destino.');
+            return;
+        }
+
+        let compId = masterCompany?.id;
+        if (!compId) {
+            const newId = `comp_${nanoid(8)}`;
+            addCompany({
+                ...companyForm,
+                id: newId,
+                accountId: userAccount?.id || 'default',
+                status: companyForm.status,
+                workflowStatus: 'validated',
+                ifcActorRole: getIfcRoleFromCompanyRole(companyForm.companyRole || ''),
+                createdAt: new Date().toISOString()
+            } as any);
+            compId = newId;
+        }
+
+        if (exportEntityType === 'company') {
+            const imported = importCompanyToProject(compId, exportTargetProjectId, exportProjectRole);
+            if (imported) {
+                setIsExportModalOpen(false);
+            }
+        } else if (exportEntityType === 'worker') {
+            if (!selectedWorkerForExport) return;
+            let targetProjCompany = companies.find(c => c.projectId === exportTargetProjectId && (c.corporateCompanyId === compId || c.nif === companyForm.nif));
+            if (!targetProjCompany) {
+                targetProjCompany = importCompanyToProject(compId, exportTargetProjectId, exportProjectRole) || undefined;
+            }
+            if (targetProjCompany) {
+                const imported = importWorkerToProject(selectedWorkerForExport.id, exportTargetProjectId, targetProjCompany.id);
+                if (imported) {
+                    setIsExportModalOpen(false);
+                }
+            }
+        } else if (exportEntityType === 'equipment') {
+            if (!selectedEquipForExport) return;
+            let targetProjCompany = companies.find(c => c.projectId === exportTargetProjectId && (c.corporateCompanyId === compId || c.nif === companyForm.nif));
+            if (!targetProjCompany) {
+                targetProjCompany = importCompanyToProject(compId, exportTargetProjectId, exportProjectRole) || undefined;
+            }
+            if (targetProjCompany) {
+                const imported = importEquipmentToProject(selectedEquipForExport.id, exportTargetProjectId, targetProjCompany.id);
+                if (imported) {
+                    setIsExportModalOpen(false);
+                }
+            }
+        }
+    };
 
     // Filter Workers & Equipment for this company account (account level)
     const companyWorkers = useMemo(() => {
@@ -131,22 +250,39 @@ export default function MyCompanyPage() {
     // Save Master Company details
     const handleSaveCompany = (e: React.FormEvent) => {
         e.preventDefault();
+        const trimmedName = companyForm.name.trim();
+        const trimmedNif = companyForm.nif.trim();
+        const ifcActorRole = getIfcRoleFromCompanyRole(companyForm.companyRole || '');
+
         if (masterCompany) {
             updateCompany(masterCompany.id, {
                 ...companyForm,
-                name: companyForm.name.trim(),
-                nif: companyForm.nif.trim(),
+                name: trimmedName,
+                nif: trimmedNif,
+                ifcActorRole,
             });
         } else {
             addCompany({
                 ...companyForm,
                 id: `comp_${nanoid(8)}`,
                 accountId: userAccount?.id || 'default',
-                status: 'active',
+                status: companyForm.status,
                 workflowStatus: 'validated',
+                ifcActorRole,
                 createdAt: new Date().toISOString()
             } as any);
         }
+
+        if (userAccount?.id) {
+            updateAccount(userAccount.id, {
+                name: trimmedName,
+                vatNumber: trimmedNif,
+                contactEmail: companyForm.email.trim(),
+                contactPhone: companyForm.phone.trim(),
+            });
+        }
+
+        isFormEditedRef.current = false;
         setSavedNotice(true);
         addNotification('success', 'Dados da empresa guardados com sucesso!');
         setTimeout(() => setSavedNotice(false), 3000);
@@ -399,12 +535,26 @@ export default function MyCompanyPage() {
                                 {/* Action Buttons based on Tab */}
                                 <div className="flex items-center gap-2 self-start sm:self-auto">
                                     {activeTab === 'organization' && (
-                                        <button
-                                            onClick={handleSaveCompany}
-                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                                        >
-                                            <Save size={14} /> Guardar Alterações
-                                        </button>
+                                        <>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setExportEntityType('company');
+                                                    setExportTargetProjectId(activeProjects[0]?.id || '');
+                                                    setIsExportModalOpen(true);
+                                                }}
+                                                className="px-3.5 py-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border border-[var(--border)]"
+                                                title="Associar ou importar dados desta empresa para uma das suas obras"
+                                            >
+                                                <Share2 size={14} className="text-primary" /> Importar para Obra
+                                            </button>
+                                            <button
+                                                onClick={handleSaveCompany}
+                                                className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                                            >
+                                                <Save size={14} /> Guardar Alterações
+                                            </button>
+                                        </>
                                     )}
                                     {activeTab === 'workers' && (
                                         <button
@@ -447,16 +597,32 @@ export default function MyCompanyPage() {
                             {activeTab === 'organization' && (
                                 <form onSubmit={handleSaveCompany} className="space-y-6">
                                     <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 shadow-sm space-y-5">
-                                        <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2 pb-3 border-b border-[var(--border)]">
-                                            <Building2 size={16} className="text-primary" /> Identificação e Dados Fiscais (Sem Hierarquias)
-                                        </h3>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border)]">
+                                            <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2">
+                                                <Building2 size={16} className="text-primary" /> Identificação e Dados Fiscais (Sem Hierarquias)
+                                            </h3>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setExportEntityType('company');
+                                                    setExportTargetProjectId(activeProjects[0]?.id || '');
+                                                    setIsExportModalOpen(true);
+                                                }}
+                                                className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                            >
+                                                <Share2 size={13} /> Compatibilizar com Obra
+                                            </button>
+                                        </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                                             <InputGroup label="Nome Oficial da Empresa *">
                                                 <input
                                                     type="text"
                                                     required
                                                     value={companyForm.name}
-                                                    onChange={e => setCompanyForm({ ...companyForm, name: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, name: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
@@ -465,16 +631,86 @@ export default function MyCompanyPage() {
                                                     type="text"
                                                     required
                                                     value={companyForm.nif}
-                                                    onChange={e => setCompanyForm({ ...companyForm, nif: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, nif: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
                                                     placeholder="500000000"
                                                 />
+                                            </InputGroup>
+                                            <InputGroup label="Tipo de Empresa *">
+                                                <select
+                                                    value={companyForm.companyRole}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, companyRole: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    {COMPANY_ROLE_GROUPS.map(group => (
+                                                        <optgroup key={group} label={group}>
+                                                            {COMPANY_ROLE_OPTIONS.filter(o => o.group === group).map(o => (
+                                                                <option key={o.value} value={o.value}>
+                                                                    {o.label}
+                                                                </option>
+                                                            ))}
+                                                        </optgroup>
+                                                    ))}
+                                                </select>
+                                            </InputGroup>
+                                            {companyForm.companyRole === 'outro' && (
+                                                <InputGroup label="Especificar Tipo de Empresa">
+                                                    <input
+                                                        type="text"
+                                                        value={companyForm.companyRoleCustom}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, companyRoleCustom: e.target.value });
+                                                        }}
+                                                        placeholder="Ex: Empresa de Sinalização Rodoviária"
+                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            )}
+                                            <InputGroup label="Natureza Jurídica">
+                                                <select
+                                                    value={companyForm.legalForm}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="lda">Lda. (Sociedade por Quotas)</option>
+                                                    <option value="unipessoal">Unipessoal Lda.</option>
+                                                    <option value="sa">S.A. (Sociedade Anónima)</option>
+                                                    <option value="eni">ENI (Empresário em Nome Individual)</option>
+                                                    <option value="ace">ACE (Agrupamento Complementar de Empresas)</option>
+                                                    <option value="other">Outra</option>
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="Estado Operacional">
+                                                <select
+                                                    value={companyForm.status}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, status: e.target.value as any });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="active">Ativa / Em Laboração</option>
+                                                    <option value="inactive">Inativa / Suspensa</option>
+                                                </select>
                                             </InputGroup>
                                             <InputGroup label="Código CAE Principal">
                                                 <input
                                                     type="text"
                                                     value={companyForm.caeCode}
-                                                    onChange={e => setCompanyForm({ ...companyForm, caeCode: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, caeCode: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
                                                     placeholder="ex: 41200"
                                                 />
@@ -483,7 +719,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="text"
                                                     value={companyForm.activity}
-                                                    onChange={e => setCompanyForm({ ...companyForm, activity: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, activity: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                     placeholder="ex: Construção Civil e Obras Públicas"
                                                 />
@@ -492,7 +731,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="text"
                                                     value={companyForm.impic}
-                                                    onChange={e => setCompanyForm({ ...companyForm, impic: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, impic: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                     placeholder="ex: IMPIC 12345"
                                                 />
@@ -501,7 +743,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="email"
                                                     value={companyForm.email}
-                                                    onChange={e => setCompanyForm({ ...companyForm, email: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, email: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
@@ -509,16 +754,22 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="text"
                                                     value={companyForm.phone}
-                                                    onChange={e => setCompanyForm({ ...companyForm, phone: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, phone: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
-                                            <div className="sm:col-span-2">
+                                            <div className="sm:col-span-2 md:col-span-3">
                                                 <InputGroup label="Sede / Morada">
                                                     <input
                                                         type="text"
                                                         value={companyForm.address}
-                                                        onChange={e => setCompanyForm({ ...companyForm, address: e.target.value })}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, address: e.target.value });
+                                                        }}
                                                         className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                     />
                                                 </InputGroup>
@@ -536,7 +787,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="text"
                                                     value={companyForm.insuranceWorkAccPolicy}
-                                                    onChange={e => setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                     placeholder="N.º da Apólice"
                                                 />
@@ -545,7 +799,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="date"
                                                     value={companyForm.insuranceWorkAccDate}
-                                                    onChange={e => setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
@@ -553,7 +810,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="text"
                                                     value={companyForm.insuranceCivilPolicy}
-                                                    onChange={e => setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                     placeholder="N.º da Apólice"
                                                 />
@@ -562,7 +822,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="date"
                                                     value={companyForm.insuranceCivilDate}
-                                                    onChange={e => setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
@@ -570,7 +833,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="date"
                                                     value={companyForm.cleanSSDate}
-                                                    onChange={e => setCompanyForm({ ...companyForm, cleanSSDate: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
@@ -578,7 +844,10 @@ export default function MyCompanyPage() {
                                                 <input
                                                     type="date"
                                                     value={companyForm.cleanFinDate}
-                                                    onChange={e => setCompanyForm({ ...companyForm, cleanFinDate: e.target.value })}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
+                                                    }}
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
@@ -656,25 +925,38 @@ export default function MyCompanyPage() {
                                                                     )}
                                                                 </td>
                                                                 <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setEditingWorkerId(w.id);
-                                                                            setWorkerForm({
-                                                                                name: w.name,
-                                                                                role: w.role || '',
-                                                                                nif: w.nif || '',
-                                                                                email: w.email || '',
-                                                                                phone: w.phone || '',
-                                                                                medicalAptitudeDate: w.medicalExpiry || '',
-                                                                                epiDelivered: true
-                                                                            });
-                                                                            setIsWorkerModalOpen(true);
-                                                                        }}
-                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors"
-                                                                        title="Editar"
-                                                                    >
-                                                                        <Edit2 size={14} />
-                                                                    </button>
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedWorkerForExport(w);
+                                                                                setExportEntityType('worker');
+                                                                                setIsExportModalOpen(true);
+                                                                            }}
+                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                            title="Compatibilizar / Importar para Obra"
+                                                                        >
+                                                                            <Share2 size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setEditingWorkerId(w.id);
+                                                                                setWorkerForm({
+                                                                                    name: w.name,
+                                                                                    role: w.role || '',
+                                                                                    nif: w.nif || '',
+                                                                                    email: w.email || '',
+                                                                                    phone: w.phone || '',
+                                                                                    medicalAptitudeDate: w.medicalExpiry || '',
+                                                                                    epiDelivered: true
+                                                                                });
+                                                                                setIsWorkerModalOpen(true);
+                                                                            }}
+                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                            title="Editar"
+                                                                        >
+                                                                            <Edit2 size={14} />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))
@@ -748,25 +1030,38 @@ export default function MyCompanyPage() {
                                                                     )}
                                                                 </td>
                                                                 <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setEditingEquipId(eq.id);
-                                                                            setEquipForm({
-                                                                                name: eq.name,
-                                                                                type: (eq.type as any) || 'vehicle',
-                                                                                serialNumber: eq.serialNumber || '',
-                                                                                brand: eq.brand || '',
-                                                                                model: eq.model || '',
-                                                                                inspectionDate: eq.inspectionDueDate || '',
-                                                                                ceCertified: eq.ceMarking ?? true
-                                                                            });
-                                                                            setIsEquipModalOpen(true);
-                                                                        }}
-                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors"
-                                                                        title="Editar"
-                                                                    >
-                                                                        <Edit2 size={14} />
-                                                                    </button>
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setSelectedEquipForExport(eq);
+                                                                                setExportEntityType('equipment');
+                                                                                setIsExportModalOpen(true);
+                                                                            }}
+                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                            title="Compatibilizar / Importar para Obra"
+                                                                        >
+                                                                            <Share2 size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setEditingEquipId(eq.id);
+                                                                                setEquipForm({
+                                                                                    name: eq.name,
+                                                                                    type: (eq.type as any) || 'vehicle',
+                                                                                    serialNumber: eq.serialNumber || '',
+                                                                                    brand: eq.brand || '',
+                                                                                    model: eq.model || '',
+                                                                                    inspectionDate: eq.inspectionDueDate || '',
+                                                                                    ceCertified: eq.ceMarking ?? true
+                                                                                });
+                                                                                setIsEquipModalOpen(true);
+                                                                            }}
+                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                            title="Editar"
+                                                                        >
+                                                                            <Edit2 size={14} />
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))
@@ -982,6 +1277,153 @@ export default function MyCompanyPage() {
                             <PrimaryButton type="submit" className="w-full py-2.5 text-xs font-bold">
                                 {editingEquipId ? "Guardar Alterações" : "Adicionar Equipamento"}
                             </PrimaryButton>
+                        </form>
+                    </Modal>
+
+                    {/* Modal Compatibilizar / Exportar para Obra */}
+                    <Modal
+                        title={
+                            exportEntityType === 'company' ? "Compatibilizar Empresa com Obra" :
+                            exportEntityType === 'worker' ? "Associar Colaborador a Obra" :
+                            "Associar Equipamento a Obra"
+                        }
+                        isOpen={isExportModalOpen}
+                        onClose={() => setIsExportModalOpen(false)}
+                    >
+                        <form onSubmit={handlePerformExport} className="space-y-4">
+                            {activeProjects.length === 0 ? (
+                                <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-700 dark:text-amber-400 text-xs">
+                                    Não existem obras ativas registadas. Crie ou ative um projeto no Workplace para poder efetuar a compatibilização.
+                                </div>
+                            ) : (
+                                <>
+                                    <InputGroup label="Selecione a Obra de Destino *">
+                                        <select
+                                            value={exportTargetProjectId}
+                                            onChange={e => setExportTargetProjectId(e.target.value)}
+                                            required
+                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                        >
+                                            {activeProjects.map(p => (
+                                                <option key={p.id} value={p.id}>
+                                                    {p.name} {p.code ? `(${p.code})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </InputGroup>
+
+                                    {exportEntityType === 'company' && (
+                                        <>
+                                            <InputGroup label="Papel / Função da Empresa na Obra *">
+                                                <select
+                                                    value={exportProjectRole}
+                                                    onChange={e => setExportProjectRole(e.target.value)}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="subempreiteiro">Subempreiteiro</option>
+                                                    <option value="empreiteiro_geral">Empreiteiro Geral</option>
+                                                    <option value="prestador_servicos">Prestador de Serviços</option>
+                                                    <option value="instalador">Instalador Especializado</option>
+                                                    <option value="fornecedor">Fornecedor com Montagem</option>
+                                                    <option value="fiscalizacao">Fiscalização / Coordenação</option>
+                                                    <option value="dono_obra">Dono de Obra</option>
+                                                </select>
+                                            </InputGroup>
+
+                                            <div className="p-3.5 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl space-y-2">
+                                                <div className="text-[11px] font-bold text-[var(--text)] flex items-center gap-1.5">
+                                                    <Shield size={13} className="text-primary" />
+                                                    Compatibilização Legal DL 273/2003
+                                                </div>
+                                                <div className="space-y-1 text-[11px] text-[var(--text-muted)]">
+                                                    <div className="flex items-center justify-between">
+                                                        <span>Seguro Acidentes de Trabalho:</span>
+                                                        <span className={cn("font-medium", companyForm.insuranceWorkAccDate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                            {companyForm.insuranceWorkAccDate ? `Válido até ${new Date(companyForm.insuranceWorkAccDate).toLocaleDateString()}` : 'Pendente'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span>Seguro Responsabilidade Civil:</span>
+                                                        <span className={cn("font-medium", companyForm.insuranceCivilDate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                            {companyForm.insuranceCivilDate ? `Válido até ${new Date(companyForm.insuranceCivilDate).toLocaleDateString()}` : 'Pendente'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span>Certidão Seg. Social:</span>
+                                                        <span className={cn("font-medium", companyForm.cleanSSDate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                            {companyForm.cleanSSDate ? `Válida até ${new Date(companyForm.cleanSSDate).toLocaleDateString()}` : 'Pendente'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span>Certidão Finanças:</span>
+                                                        <span className={cn("font-medium", companyForm.cleanFinDate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                            {companyForm.cleanFinDate ? `Válida até ${new Date(companyForm.cleanFinDate).toLocaleDateString()}` : 'Pendente'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {exportEntityType === 'worker' && selectedWorkerForExport && (
+                                        <div className="p-3.5 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl space-y-2">
+                                            <div className="text-[11px] font-bold text-[var(--text)]">
+                                                {selectedWorkerForExport.name} ({selectedWorkerForExport.role || 'Colaborador'})
+                                            </div>
+                                            <div className="space-y-1 text-[11px] text-[var(--text-muted)]">
+                                                <div className="flex items-center justify-between">
+                                                    <span>Ficha de Aptidão Médica:</span>
+                                                    <span className={cn("font-medium", selectedWorkerForExport.medicalExpiry ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                        {selectedWorkerForExport.medicalExpiry ? `Válida até ${new Date(selectedWorkerForExport.medicalExpiry).toLocaleDateString()}` : 'Pendente'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span>Cartão de Acesso / NIF:</span>
+                                                    <span className="font-mono text-[var(--text)]">{selectedWorkerForExport.nif || selectedWorkerForExport.accessCardCode || '—'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {exportEntityType === 'equipment' && selectedEquipForExport && (
+                                        <div className="p-3.5 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl space-y-2">
+                                            <div className="text-[11px] font-bold text-[var(--text)]">
+                                                {selectedEquipForExport.name} {selectedEquipForExport.serialNumber ? `(S/N: ${selectedEquipForExport.serialNumber})` : ''}
+                                            </div>
+                                            <div className="space-y-1 text-[11px] text-[var(--text-muted)]">
+                                                <div className="flex items-center justify-between">
+                                                    <span>Declaração CE:</span>
+                                                    <span className={cn("font-medium", selectedEquipForExport.ceMarking ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                        {selectedEquipForExport.ceMarking ? 'Conforme CE' : 'Sem Certificado'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span>Inspeção Periódica:</span>
+                                                    <span className={cn("font-medium", selectedEquipForExport.inspectionDueDate ? "text-emerald-600 dark:text-emerald-400" : "text-amber-500")}>
+                                                        {selectedEquipForExport.inspectionDueDate ? `Válida até ${new Date(selectedEquipForExport.inspectionDueDate).toLocaleDateString()}` : 'Pendente'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="text-[11px] text-[var(--text-muted)] flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
+                                        <CheckCircle2 size={15} className="text-primary shrink-0 mt-0.5" />
+                                        <span>
+                                            Os dados e perfis documentais serão inseridos no CDE da obra. Sempre que um documento for aprovado ou atualizado na obra, a sincronização é sugerida na conta corporativa.
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-2 pt-2">
+                                        <SecondaryButton type="button" onClick={() => setIsExportModalOpen(false)}>
+                                            Cancelar
+                                        </SecondaryButton>
+                                        <PrimaryButton type="submit" className="py-2 px-4 text-xs font-bold">
+                                            {exportEntityType === 'company' ? "Compatibilizar com Obra" : "Importar para Obra"}
+                                        </PrimaryButton>
+                                    </div>
+                                </>
+                            )}
                         </form>
                     </Modal>
                 </div>

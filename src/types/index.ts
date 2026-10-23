@@ -212,6 +212,7 @@ export interface Company {
 
     accountId: string;
     projectId?: string; // Associated project
+    corporateCompanyId?: string; // ID da entidade mãe no Espaço Corporativo
     archived?: boolean; // Added for soft-delete
 
     // IFC4.3 - Campos Adicionais
@@ -531,6 +532,7 @@ export interface Worker {
 
     accountId: string;
     projectId?: string;
+    corporateWorkerId?: string; // ID do colaborador no Espaço Corporativo
     createdAt: string;
 }
 
@@ -603,6 +605,7 @@ export interface Equipment {
 
     accountId: string;
     projectId?: string;
+    corporateEquipmentId?: string; // ID do equipamento no Espaço Corporativo
     createdAt: string;
 }
 
