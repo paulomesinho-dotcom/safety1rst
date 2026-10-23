@@ -6,12 +6,14 @@ import { useStore } from '@/store/useStore';
 import AuthGuard from '@/components/AuthGuard';
 import { useTheme } from '@/providers/ThemeProvider';
 import Header from '@/components/Header';
+import { useTranslations } from 'next-intl';
 import { 
     Building2, Users, Wrench, GraduationCap, Folder, 
     ArrowLeft, Plus, Search, Trash2, Edit2, Check, 
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
-    LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye
+    LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
+    User, Briefcase, Activity, AlertTriangle, X
 } from 'lucide-react';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
@@ -23,6 +25,11 @@ import {
     getIfcRoleFromCompanyRole,
     getCompanyRoleLabel 
 } from '@/lib/company-ifc-map';
+import { 
+    WORKER_ROLES, 
+    OPERATIVE_CATEGORIES, 
+    getRoleDefinition 
+} from '@/lib/worker-roles';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
@@ -37,6 +44,84 @@ function getInitials(name?: string) {
     if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+
+const CONTRACT_TYPE_OPTIONS = [
+    { value: 'sem_termo', label: 'Sem Termo (Efetivo)' },
+    { value: 'termo_certo', label: 'Termo Resolutivo Certo' },
+    { value: 'termo_incerto', label: 'Termo Resolutivo Incerto' },
+    { value: 'prestacao_servicos', label: 'Prestação de Serviços' },
+    { value: 'trabalho_temporario', label: 'Trabalho Temporário' },
+    { value: 'cedencia_ocasional', label: 'Cedência Ocasional' },
+    { value: 'estagio', label: 'Estágio Profissional' },
+];
+
+const PROFESSION_CATEGORY_OPTIONS = [
+    { value: 'encarregado_geral', label: 'Encarregado Geral' },
+    { value: 'encarregado', label: 'Encarregado de Obra' },
+    { value: 'oficial_especializado', label: 'Oficial Especializado' },
+    { value: 'oficial', label: 'Oficial' },
+    { value: 'pre_oficial', label: 'Pré-Oficial' },
+    { value: 'ajudante', label: 'Ajudante / Servente' },
+    { value: 'aprendiz', label: 'Aprendiz' },
+    { value: 'tecnico_superior', label: 'Técnico Superior' },
+    { value: 'tecnico_medio', label: 'Técnico Médio' },
+    { value: 'administrativo', label: 'Administrativo de Obra' },
+];
+
+const WORK_SCHEDULE_OPTIONS = [
+    { value: 'normal', label: 'Geral Diurno (8h-17h)' },
+    { value: 'turnos_rotativos', label: 'Turnos Rotativos' },
+    { value: 'turno_noturno', label: 'Turno Noturno' },
+    { value: 'parcial', label: 'Tempo Parcial (Part-Time)' },
+    { value: 'isencao', label: 'Isenção de Horário' },
+];
+
+const ALL_EPIS = [
+    'Capacete',
+    'Colete Refletor',
+    'Botins de Proteção',
+    'Luvas de Proteção',
+    'Óculos de Proteção',
+    'Proteção Auditiva',
+    'Arnês Antiqueda',
+    'Máscara FFP2/FFP3',
+];
+
+const getContractTypeLabel = (val?: string) => {
+    const found = CONTRACT_TYPE_OPTIONS.find(o => o.value === val);
+    return found ? found.label : (val || 'Sem Termo (Efetivo)');
+};
+
+const getProfessionCategoryLabel = (val?: string) => {
+    const found = PROFESSION_CATEGORY_OPTIONS.find(o => o.value === val);
+    return found ? found.label : (val || 'Oficial');
+};
+
+const getWorkScheduleLabel = (val?: string) => {
+    const found = WORK_SCHEDULE_OPTIONS.find(o => o.value === val);
+    return found ? found.label : (val || 'Geral Diurno (8h-17h)');
+};
+
+const getMedicalFitnessBadge = (fitness?: string, expiry?: string) => {
+    const isExpired = expiry ? new Date(expiry) < new Date() : false;
+    if (isExpired) {
+        return { label: 'FAT Expirada', color: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border-red-200 dark:border-red-800' };
+    }
+    switch (fitness) {
+        case 'apto':
+            return { label: 'Apto', color: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' };
+        case 'apto_condicionado':
+        case 'apto_condicionalmente':
+            return { label: 'Apto Condicionado', color: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800' };
+        case 'inapto':
+        case 'inapto_definitivo':
+            return { label: 'Inapto', color: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border-red-200 dark:border-red-800' };
+        default:
+            return expiry 
+                ? { label: 'Exame Válido', color: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' }
+                : { label: 'FAT Pendente', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700' };
+    }
+};
 
 export default function MyCompanyPage() {
     const router = useRouter();
@@ -249,18 +334,122 @@ export default function MyCompanyPage() {
     // Search & Filter
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Modal state for Worker
-    const [isWorkerModalOpen, setIsWorkerModalOpen] = useState(false);
-    const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
-    const [workerForm, setWorkerForm] = useState({
+    const tRoles = useTranslations('workerRoles');
+
+    // Default & State for Worker (IFC Standard ISO 16739 + DL 273/2003)
+    const defaultWorkerForm = {
+        firstName: '',
+        middleName: '',
+        lastName: '',
         name: '',
-        role: '',
+        nationalityType: 'portugal' as 'portugal' | 'eu_etc' | 'other',
+        foreignCountry: '',
         nif: '',
+        idCardType: 'cc',
+        idCardTypeCustom: '',
+        idCardNumber: '',
+        idCardExpiry: '',
+        ssn: '',
+        birthDate: '',
+        gender: 'M',
         email: '',
         phone: '',
-        medicalAptitudeDate: '',
-        epiDelivered: false
-    });
+        address: '',
+        postalCode: '',
+        city: '',
+        emergencyContactName: '',
+        emergencyContactPhone: '',
+
+        workerRoleId: '',
+        roleCustom: '',
+        role: '',
+        occupation: '',
+        ifcLaborType: '',
+
+        contractType: 'sem_termo',
+        professionCategory: 'oficial',
+        contractExpiry: '',
+        workSchedule: 'normal',
+
+        medicalFitness: 'apto',
+        medicalExpiry: '',
+        medicalObservations: '',
+        epiDeliveryList: ['Capacete', 'Colete Refletor', 'Botins de Proteção', 'Luvas de Proteção'],
+        epiDate: '',
+    };
+
+    // Modal state for Worker (Dual mode: view vs edit)
+    const [isWorkerModalOpen, setIsWorkerModalOpen] = useState(false);
+    const [workerModalMode, setWorkerModalMode] = useState<'view' | 'edit'>('view');
+    const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
+    const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
+    const [workerForm, setWorkerForm] = useState(defaultWorkerForm);
+
+    const handleOpenViewWorker = (w: Worker) => {
+        setSelectedWorker(w);
+        setEditingWorkerId(w.id);
+
+        const parts = (w.name || '').trim().split(/\s+/);
+        const first = w.firstName || (parts.length > 0 ? parts[0] : '');
+        const last = w.lastName || (parts.length > 1 ? parts[parts.length - 1] : '');
+        const mid = w.middleName || (parts.length > 2 ? parts.slice(1, -1).join(' ') : '');
+
+        setWorkerForm({
+            firstName: first,
+            middleName: mid,
+            lastName: last,
+            name: w.name || '',
+            nationalityType: (w.nationalityType as any) || (w.isForeign ? 'other' : 'portugal'),
+            foreignCountry: w.foreignCountry || '',
+            nif: w.nif || '',
+            idCardType: w.idCardType || 'cc',
+            idCardTypeCustom: w.idCardTypeCustom || '',
+            idCardNumber: w.idCardNumber || '',
+            idCardExpiry: w.idCardExpiry || '',
+            ssn: w.ssn || '',
+            birthDate: w.birthDate || '',
+            gender: w.gender || 'M',
+            email: w.email || '',
+            phone: w.phone || '',
+            address: w.address || '',
+            postalCode: w.postalCode || '',
+            city: w.city || '',
+            emergencyContactName: w.emergencyContactName || w.emergencyContact || '',
+            emergencyContactPhone: w.emergencyContactPhone || '',
+
+            workerRoleId: w.workerRoleId || '',
+            roleCustom: w.roleCustom || '',
+            role: w.role || '',
+            occupation: w.occupation || '',
+            ifcLaborType: w.ifcLaborType || '',
+
+            contractType: w.contractType || 'sem_termo',
+            professionCategory: w.professionCategory || 'oficial',
+            contractExpiry: w.contractExpiry || '',
+            workSchedule: w.workSchedule || 'normal',
+
+            medicalFitness: w.medicalFitness || 'apto',
+            medicalExpiry: w.medicalExpiry || '',
+            medicalObservations: w.medicalObservations || '',
+            epiDeliveryList: w.epiDeliveryList || ['Capacete', 'Colete Refletor', 'Botins de Proteção', 'Luvas de Proteção'],
+            epiDate: w.epiDate || '',
+        });
+        setWorkerModalMode('view');
+        setIsWorkerModalOpen(true);
+    };
+
+    const handleOpenCreateWorker = () => {
+        setSelectedWorker(null);
+        setEditingWorkerId(null);
+        setWorkerForm(defaultWorkerForm);
+        setWorkerModalMode('edit');
+        setIsWorkerModalOpen(true);
+    };
+
+    const handleOpenEditWorker = (w: Worker) => {
+        handleOpenViewWorker(w);
+        setWorkerModalMode('edit');
+    };
 
     // Modal state for Equipment
     const [isEquipModalOpen, setIsEquipModalOpen] = useState(false);
@@ -316,41 +505,94 @@ export default function MyCompanyPage() {
         setTimeout(() => setSavedNotice(false), 3000);
     };
 
-    // Save Worker
+    // Save Worker (IFC Standardized ISO 16739)
     const handleSaveWorker = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!workerForm.name.trim()) return;
+        const fullName = [workerForm.firstName.trim(), workerForm.middleName.trim(), workerForm.lastName.trim()]
+            .filter(Boolean)
+            .join(' ') || workerForm.name.trim();
+
+        if (!fullName) {
+            addNotification('error', 'O nome do colaborador é obrigatório.');
+            return;
+        }
+
+        const roleDef = getRoleDefinition(workerForm.workerRoleId);
+        const finalRoleLabel = workerForm.workerRoleId === 'OTHER'
+            ? (workerForm.roleCustom.trim() || 'Outra')
+            : (workerForm.workerRoleId ? tRoles(`roles.${workerForm.workerRoleId}`) : (workerForm.role.trim() || 'Colaborador'));
+
+        const ifcActorRole = roleDef?.ifcActorRole?.role as any;
+        const ifcLaborType = roleDef?.ifcLaborResource?.predefinedType ?? (workerForm.ifcLaborType || undefined);
+        const occupation = roleDef?.ifcLaborResource?.objectType ?? (workerForm.occupation || undefined);
+
+        const workerPayload: Partial<Worker> = {
+            name: fullName,
+            firstName: workerForm.firstName.trim(),
+            middleName: workerForm.middleName.trim() || undefined,
+            lastName: workerForm.lastName.trim(),
+            nationalityType: workerForm.nationalityType,
+            isForeign: workerForm.nationalityType !== 'portugal',
+            foreignCountry: workerForm.nationalityType !== 'portugal' ? workerForm.foreignCountry.trim() : undefined,
+            nif: workerForm.nif.trim(),
+            idCardType: workerForm.idCardType,
+            idCardTypeCustom: workerForm.idCardTypeCustom.trim() || undefined,
+            idCardNumber: workerForm.idCardNumber.trim(),
+            idCardExpiry: workerForm.idCardExpiry || undefined,
+            ssn: workerForm.ssn.trim(),
+            birthDate: workerForm.birthDate || undefined,
+            gender: workerForm.gender,
+            email: workerForm.email.trim(),
+            phone: workerForm.phone.trim(),
+            address: workerForm.address.trim(),
+            postalCode: workerForm.postalCode.trim(),
+            city: workerForm.city.trim(),
+            emergencyContactName: workerForm.emergencyContactName.trim() || undefined,
+            emergencyContactPhone: workerForm.emergencyContactPhone.trim() || undefined,
+
+            workerRoleId: workerForm.workerRoleId || undefined,
+            roleCustom: workerForm.roleCustom.trim() || undefined,
+            role: finalRoleLabel,
+            occupation,
+            ifcLaborType,
+            ifcActorRole,
+
+            contractType: workerForm.contractType,
+            professionCategory: workerForm.professionCategory,
+            contractExpiry: workerForm.contractExpiry || undefined,
+            workSchedule: workerForm.workSchedule,
+
+            medicalFitness: workerForm.medicalFitness,
+            medicalExpiry: workerForm.medicalExpiry || undefined,
+            medicalObservations: workerForm.medicalObservations.trim() || undefined,
+            epiDeliveryList: workerForm.epiDeliveryList,
+            epiDate: workerForm.epiDate || undefined,
+        };
 
         if (editingWorkerId) {
-            updateWorker(editingWorkerId, {
-                name: workerForm.name.trim(),
-                role: workerForm.role.trim(),
-                nif: workerForm.nif.trim(),
-                email: workerForm.email.trim(),
-                phone: workerForm.phone.trim(),
-                medicalFitness: workerForm.medicalAptitudeDate ? 'apto' : undefined,
-                medicalExpiry: workerForm.medicalAptitudeDate || undefined,
-            });
+            updateWorker(editingWorkerId, workerPayload);
             addNotification('success', 'Colaborador atualizado com sucesso!');
+            setSelectedWorker(prev => prev ? ({ ...prev, ...workerPayload } as Worker) : null);
+            setWorkerModalMode('view');
         } else {
-            addWorker({
-                name: workerForm.name.trim(),
-                role: workerForm.role.trim() || 'Colaborador',
+            const newWorkerId = `w_corp_${nanoid(8)}`;
+            const newWorker: Worker = {
+                id: newWorkerId,
                 companyId: masterCompany?.id || `comp_${userAccount?.id}`,
+                accountId: userAccount?.id,
                 status: 'active',
                 accessCardCode: `EMP-${nanoid(6).toUpperCase()}`,
                 accessCardValid: true,
-                nif: workerForm.nif.trim(),
-                email: workerForm.email.trim(),
-                phone: workerForm.phone.trim(),
-                medicalFitness: workerForm.medicalAptitudeDate ? 'apto' : undefined,
-                medicalExpiry: workerForm.medicalAptitudeDate || undefined,
                 workflowStatus: 'validated',
-            });
+                ...workerPayload,
+            } as Worker;
+
+            addWorker(newWorker);
             addNotification('success', 'Colaborador adicionado à sua empresa!');
+            setSelectedWorker(newWorker);
+            setEditingWorkerId(newWorkerId);
+            setWorkerModalMode('view');
         }
-        setIsWorkerModalOpen(false);
-        setEditingWorkerId(null);
     };
 
     // Save Equipment
@@ -589,11 +831,7 @@ export default function MyCompanyPage() {
                                     )}
                                     {activeTab === 'workers' && (
                                         <button
-                                            onClick={() => {
-                                                setEditingWorkerId(null);
-                                                setWorkerForm({ name: '', role: '', nif: '', email: '', phone: '', medicalAptitudeDate: '', epiDelivered: false });
-                                                setIsWorkerModalOpen(true);
-                                            }}
+                                            onClick={handleOpenCreateWorker}
                                             className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
                                         >
                                             <Plus size={14} /> Adicionar Colaborador
@@ -798,83 +1036,102 @@ export default function MyCompanyPage() {
                                     </div>
 
                                     <div className="overflow-x-auto">
-                                        <table className="w-full text-xs text-left min-w-[650px]">
+                                        <table className="w-full text-xs text-left min-w-[700px]">
                                             <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
                                                 <tr>
                                                     <th className="px-5 py-3.5">Colaborador</th>
-                                                    <th className="px-5 py-3.5">Função</th>
+                                                    <th className="px-5 py-3.5">Função (Norma IFC)</th>
+                                                    <th className="px-5 py-3.5">Vínculo / Categoria</th>
                                                     <th className="px-5 py-3.5">Contacto</th>
-                                                    <th className="px-5 py-3.5">Aptidão Médica</th>
+                                                    <th className="px-5 py-3.5">Aptidão Médica (FAT)</th>
                                                     <th className="px-5 py-3.5 text-right">Ação</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-[var(--border)]">
                                                 {companyWorkers.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={5} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                                                            Nenhum colaborador registado nesta empresa. Adicione os seus colaboradores.
+                                                        <td colSpan={6} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                            Nenhum colaborador registado nesta empresa. Adicione os seus colaboradores com padrão IFC.
                                                         </td>
                                                     </tr>
                                                 ) : (
                                                     companyWorkers
                                                         .filter(w => w.name.toLowerCase().includes(searchTerm.toLowerCase()) || (w.email && w.email.toLowerCase().includes(searchTerm.toLowerCase())))
                                                         .map(w => (
-                                                            <tr key={w.id} className="hover:bg-[var(--bg-input)]/30 transition-colors">
+                                                            <tr 
+                                                                key={w.id} 
+                                                                onClick={() => handleOpenViewWorker(w)}
+                                                                className="hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group"
+                                                            >
                                                                 <td className="px-5 py-3.5 whitespace-nowrap">
                                                                     <div className="flex items-center gap-3">
-                                                                        <div className="w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
-                                                                            {w.name.charAt(0).toUpperCase()}
+                                                                        <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                                            {getInitials(w.name)}
                                                                         </div>
                                                                         <div>
-                                                                            <span className="font-bold text-xs text-[var(--text)]">{w.name}</span>
+                                                                            <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
+                                                                                {w.name}
+                                                                                {w.isForeign && (
+                                                                                    <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                                                                        {w.foreignCountry || 'Estrangeiro'}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                             {w.nif && <div className="text-[10px] font-mono text-[var(--text-muted)]">NIF: {w.nif}</div>}
                                                                         </div>
                                                                     </div>
                                                                 </td>
                                                                 <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
-                                                                    {w.role || '—'}
+                                                                    <span className="font-medium">{w.role || 'Colaborador'}</span>
+                                                                    <div className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
+                                                                        <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary font-semibold">IFC:</span> 
+                                                                        {w.ifcLaborType || w.ifcActorRole || w.occupation || 'IfcLaborResource'}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-5 py-3.5 whitespace-nowrap text-xs">
+                                                                    <div className="font-medium text-[var(--text)]">{getContractTypeLabel(w.contractType)}</div>
+                                                                    <div className="text-[10px] text-[var(--text-muted)]">{getProfessionCategoryLabel(w.professionCategory)}</div>
                                                                 </td>
                                                                 <td className="px-5 py-3.5 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
-                                                                    {w.email || w.phone || '—'}
+                                                                    <div>{w.email || '—'}</div>
+                                                                    <div className="text-[10px]">{w.phone || ''}</div>
                                                                 </td>
                                                                 <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                    {w.medicalExpiry ? (
-                                                                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                                                            <Check size={12} /> {new Date(w.medicalExpiry).toLocaleDateString()}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="text-[11px] text-[var(--text-muted)] italic">Pendente</span>
-                                                                    )}
+                                                                    {(() => {
+                                                                        const badge = getMedicalFitnessBadge(w.medicalFitness, w.medicalExpiry);
+                                                                        return (
+                                                                            <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border", badge.color)}>
+                                                                                <Check size={10} /> {badge.label}
+                                                                                {w.medicalExpiry && <span className="opacity-80">({new Date(w.medicalExpiry).toLocaleDateString()})</span>}
+                                                                            </span>
+                                                                        );
+                                                                    })()}
                                                                 </td>
                                                                 <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                    <div className="flex items-center justify-end gap-1">
+                                                                    <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
                                                                         <button
                                                                             onClick={() => {
                                                                                 setSelectedWorkerForExport(w);
                                                                                 setExportEntityType('worker');
+                                                                                setExportTargetProjectId(userProjects[0]?.id || '');
                                                                                 setIsExportModalOpen(true);
                                                                             }}
                                                                             className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Compatibilizar / Importar para Obra"
+                                                                            title="Sincronizar com Obra"
                                                                         >
                                                                             <Share2 size={14} />
                                                                         </button>
                                                                         <button
-                                                                            onClick={() => {
-                                                                                setEditingWorkerId(w.id);
-                                                                                setWorkerForm({
-                                                                                    name: w.name,
-                                                                                    role: w.role || '',
-                                                                                    nif: w.nif || '',
-                                                                                    email: w.email || '',
-                                                                                    phone: w.phone || '',
-                                                                                    medicalAptitudeDate: w.medicalExpiry || '',
-                                                                                    epiDelivered: true
-                                                                                });
-                                                                                setIsWorkerModalOpen(true);
-                                                                            }}
+                                                                            onClick={() => handleOpenViewWorker(w)}
                                                                             className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                            title="Editar"
+                                                                            title="Ver Ficha do Colaborador"
+                                                                        >
+                                                                            <Eye size={14} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleOpenEditWorker(w)}
+                                                                            className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                            title="Editar Dados"
                                                                         >
                                                                             <Edit2 size={14} />
                                                                         </button>
@@ -1051,73 +1308,802 @@ export default function MyCompanyPage() {
                     </div>
 
                     {/* ════════ MODALS ════════ */}
-                    {/* Modal Colaborador */}
+                    {/* Modal Colaborador — Dual Mode: Visualização & Edição (IFC Standard ISO 16739 & DL 273/2003) */}
                     <Modal
-                        title={editingWorkerId ? "Editar Colaborador" : "Adicionar Colaborador à Minha Empresa"}
+                        maxWidth="max-w-4xl"
+                        title={
+                            workerModalMode === 'view' ? (
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                        {getInitials(selectedWorker?.name || workerForm.name)}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-bold text-sm text-[var(--text)] truncate">
+                                                {selectedWorker?.name || workerForm.name || 'Ficha do Colaborador'}
+                                            </span>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 font-semibold">
+                                                IFC: {selectedWorker?.ifcLaborType || selectedWorker?.ifcActorRole || selectedWorker?.occupation || 'IfcLaborResource'}
+                                            </span>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                                Ativo
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-[var(--text-muted)] truncate">
+                                            {selectedWorker?.role || workerForm.role || 'Colaborador'} • {masterCompany?.name || 'A Minha Empresa'}
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <User size={18} className="text-primary" />
+                                    <div>
+                                        <h3 className="font-bold text-sm text-[var(--text)]">
+                                            {editingWorkerId ? "Editar Colaborador (Norma IFC)" : "Novo Colaborador (Norma IFC)"}
+                                        </h3>
+                                        <p className="text-[10px] text-[var(--text-muted)]">
+                                            ISO 16739-1:2024 (IfcPerson, IfcLaborResource, IfcActorRole) • DL 273/2003
+                                        </p>
+                                    </div>
+                                </div>
+                            )
+                        }
+                        headerAction={
+                            workerModalMode === 'view' ? (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (selectedWorker) {
+                                                setSelectedWorkerForExport(selectedWorker);
+                                                setExportEntityType('worker');
+                                                setExportTargetProjectId(userProjects[0]?.id || '');
+                                                setIsExportModalOpen(true);
+                                            }
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-semibold border border-[var(--border)] transition-colors flex items-center gap-1.5 cursor-pointer"
+                                        title="Sincronizar colaborador com uma das suas obras"
+                                    >
+                                        <Share2 size={13} className="text-primary" />
+                                        <span className="hidden sm:inline">Sincronizar com Obra</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setWorkerModalMode('edit')}
+                                        className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                        title="Editar dados do colaborador"
+                                    >
+                                        <Edit2 size={13} />
+                                        <span>Editar</span>
+                                    </button>
+                                </div>
+                            ) : (
+                                editingWorkerId && selectedWorker ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setWorkerModalMode('view')}
+                                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-semibold border border-[var(--border)] transition-colors flex items-center gap-1.5 cursor-pointer"
+                                        title="Voltar ao modo de visualização"
+                                    >
+                                        <Eye size={13} />
+                                        <span>Ver Ficha</span>
+                                    </button>
+                                ) : null
+                            )
+                        }
                         isOpen={isWorkerModalOpen}
                         onClose={() => setIsWorkerModalOpen(false)}
                     >
-                        <form onSubmit={handleSaveWorker} className="space-y-4">
-                            <InputGroup label="Nome Completo *">
-                                <input
-                                    type="text"
-                                    required
-                                    value={workerForm.name}
-                                    onChange={e => setWorkerForm({ ...workerForm, name: e.target.value })}
-                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    placeholder="ex: João Silva"
-                                />
-                            </InputGroup>
-                            <div className="grid grid-cols-2 gap-3">
-                                <InputGroup label="Função / Cargo">
-                                    <input
-                                        type="text"
-                                        value={workerForm.role}
-                                        onChange={e => setWorkerForm({ ...workerForm, role: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                        placeholder="ex: Eletricista"
-                                    />
-                                </InputGroup>
-                                <InputGroup label="NIF do Colaborador">
-                                    <input
-                                        type="text"
-                                        value={workerForm.nif}
-                                        onChange={e => setWorkerForm({ ...workerForm, nif: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                        placeholder="ex: 234567890"
-                                    />
-                                </InputGroup>
+                        {workerModalMode === 'view' ? (
+                            <div className="space-y-6">
+                                {/* Banner de Sincronização e Conformidade */}
+                                <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
+                                            <Shield size={20} />
+                                        </div>
+                                        <div>
+                                            <h4 className="text-xs font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                                Registo Padronizado com Norma IFC (ISO 16739) & DL 273/2003
+                                            </h4>
+                                            <p className="text-[11px] text-[var(--text-muted)]">
+                                                Os dados deste colaborador estão compatibilizados com o esquema BIM e podem ser sincronizados diretamente para qualquer estaleiro.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (selectedWorker) {
+                                                setSelectedWorkerForExport(selectedWorker);
+                                                setExportEntityType('worker');
+                                                setExportTargetProjectId(userProjects[0]?.id || '');
+                                                setIsExportModalOpen(true);
+                                            }
+                                        }}
+                                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 shadow-sm cursor-pointer"
+                                    >
+                                        <Share2 size={13} /> Sincronizar com Obra
+                                    </button>
+                                </div>
+
+                                {/* 1. Identificação & Dados Pessoais (IfcPerson) */}
+                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
+                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <User size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                1. Identificação e Dados Pessoais
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                            IfcPerson
+                                        </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nome Completo</span>
+                                            <span className="font-bold text-[var(--text)]">{selectedWorker?.name || workerForm.name || '—'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">NIF</span>
+                                            <span className="font-mono text-[var(--text)] font-semibold">{selectedWorker?.nif || workerForm.nif || '—'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">N.º Segurança Social (NISS)</span>
+                                            <span className="font-mono text-[var(--text)]">{selectedWorker?.ssn || workerForm.ssn || '—'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Documento de Identificação</span>
+                                            <span className="text-[var(--text)]">
+                                                {selectedWorker?.idCardNumber ? `${(selectedWorker?.idCardType || 'CC').toUpperCase()}: ${selectedWorker.idCardNumber}` : '—'}
+                                                {selectedWorker?.idCardExpiry ? ` (Validade: ${new Date(selectedWorker.idCardExpiry).toLocaleDateString()})` : ''}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nacionalidade</span>
+                                            <span className="text-[var(--text)] font-medium">
+                                                {selectedWorker?.nationalityType === 'other'
+                                                    ? `Extracomunitário (${selectedWorker.foreignCountry || 'Outra'})`
+                                                    : selectedWorker?.nationalityType === 'eu_etc'
+                                                    ? `União Europeia / EEE (${selectedWorker.foreignCountry || 'U.E.'})`
+                                                    : 'Portugal (PT)'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Data Nasc. / Género</span>
+                                            <span className="text-[var(--text)]">
+                                                {selectedWorker?.birthDate ? new Date(selectedWorker.birthDate).toLocaleDateString() : '—'} • {selectedWorker?.gender === 'F' ? 'Feminino' : 'Masculino'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contactos</span>
+                                            <div className="text-[var(--text)]">
+                                                {selectedWorker?.phone && <div>Tel: {selectedWorker.phone}</div>}
+                                                {selectedWorker?.email && <div>Email: {selectedWorker.email}</div>}
+                                                {!selectedWorker?.phone && !selectedWorker?.email && '—'}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Morada</span>
+                                            <div className="text-[var(--text)]">
+                                                {selectedWorker?.address || workerForm.address ? (
+                                                    `${selectedWorker?.address || workerForm.address}${selectedWorker?.postalCode ? `, ${selectedWorker.postalCode}` : ''} ${selectedWorker?.city || ''}`
+                                                ) : '—'}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contacto de Emergência</span>
+                                            <span className="text-[var(--text)]">
+                                                {(selectedWorker?.emergencyContactName || workerForm.emergencyContactName) ? (
+                                                    `${selectedWorker?.emergencyContactName || workerForm.emergencyContactName} ${(selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone) ? `(${selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone})` : ''}`
+                                                ) : '—'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2. Função & Recurso BIM (IfcLaborResource / IfcActorRole) */}
+                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
+                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Briefcase size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                2. Função e Qualificação Profissional
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                            IfcLaborResource / IfcActorRole
+                                        </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Função Padronizada</span>
+                                            <span className="font-bold text-[var(--text)]">{selectedWorker?.role || workerForm.role || '—'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Recurso IFC (PredefinedType)</span>
+                                            <span className="font-mono text-primary font-bold">{selectedWorker?.ifcLaborType || workerForm.ifcLaborType || 'USERDEFINED'}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Papel IFC (IfcActorRole)</span>
+                                            <span className="font-mono text-[var(--text)]">{selectedWorker?.ifcActorRole || 'CONSTRUCTIONMANAGER / LABOUR'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 3. Vínculo Laboral & Enquadramento (IfcPersonAndOrganization) */}
+                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
+                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Building2 size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                3. Vínculo Laboral & Enquadramento
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                            IfcPersonAndOrganization
+                                        </span>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Vínculo Contratual</span>
+                                            <span className="font-semibold text-[var(--text)]">{getContractTypeLabel(selectedWorker?.contractType || workerForm.contractType)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Categoria Profissional Legal</span>
+                                            <span className="text-[var(--text)]">{getProfessionCategoryLabel(selectedWorker?.professionCategory || workerForm.professionCategory)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Horário de Trabalho</span>
+                                            <span className="text-[var(--text)]">{getWorkScheduleLabel(selectedWorker?.workSchedule || workerForm.workSchedule)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 4. Saúde, Segurança & EPIs (DL 273/2003) */}
+                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
+                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Shield size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                4. Saúde, Segurança no Trabalho & EPIs
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                                            DL 273/2003 • SST
+                                        </span>
+                                    </div>
+                                    <div className="p-4 space-y-4 text-xs">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Aptidão Médica (FAT)</span>
+                                                {(() => {
+                                                    const badge = getMedicalFitnessBadge(selectedWorker?.medicalFitness || workerForm.medicalFitness, selectedWorker?.medicalExpiry || workerForm.medicalExpiry);
+                                                    return (
+                                                        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border", badge.color)}>
+                                                            <Check size={12} /> {badge.label}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data / Validade do Exame</span>
+                                                <span className="font-medium text-[var(--text)]">
+                                                    {(selectedWorker?.medicalExpiry || workerForm.medicalExpiry)
+                                                        ? new Date(selectedWorker?.medicalExpiry || workerForm.medicalExpiry).toLocaleDateString()
+                                                        : 'Sem data registada'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data de Entrega de EPI</span>
+                                                <span className="text-[var(--text)]">
+                                                    {(selectedWorker?.epiDate || workerForm.epiDate)
+                                                        ? new Date(selectedWorker?.epiDate || workerForm.epiDate).toLocaleDateString()
+                                                        : 'Registada com admissão'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* EPIs List */}
+                                        <div>
+                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-2">EPIs Atribuídos / Entregues</span>
+                                            <div className="flex flex-wrap gap-2">
+                                                {(selectedWorker?.epiDeliveryList || workerForm.epiDeliveryList || []).map((epi: string) => (
+                                                    <span key={epi} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1.5">
+                                                        <Check size={12} /> {epi}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {(selectedWorker?.medicalObservations || workerForm.medicalObservations) && (
+                                            <div className="p-3 rounded-lg bg-[var(--bg-input)]/50 border border-[var(--border)] text-[11px]">
+                                                <span className="font-bold text-[var(--text)] block mb-1">Observações Médicas:</span>
+                                                <p className="text-[var(--text-muted)]">{selectedWorker?.medicalObservations || workerForm.medicalObservations}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Modal Footer (View Mode) */}
+                                <div className="flex items-center justify-between pt-2 border-t border-[var(--border)]">
+                                    <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
+                                        Fechar
+                                    </SecondaryButton>
+                                    <div className="flex items-center gap-2">
+                                        <PrimaryButton type="button" onClick={() => setWorkerModalMode('edit')}>
+                                            <Edit2 size={13} className="mr-1.5 inline" /> Editar Dados
+                                        </PrimaryButton>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <InputGroup label="Email">
-                                    <input
-                                        type="email"
-                                        value={workerForm.email}
-                                        onChange={e => setWorkerForm({ ...workerForm, email: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    />
-                                </InputGroup>
-                                <InputGroup label="Telefone">
-                                    <input
-                                        type="text"
-                                        value={workerForm.phone}
-                                        onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    />
-                                </InputGroup>
-                            </div>
-                            <InputGroup label="Data da Ficha de Aptidão Médica">
-                                <input
-                                    type="date"
-                                    value={workerForm.medicalAptitudeDate}
-                                    onChange={e => setWorkerForm({ ...workerForm, medicalAptitudeDate: e.target.value })}
-                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                />
-                            </InputGroup>
-                            <PrimaryButton type="submit" className="w-full py-2.5 text-xs font-bold">
-                                {editingWorkerId ? "Guardar Alterações" : "Adicionar Colaborador"}
-                            </PrimaryButton>
-                        </form>
+                        ) : (
+                            <form onSubmit={handleSaveWorker} className="space-y-6">
+                                {/* 1. Identificação e Dados Pessoais (IfcPerson) */}
+                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
+                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <User size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                1. Identificação e Dados Pessoais (Norma IFC: IfcPerson)
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] font-mono">ISO 16739</span>
+                                    </div>
+
+                                    {/* Nomes */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <InputGroup label="Primeiro Nome *">
+                                            <input
+                                                type="text"
+                                                required
+                                                value={workerForm.firstName}
+                                                onChange={e => setWorkerForm({ ...workerForm, firstName: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: João"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Nome do Meio">
+                                            <input
+                                                type="text"
+                                                value={workerForm.middleName}
+                                                onChange={e => setWorkerForm({ ...workerForm, middleName: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: Carlos"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Apelido *">
+                                            <input
+                                                type="text"
+                                                required
+                                                value={workerForm.lastName}
+                                                onChange={e => setWorkerForm({ ...workerForm, lastName: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: Silva"
+                                            />
+                                        </InputGroup>
+                                    </div>
+
+                                    {/* Nacionalidade */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <InputGroup label="Nacionalidade *">
+                                            <select
+                                                value={workerForm.nationalityType}
+                                                onChange={e => setWorkerForm({ ...workerForm, nationalityType: e.target.value as any })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="portugal">Portugal (PT)</option>
+                                                <option value="eu_etc">U.E., Islândia, Liechtenstein, Noruega, Suíça e Andorra</option>
+                                                <option value="other">Outra Nacionalidade (Extracomunitário)</option>
+                                            </select>
+                                        </InputGroup>
+                                        {workerForm.nationalityType !== 'portugal' && (
+                                            <InputGroup label="País de Origem *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={workerForm.foreignCountry}
+                                                    onChange={e => setWorkerForm({ ...workerForm, foreignCountry: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: Brasil, Cabo Verde, Espanha..."
+                                                />
+                                            </InputGroup>
+                                        )}
+                                    </div>
+
+                                    {/* Documentos de Identificação e Fiscais */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                        <InputGroup label="NIF do Colaborador *">
+                                            <input
+                                                type="text"
+                                                required
+                                                value={workerForm.nif}
+                                                onChange={e => setWorkerForm({ ...workerForm, nif: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                placeholder="ex: 234567890"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Tipo de Documento ID">
+                                            <select
+                                                value={workerForm.idCardType}
+                                                onChange={e => setWorkerForm({ ...workerForm, idCardType: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="cc">Cartão de Cidadão</option>
+                                                <option value="bi">Bilhete de Identidade</option>
+                                                <option value="passaporte">Passaporte</option>
+                                                <option value="residencia">Título de Residência</option>
+                                                <option value="outro">Outro...</option>
+                                            </select>
+                                        </InputGroup>
+                                        <InputGroup label="N.º do Documento">
+                                            <input
+                                                type="text"
+                                                value={workerForm.idCardNumber}
+                                                onChange={e => setWorkerForm({ ...workerForm, idCardNumber: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="N.º Identificação"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="N.º Seg. Social (NISS)">
+                                            <input
+                                                type="text"
+                                                value={workerForm.ssn}
+                                                onChange={e => setWorkerForm({ ...workerForm, ssn: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                placeholder="ex: 12034567890"
+                                            />
+                                        </InputGroup>
+                                    </div>
+
+                                    {/* Demografia e Contactos */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                        <InputGroup label="Data de Nascimento">
+                                            <input
+                                                type="date"
+                                                value={workerForm.birthDate}
+                                                onChange={e => setWorkerForm({ ...workerForm, birthDate: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Género">
+                                            <select
+                                                value={workerForm.gender}
+                                                onChange={e => setWorkerForm({ ...workerForm, gender: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="M">Masculino</option>
+                                                <option value="F">Feminino</option>
+                                                <option value="outro">Outro / Prefere não declarar</option>
+                                            </select>
+                                        </InputGroup>
+                                        <InputGroup label="Telefone">
+                                            <input
+                                                type="text"
+                                                value={workerForm.phone}
+                                                onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: 912345678"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Email">
+                                            <input
+                                                type="email"
+                                                value={workerForm.email}
+                                                onChange={e => setWorkerForm({ ...workerForm, email: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="colaborador@empresa.pt"
+                                            />
+                                        </InputGroup>
+                                    </div>
+
+                                    {/* Morada */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <div className="sm:col-span-2">
+                                            <InputGroup label="Morada">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.address}
+                                                    onChange={e => setWorkerForm({ ...workerForm, address: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="Rua, Número, Andar..."
+                                                />
+                                            </InputGroup>
+                                        </div>
+                                        <InputGroup label="Código Postal e Localidade">
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.postalCode}
+                                                    onChange={e => setWorkerForm({ ...workerForm, postalCode: e.target.value })}
+                                                    className="w-24 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="0000-000"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.city}
+                                                    onChange={e => setWorkerForm({ ...workerForm, city: e.target.value })}
+                                                    className="flex-1 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="Localidade"
+                                                />
+                                            </div>
+                                        </InputGroup>
+                                    </div>
+
+                                    {/* Contacto de Emergência */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                        <InputGroup label="Contacto de Emergência (Nome)">
+                                            <input
+                                                type="text"
+                                                value={workerForm.emergencyContactName}
+                                                onChange={e => setWorkerForm({ ...workerForm, emergencyContactName: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: Maria Silva (Esposa)"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Contacto de Emergência (Telefone)">
+                                            <input
+                                                type="text"
+                                                value={workerForm.emergencyContactPhone}
+                                                onChange={e => setWorkerForm({ ...workerForm, emergencyContactPhone: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: 919876543"
+                                            />
+                                        </InputGroup>
+                                    </div>
+                                </div>
+
+                                {/* 2. Função e Qualificação Profissional (IfcLaborResource / IfcActorRole) */}
+                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
+                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <Briefcase size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                2. Função e Qualificação Profissional (Norma IFC)
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] font-mono">IfcLaborResource / IfcActorRole</span>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <InputGroup label="Função Padronizada (Norma IFC / Obra) *">
+                                            <select
+                                                value={workerForm.workerRoleId}
+                                                required
+                                                onChange={e => {
+                                                    const roleId = e.target.value;
+                                                    const roleDef = getRoleDefinition(roleId);
+                                                    const roleLabel = roleId === 'OTHER'
+                                                        ? (workerForm.roleCustom || 'Outra')
+                                                        : tRoles(`roles.${roleId}`);
+
+                                                    setWorkerForm({
+                                                        ...workerForm,
+                                                        workerRoleId: roleId,
+                                                        role: roleLabel,
+                                                        occupation: roleDef?.ifcLaborResource?.objectType ?? '',
+                                                        ifcLaborType: roleDef?.ifcLaborResource?.predefinedType ?? ''
+                                                    });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="">— Selecionar função padronizada IFC —</option>
+
+                                                <optgroup label="Responsáveis de Obra">
+                                                    {WORKER_ROLES.filter(r => r.group === 'SITE_RESPONSIBLE').map(r => (
+                                                        <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                    ))}
+                                                </optgroup>
+
+                                                <optgroup label="Segurança no Trabalho (SHST)">
+                                                    {WORKER_ROLES.filter(r => r.group === 'SHST_RESPONSIBLE').map(r => (
+                                                        <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                    ))}
+                                                </optgroup>
+
+                                                {OPERATIVE_CATEGORIES.map(cat => {
+                                                    const catRoles = WORKER_ROLES.filter(r => r.group === 'OPERATIVE' && r.category === cat);
+                                                    if (!catRoles.length) return null;
+                                                    return (
+                                                        <optgroup key={cat} label={tRoles(`categories.${cat}`)}>
+                                                            {catRoles.map(r => (
+                                                                <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                            ))}
+                                                        </optgroup>
+                                                    );
+                                                })}
+                                            </select>
+                                        </InputGroup>
+
+                                        {workerForm.workerRoleId === 'OTHER' && (
+                                            <InputGroup label="Especificar Função Personalizada *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={workerForm.roleCustom}
+                                                    onChange={e => setWorkerForm({ 
+                                                        ...workerForm, 
+                                                        roleCustom: e.target.value,
+                                                        role: e.target.value 
+                                                    })}
+                                                    placeholder="Indique a função específica..."
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                        )}
+
+                                        {/* Mapeamento IFC Dinâmico */}
+                                        {workerForm.workerRoleId && (
+                                            <div className="p-3 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-[11px] flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-semibold text-blue-800 dark:text-blue-300">Classificação BIM / IFC:</span>
+                                                    <span className="font-mono text-[var(--text)]">
+                                                        {workerForm.ifcLaborType ? `IfcLaborResourceType: ${workerForm.ifcLaborType}` : 'IfcActorRole: Standard'}
+                                                    </span>
+                                                </div>
+                                                <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                                                    {workerForm.occupation || 'Standard Labor'}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* 3. Vínculo Laboral & Enquadramento (IfcPersonAndOrganization) */}
+                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
+                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <Building2 size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                3. Vínculo Laboral & Enquadramento
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] font-mono">IfcPersonAndOrganization</span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                        <InputGroup label="Tipo de Vínculo Contratual">
+                                            <select
+                                                value={workerForm.contractType}
+                                                onChange={e => setWorkerForm({ ...workerForm, contractType: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                {CONTRACT_TYPE_OPTIONS.map(opt => (
+                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                ))}
+                                            </select>
+                                        </InputGroup>
+                                        <InputGroup label="Categoria Profissional Legal">
+                                            <select
+                                                value={workerForm.professionCategory}
+                                                onChange={e => setWorkerForm({ ...workerForm, professionCategory: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                {PROFESSION_CATEGORY_OPTIONS.map(opt => (
+                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                ))}
+                                            </select>
+                                        </InputGroup>
+                                        <InputGroup label="Horário de Trabalho">
+                                            <select
+                                                value={workerForm.workSchedule}
+                                                onChange={e => setWorkerForm({ ...workerForm, workSchedule: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                {WORK_SCHEDULE_OPTIONS.map(opt => (
+                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                ))}
+                                            </select>
+                                        </InputGroup>
+                                    </div>
+                                </div>
+
+                                {/* 4. Saúde, Segurança no Trabalho & Acessos (DL 273/2003) */}
+                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
+                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
+                                        <div className="flex items-center gap-2">
+                                            <Shield size={15} className="text-primary" />
+                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                4. Saúde, Segurança no Trabalho & EPIs
+                                            </h4>
+                                        </div>
+                                        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">DL 273/2003</span>
+                                    </div>
+
+                                    {/* Aptidão Médica */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <InputGroup label="Data do Exame Médico (Ficha de Aptidão)">
+                                            <input
+                                                type="date"
+                                                value={workerForm.medicalExpiry}
+                                                onChange={e => setWorkerForm({ ...workerForm, medicalExpiry: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Resultado da Aptidão Médica">
+                                            <select
+                                                value={workerForm.medicalFitness}
+                                                onChange={e => setWorkerForm({ ...workerForm, medicalFitness: e.target.value })}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="apto">Apto para a Função (Sem Restrições)</option>
+                                                <option value="apto_condicionado">Apto Condicionado / com Restrições</option>
+                                                <option value="inapto">Inapto Temporariamente</option>
+                                                <option value="outro">Outro / Pendente</option>
+                                            </select>
+                                        </InputGroup>
+                                    </div>
+
+                                    <InputGroup label="Observações / Condicionantes Médicas">
+                                        <textarea
+                                            rows={2}
+                                            value={workerForm.medicalObservations}
+                                            onChange={e => setWorkerForm({ ...workerForm, medicalObservations: e.target.value })}
+                                            placeholder="Ex: Apto com restrição para trabalhos em altura superior a 2 metros..."
+                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary resize-none"
+                                        />
+                                    </InputGroup>
+
+                                    {/* EPI Checklist */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-[11px] font-semibold text-[var(--text)] uppercase tracking-wider">
+                                                EPIs Obrigatórios Entregues (DL 273/2003)
+                                            </span>
+                                            <span className="text-[10px] text-[var(--text-muted)]">Clique para selecionar</span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {ALL_EPIS.map(epi => {
+                                                const selected = workerForm.epiDeliveryList.includes(epi);
+                                                return (
+                                                    <button
+                                                        key={epi}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const current = workerForm.epiDeliveryList || [];
+                                                            const updated = selected
+                                                                ? current.filter(e => e !== epi)
+                                                                : [...current, epi];
+                                                            setWorkerForm({ ...workerForm, epiDeliveryList: updated });
+                                                        }}
+                                                        className={cn(
+                                                            "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5",
+                                                            selected
+                                                                ? "bg-primary text-white border-primary shadow-sm"
+                                                                : "bg-[var(--bg-input)] text-[var(--text-muted)] border-[var(--border)] hover:border-primary/40"
+                                                        )}
+                                                    >
+                                                        {selected ? <Check size={12} /> : null}
+                                                        {epi}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Form Action Buttons */}
+                                <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
+                                    <SecondaryButton
+                                        type="button"
+                                        onClick={() => {
+                                            if (editingWorkerId && selectedWorker) {
+                                                setWorkerModalMode('view');
+                                            } else {
+                                                setIsWorkerModalOpen(false);
+                                            }
+                                        }}
+                                    >
+                                        Cancelar
+                                    </SecondaryButton>
+                                    <PrimaryButton type="submit" className="px-6 py-2.5 text-xs font-bold shadow-md">
+                                        <Save size={14} className="mr-1.5 inline" />
+                                        {editingWorkerId ? "Guardar Alterações" : "Adicionar Colaborador à Empresa"}
+                                    </PrimaryButton>
+                                </div>
+                            </form>
+                        )}
                     </Modal>
 
                     {/* Modal Equipamento */}
