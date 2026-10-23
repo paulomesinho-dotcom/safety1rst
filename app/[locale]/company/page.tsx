@@ -418,12 +418,28 @@ export default function MyCompanyPage() {
 
     // Filter Workers & Equipment for this company account (account level)
     const companyWorkers = useMemo(() => {
-        return workers.filter(w => w.accountId === userAccount?.id || (masterCompany && w.companyId === masterCompany.id));
-    }, [workers, userAccount?.id, masterCompany]);
+        return workers.filter(w => {
+            // Corporate catalog workers do not have a projectId attached directly
+            if (w.projectId) return false;
+            if (userAccount?.id && w.accountId === userAccount.id) return true;
+            if (masterCompany && (w.companyId === masterCompany.id || (userAccount?.id && w.companyId === `comp_${userAccount.id}`))) return true;
+            if (w.id.startsWith('w_corp_')) return true;
+            if (!w.accountId && !w.projectId) return true;
+            return false;
+        });
+    }, [workers, userAccount?.id, masterCompany?.id]);
 
     const companyEquipment = useMemo(() => {
-        return equipment.filter(e => e.accountId === userAccount?.id || (masterCompany && e.companyId === masterCompany.id));
-    }, [equipment, userAccount?.id, masterCompany]);
+        return equipment.filter(e => {
+            // Corporate catalog equipment do not have a projectId attached directly
+            if (e.projectId) return false;
+            if (userAccount?.id && e.accountId === userAccount.id) return true;
+            if (masterCompany && (e.companyId === masterCompany.id || (userAccount?.id && e.companyId === `comp_${userAccount.id}`))) return true;
+            if (e.id.startsWith('eq_corp_')) return true;
+            if (!e.accountId && !e.projectId) return true;
+            return false;
+        });
+    }, [equipment, userAccount?.id, masterCompany?.id]);
 
     // Search & Filter
     const [searchTerm, setSearchTerm] = useState('');
@@ -1214,39 +1230,55 @@ export default function MyCompanyPage() {
                                             Utilize o botão <strong className="text-[var(--text)]">"Sincronizar com Obra"</strong> para disponibilizar a empresa e a sua documentação nos estaleiros.
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                            {syncedCompanyProjects.map(proj => (
-                                                <div key={proj.projectId} className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] hover:border-primary/40 transition-all flex flex-col justify-between gap-3">
-                                                    <div className="space-y-1">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <span className="font-bold text-xs text-[var(--text)] truncate" title={proj.projectName}>
-                                                                {proj.projectName}
-                                                            </span>
-                                                            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shrink-0">
-                                                                Sincronizada
-                                                            </span>
-                                                        </div>
-                                                        {proj.projectAddress && (
-                                                            <p className="text-[10px] text-[var(--text-muted)] truncate">
-                                                                {proj.projectAddress}
-                                                            </p>
-                                                        )}
-                                                        <div className="text-[10px] text-[var(--text-muted)] pt-1">
-                                                            Função: <span className="font-medium text-[var(--text)]">{getCompanyRoleLabel(proj.companyRole)}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between text-xs">
-                                                        <span className="text-[10px] font-mono text-[var(--text-muted)]">ID: {proj.projectId.slice(0, 8)}</span>
-                                                        <Link
-                                                            href={`/projects/${proj.projectId}`}
-                                                            className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline cursor-pointer"
-                                                        >
-                                                            <span>Abrir Obra</span>
-                                                            <ArrowRight size={12} />
-                                                        </Link>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                        <div className="overflow-x-auto border border-[var(--border)] rounded-xl">
+                                            <table className="w-full text-left text-xs border-collapse">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
+                                                        <th className="py-2.5 px-3">Obra / Estaleiro</th>
+                                                        <th className="py-2.5 px-3">Localização</th>
+                                                        <th className="py-2.5 px-3">Função na Obra</th>
+                                                        <th className="py-2.5 px-3">Estado</th>
+                                                        <th className="py-2.5 px-3 text-right">Ação</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border)]">
+                                                    {syncedCompanyProjects.map(proj => (
+                                                        <tr key={proj.projectId} className="hover:bg-primary/5 transition-colors">
+                                                            <td className="py-3 px-3 font-semibold text-[var(--text)]">
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-primary flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900/50">
+                                                                        <Folder size={14} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="block font-bold text-xs">{proj.projectName}</span>
+                                                                        <span className="text-[10px] font-mono text-[var(--text-muted)]">ID: {proj.projectId.slice(0, 8)}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-3 text-[var(--text-muted)]">
+                                                                <span className="truncate max-w-[200px] block">{proj.projectAddress || '—'}</span>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <span className="font-medium text-[var(--text)]">{getCompanyRoleLabel(proj.companyRole)}</span>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1">
+                                                                    <Check size={11} /> Sincronizada
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-3 text-right">
+                                                                <Link
+                                                                    href={`/project/${proj.projectId}/dashboard`}
+                                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                                                >
+                                                                    <span>Abrir Obra</span>
+                                                                    <ArrowRight size={12} />
+                                                                </Link>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     )}
                                 </div>

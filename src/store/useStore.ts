@@ -12,6 +12,11 @@ export interface ProjectRequest {
     companyId?: string;
     companyName?: string;
     nif?: string;
+    purpose?: string;
+    accessType?: 'view' | 'data_management';
+    contractWithCompanyId?: string;
+    contractWithCompanyName?: string;
+    isNewCompanyDraft?: boolean;
     status: 'pending' | 'approved' | 'rejected';
     createdAt: string;
 }
@@ -115,9 +120,9 @@ export interface AppState {
     updateProject: (id: string, updates: Partial<Project>) => void;
     addCompany: (company: Omit<Company, 'id' | 'accountId' | 'createdAt'> & { id?: string; accountId?: string }) => void;
     updateCompany: (id: string, updates: Partial<Company>) => void;
-    addWorker: (worker: Omit<Worker, 'id' | 'accountId' | 'createdAt'> & { accountId?: string }) => void;
+    addWorker: (worker: Omit<Worker, 'id' | 'accountId' | 'createdAt'> & { id?: string; accountId?: string }) => void;
     updateWorker: (id: string, updates: Partial<Worker>) => void;
-    addEquipment: (equipment: Omit<Equipment, 'id' | 'accountId' | 'createdAt'> & { accountId?: string }) => void;
+    addEquipment: (equipment: Omit<Equipment, 'id' | 'accountId' | 'createdAt'> & { id?: string; accountId?: string }) => void;
     updateEquipment: (id: string, updates: Partial<Equipment>) => void;
 
     // Importações e Compatibilização entre Espaço Corporativo e Obras
@@ -154,7 +159,20 @@ export interface AppState {
     removeProjectAccess: (userId: string, projectId: string) => void;
 
     // Requests
-    addProjectRequest: (userId: string, projectId: string, companyId?: string, companyName?: string, nif?: string) => void;
+    addProjectRequest: (
+        userId: string, 
+        projectId: string, 
+        companyId?: string, 
+        companyName?: string, 
+        nif?: string,
+        meta?: {
+            purpose?: string;
+            accessType?: 'view' | 'data_management';
+            contractWithCompanyId?: string;
+            contractWithCompanyName?: string;
+            isNewCompanyDraft?: boolean;
+        }
+    ) => void;
     resolveProjectRequest: (requestId: string, status: 'approved' | 'rejected', role?: ProjectRole) => void;
     changeAccountPlan: (accountId: string, newPlan: PlanType) => void;
     associateCompanyUser: (companyAccountId: string, userEmail: string, userName?: string) => { success: boolean; message: string };
@@ -1593,7 +1611,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
 
     addWorker: (worker) => set((state) => {
-        const id = nanoid();
+        const id = (worker as any).id || nanoid();
         const project = state.projects.find(p => p.id === worker.projectId);
         const profileId = worker.profileId || project?.defaultWorkerProfileId || `profile_std_worker_${worker.projectId}`;
 
@@ -1662,7 +1680,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
 
     addEquipment: (equipment) => set((state) => {
-        const id = nanoid();
+        const id = (equipment as any).id || nanoid();
         const project = state.projects.find(p => p.id === equipment.projectId);
         const profileId = equipment.profileId || project?.defaultEquipmentProfileId || `profile_std_equipment_${equipment.projectId}`;
 
@@ -2074,7 +2092,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
 
 
-    addProjectRequest: (userId, projectId, companyId, companyName, nif) => set((state) => {
+    addProjectRequest: (userId, projectId, companyId, companyName, nif, meta) => set((state) => {
         const user = state.users.find(u => u.id === userId) || state.currentUser;
         const proj = state.projects.find(p => p.id === projectId);
         const comp = companyId ? state.companies.find(c => c.id === companyId) : undefined;
@@ -2088,6 +2106,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             companyId,
             companyName: companyName || comp?.name,
             nif: nif || comp?.nif,
+            purpose: meta?.purpose,
+            accessType: meta?.accessType,
+            contractWithCompanyId: meta?.contractWithCompanyId,
+            contractWithCompanyName: meta?.contractWithCompanyName,
+            isNewCompanyDraft: meta?.isNewCompanyDraft,
             status: 'pending',
             createdAt: new Date().toISOString()
         };
@@ -2113,7 +2136,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         if (status === 'approved') {
             let targetCompanyId = req.companyId;
 
-            // Se o NIF ou nome foi fornecido, associa apenas se a empresa já existir previamente na obra (criação é sempre direta)
+            // Se o NIF ou nome foi fornecido, associa se já existir previamente na obra
             if (!targetCompanyId && (req.companyName || req.nif)) {
                 const existingComp = state.companies.find(c =>
                     c.projectId === req.projectId &&
@@ -2121,11 +2144,42 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 );
                 if (existingComp) {
                     targetCompanyId = existingComp.id;
+                } else if (req.companyName || req.nif) {
+                    // Não está no projeto: criar empresa em modo RASCUNHO automaticamente
+                    const project = state.projects.find(p => p.id === req.projectId);
+                    const newCompanyId = `comp_${nanoid(8)}`;
+                    const draftCompany: Company = {
+                        id: newCompanyId,
+                        projectId: req.projectId,
+                        accountId: project?.accountId || (state.currentUser?.accountId || MOCK_ACCOUNT_ID),
+                        name: req.companyName || 'Nova Empresa (Rascunho)',
+                        nif: req.nif || '',
+                        companyRole: req.purpose ? (req.purpose.toLowerCase().replace(/\s+/g, '_')) : 'subempreiteiro',
+                        parentId: req.contractWithCompanyId || undefined,
+                        tier: req.contractWithCompanyId ? 2 : 1,
+                        workflowStatus: 'draft',
+                        status: 'active',
+                        ifcActorRole: getIfcRoleFromCompanyRole(req.purpose || 'subempreiteiro'),
+                        createdAt: new Date().toISOString()
+                    };
+                    updatedCompanies = [...state.companies, draftCompany];
+                    dbInsert('companies', draftCompany).catch(console.error);
+                    targetCompanyId = newCompanyId;
+
+                    get().addNotification('info', `Empresa "${draftCompany.name}" criada em modo Rascunho na obra. O Gestor deve agora configurar o respetivo Perfil.`);
                 }
             }
 
-            // Grant Access with requested company linked (Default role is 'none' until manager configures it)
-            const assignedRole: ProjectRole = (role || 'none') as ProjectRole;
+            // Grant Access with requested company linked
+            let resolvedRole = role;
+            if (resolvedRole === 'none') {
+                if (req.accessType === 'view') {
+                    resolvedRole = 'viewer';
+                } else if (req.accessType === 'data_management') {
+                    resolvedRole = 'data_user';
+                }
+            }
+            const assignedRole: ProjectRole = (resolvedRole || 'none') as ProjectRole;
             newUsers = state.users.map(u => {
                 if (u.id !== req.userId) return u;
                 const existing = u.projectAccess?.find(pa => pa.projectId === req.projectId);

@@ -9,8 +9,10 @@ import {
     Plus, Check, Shield, Building2, CheckCircle2, Clock, AlertCircle, 
     Copy, Search, Sparkles, UserPlus, Crown, CheckCheck, 
     XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound,
-    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter, Loader2, Bell
+    UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter, Loader2, Bell,
+    Lock, Eye, Edit3
 } from 'lucide-react';
+import { getCompanyRoleLabel } from '@/lib/company-ifc-map';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import AuthGuard from '@/components/AuthGuard';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
@@ -115,6 +117,9 @@ export default function Home() {
     const [selectedCompanyId, setSelectedCompanyId] = useState('');
     const [joinCompanyName, setJoinCompanyName] = useState('');
     const [joinCompanyNif, setJoinCompanyNif] = useState('');
+    const [joinPurpose, setJoinPurpose] = useState<string>('Sub Empreiteiro');
+    const [joinAccessType, setJoinAccessType] = useState<'view' | 'data_management'>('data_management');
+    const [joinContractWithCompanyId, setJoinContractWithCompanyId] = useState<string>('');
     const [serverMatchedProject, setServerMatchedProject] = useState<Project | null>(null);
     const [isSearchingProject, setIsSearchingProject] = useState(false);
     const [joinError, setJoinError] = useState('');
@@ -436,12 +441,21 @@ export default function Home() {
             return;
         }
 
+        const contractCompany = companiesInMatchedProject.find(c => c.id === joinContractWithCompanyId);
+
         addProjectRequest(
             currentUser.id, 
             matchedJoinProject.id, 
             selectedCompanyId || undefined, 
             finalCompanyName,
-            finalNif
+            finalNif,
+            {
+                purpose: joinPurpose,
+                accessType: joinAccessType,
+                contractWithCompanyId: joinContractWithCompanyId || undefined,
+                contractWithCompanyName: contractCompany?.name || undefined,
+                isNewCompanyDraft: !selectedCompanyId
+            }
         );
 
         setJoinSuccess(`Pedido de acesso enviado com sucesso para a obra "${matchedJoinProject.name}"!`);
@@ -451,6 +465,9 @@ export default function Home() {
             setSelectedCompanyId('');
             setJoinCompanyName('');
             setJoinCompanyNif('');
+            setJoinPurpose('Sub Empreiteiro');
+            setJoinAccessType('data_management');
+            setJoinContractWithCompanyId('');
             setJoinSuccess('');
             setServerMatchedProject(null);
         }, 1800);
@@ -839,7 +856,8 @@ export default function Home() {
                                                     const code = project.code || `PRJ-${cleanId}-${new Date(project.createdAt || Date.now()).getFullYear()}`;
                                                     const isCopied = copiedCode === code;
                                                     const userAccess = currentUser.projectAccess?.find(pa => pa.projectId === project.id);
-                                                    const isCreatorOrAdmin = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'client_admin' || project.creatorId === currentUser?.id;
+                                                    const isProjectOwner = isSuperAdmin || (project.creatorId && project.creatorId === currentUser?.id) || (userAccount && project.accountId === userAccount.id);
+                                                    const isCreatorOrAdmin = isSuperAdmin || currentUser?.role === 'admin' || currentUser?.role === 'client_admin' || isProjectOwner;
                                                     const roleLabel = isSuperAdmin 
                                                         ? 'SuperAdmin' 
                                                         : isCreatorOrAdmin 
@@ -872,14 +890,21 @@ export default function Home() {
                                                                 </div>
                                                             </td>
                                                             <td className="py-3.5 px-4">
-                                                                <button
-                                                                    onClick={() => handleCopyCode(project)}
-                                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-input)] hover:bg-[var(--border)] text-[11px] font-mono font-medium text-[var(--text)] border border-[var(--border)] transition-colors"
-                                                                    title="Clique para copiar código de convite da obra"
-                                                                >
-                                                                    <span>{code}</span>
-                                                                    {isCopied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} className="text-[var(--text-muted)]" />}
-                                                                </button>
+                                                                {isProjectOwner ? (
+                                                                    <button
+                                                                        onClick={() => handleCopyCode(project)}
+                                                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-input)] hover:bg-[var(--border)] text-[11px] font-mono font-medium text-[var(--text)] border border-[var(--border)] transition-colors"
+                                                                        title="Clique para copiar código de convite da obra"
+                                                                    >
+                                                                        <span>{code}</span>
+                                                                        {isCopied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} className="text-[var(--text-muted)]" />}
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[var(--bg-input)]/60 text-[11px] font-mono text-[var(--text-muted)] border border-[var(--border)]" title="Código de convite visível apenas para o proprietário da obra">
+                                                                        <Lock size={12} className="text-gray-400" />
+                                                                        <span>Reservado ao Gestor</span>
+                                                                    </span>
+                                                                )}
                                                             </td>
                                                             <td className="py-3.5 px-4 text-[var(--text-muted)]">
                                                                 <div className="flex items-center gap-1.5 text-xs">
@@ -888,9 +913,18 @@ export default function Home() {
                                                                 </div>
                                                             </td>
                                                             <td className="py-3.5 px-4">
-                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                                                    {roleLabel}
-                                                                </span>
+                                                                <div className="flex flex-col gap-1 items-start">
+                                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                                        isProjectOwner 
+                                                                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800' 
+                                                                            : 'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                                                    }`}>
+                                                                        {isProjectOwner ? 'Proprietário' : 'Convidado'}
+                                                                    </span>
+                                                                    <span className="text-[11px] font-medium text-[var(--text)]">
+                                                                        {roleLabel}
+                                                                    </span>
+                                                                </div>
                                                             </td>
                                                             <td className="py-3.5 px-4">
                                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -950,9 +984,10 @@ export default function Home() {
                                             <thead>
                                                 <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
                                                     <th className="py-2.5 px-3">Requerente</th>
-                                                    <th className="py-2.5 px-3">Email</th>
                                                     <th className="py-2.5 px-3">Obra Solicitada</th>
-                                                    <th className="py-2.5 px-3">Empresa a Representar</th>
+                                                    <th className="py-2.5 px-3">Empresa & NIF</th>
+                                                    <th className="py-2.5 px-3">Finalidade & Acesso</th>
+                                                    <th className="py-2.5 px-3">Contrato com</th>
                                                     <th className="py-2.5 px-3">Data</th>
                                                     <th className="py-2.5 px-3 text-right">Ação</th>
                                                 </tr>
@@ -960,17 +995,47 @@ export default function Home() {
                                             <tbody className="divide-y divide-[var(--border)]">
                                                 {receivedRequests.map(req => {
                                                     const proj = projects.find(p => p.id === req.projectId);
+                                                    const isDraftCreation = !req.companyId || req.isNewCompanyDraft;
                                                     return (
                                                         <tr key={req.id} className="hover:bg-primary/5">
-                                                            <td className="py-3 px-3 font-semibold text-[var(--text)]">
-                                                                {req.userName || 'Utilizador'}
-                                                            </td>
-                                                            <td className="py-3 px-3 text-[var(--text-muted)]">{req.userEmail || '—'}</td>
-                                                            <td className="py-3 px-3 font-medium text-primary">{proj?.name || req.projectName || req.projectId}</td>
                                                             <td className="py-3 px-3">
-                                                                <span className="px-2 py-0.5 rounded font-semibold text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                                                                    {req.companyName || 'Empresa designada'}
-                                                                </span>
+                                                                <span className="font-semibold text-[var(--text)] block">{req.userName || 'Utilizador'}</span>
+                                                                <span className="text-[11px] text-[var(--text-muted)]">{req.userEmail || '—'}</span>
+                                                            </td>
+                                                            <td className="py-3 px-3 font-medium text-primary">
+                                                                {proj?.name || req.projectName || req.projectId}
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <div className="space-y-1">
+                                                                    <div className="font-semibold text-[var(--text)]">
+                                                                        {req.companyName || 'Empresa designada'}
+                                                                    </div>
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        {req.nif && (
+                                                                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                                                                NIF: {req.nif}
+                                                                            </span>
+                                                                        )}
+                                                                        {isDraftCreation && (
+                                                                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                                                                                Nova (Criará Rascunho)
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <div className="space-y-0.5">
+                                                                    <span className="text-xs font-semibold text-[var(--text)] block">
+                                                                        {req.purpose || 'Sub Empreiteiro'}
+                                                                    </span>
+                                                                    <span className="text-[10px] text-[var(--text-muted)]">
+                                                                        {req.accessType === 'view' ? 'Apenas Visualização' : 'Gestão de dados'}
+                                                                    </span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-3 text-[var(--text-muted)] text-[11px]">
+                                                                {req.contractWithCompanyName || '—'}
                                                             </td>
                                                             <td className="py-3 px-3 text-[var(--text-muted)] text-[11px]">
                                                                 {req.createdAt ? new Date(req.createdAt).toLocaleDateString() : '—'}
@@ -979,7 +1044,7 @@ export default function Home() {
                                                                 <div className="flex items-center justify-end gap-2">
                                                                     <button
                                                                         onClick={() => {
-                                                                            resolveProjectRequest(req.id, 'approved', 'data_user');
+                                                                            resolveProjectRequest(req.id, 'approved', req.accessType === 'view' ? 'viewer' : 'data_user');
                                                                             addNotification('success', `Acesso de ${req.userName} aprovado com sucesso!`);
                                                                         }}
                                                                         className="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1 shadow-sm"
@@ -2165,74 +2230,144 @@ export default function Home() {
                                             </div>
                                         )}
 
-                                        {/* Company Association */}
-                                        <div className="pt-2 border-t border-emerald-200 dark:border-emerald-800 space-y-2.5">
-                                            <label className="block text-xs font-bold text-gray-800 dark:text-gray-200">
-                                                Identificação da Empresa / Subempreiteiro *
-                                            </label>
+                                        {/* Company Association & Request Details */}
+                                        <div className="pt-2 border-t border-emerald-200 dark:border-emerald-800 space-y-3">
+                                            {/* 1. NIF / NIPC input with live lookup in project */}
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">
+                                                    NIF / NIPC da Empresa *
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    placeholder="ex: 501234567"
+                                                    value={joinCompanyNif}
+                                                    onChange={e => {
+                                                        const val = e.target.value;
+                                                        setJoinCompanyNif(val);
+                                                        const clean = val.trim().replace(/\s+/g, '');
+                                                        const match = companiesInMatchedProject.find(c => (c.nif || '').trim().replace(/\s+/g, '') === clean);
+                                                        if (match) {
+                                                            setSelectedCompanyId(match.id);
+                                                            setJoinCompanyName(match.name);
+                                                        } else {
+                                                            setSelectedCompanyId('');
+                                                        }
+                                                    }}
+                                                    className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-mono"
+                                                />
+                                                <p className="text-[10px] text-gray-500 mt-1">
+                                                    Insira o número de contribuinte para verificar se a empresa já está registada nesta obra.
+                                                </p>
+                                            </div>
 
-                                            {companiesInMatchedProject.length > 0 && (
-                                                <div>
-                                                    <label className="block text-[11px] text-gray-600 dark:text-gray-400 mb-1">
-                                                        Empresas já registadas nesta obra:
-                                                    </label>
-                                                    <select
-                                                        value={selectedCompanyId}
-                                                        onChange={e => {
-                                                            setSelectedCompanyId(e.target.value);
-                                                            if (e.target.value) {
-                                                                const found = companiesInMatchedProject.find(c => c.id === e.target.value);
-                                                                if (found) {
-                                                                    setJoinCompanyName(found.name);
-                                                                    setJoinCompanyNif(found.nif || '');
-                                                                }
-                                                            }
-                                                        }}
-                                                        className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-medium"
-                                                    >
-                                                        <option value="">-- Escolher da lista ou introduzir nova empresa abaixo --</option>
-                                                        {companiesInMatchedProject.map(comp => (
-                                                            <option key={comp.id} value={comp.id}>
-                                                                {comp.name} {comp.nif ? `(NIF: ${comp.nif})` : ''}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            )}
-
-                                            {(!selectedCompanyId || companiesInMatchedProject.length === 0) && (
-                                                <div className="space-y-2 pt-1">
+                                            {/* 2. Detected Company vs New Company Input */}
+                                            {selectedCompanyId ? (
+                                                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 flex items-center justify-between">
                                                     <div>
-                                                        <label className="block text-[11px] font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                        <span className="text-[10px] text-blue-700 dark:text-blue-300 block font-semibold">
+                                                            Empresa já registada nesta obra:
+                                                        </span>
+                                                        <span className="text-xs font-bold text-blue-950 dark:text-blue-100">
+                                                            {joinCompanyName}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+                                                        Reconhecida
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300">
                                                             Nome da Empresa / Entidade *
                                                         </label>
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            placeholder={userAccount?.name || "ex: Construções Silva, Lda"}
-                                                            value={joinCompanyName}
-                                                            onChange={e => setJoinCompanyName(e.target.value)}
-                                                            className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none"
-                                                        />
+                                                        {joinCompanyNif.trim() && (
+                                                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                                                                Nova na obra (será criada como Rascunho)
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                    <div>
-                                                        <label className="block text-[11px] font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                                            NIF / NIPC da Empresa *
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            placeholder="ex: 501234567"
-                                                            value={joinCompanyNif}
-                                                            onChange={e => setJoinCompanyNif(e.target.value)}
-                                                            className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-mono"
-                                                        />
-                                                        <p className="text-[10px] text-gray-500 mt-1">
-                                                            Identificação fiscal para que o gestor da obra o possa reconhecer e aprovar o acesso.
-                                                        </p>
-                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        placeholder={userAccount?.name || "ex: Construções Silva, Lda"}
+                                                        value={joinCompanyName}
+                                                        onChange={e => setJoinCompanyName(e.target.value)}
+                                                        className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none"
+                                                    />
+                                                    <p className="text-[10px] text-gray-500 mt-1">
+                                                        Se a empresa não estiver na obra, ao ser aprovada pelo gestor será criada automaticamente em modo Rascunho para configuração do Perfil.
+                                                    </p>
                                                 </div>
                                             )}
+
+                                            {/* 3. Finalidade do Pedido de Acesso */}
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">
+                                                    Finalidade do Pedido de Acesso *
+                                                </label>
+                                                <select
+                                                    value={joinPurpose}
+                                                    onChange={e => setJoinPurpose(e.target.value)}
+                                                    className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-medium"
+                                                >
+                                                    <option value="Dono de Obra">Dono de Obra</option>
+                                                    <option value="Coordenação de Segurança">Coordenação de Segurança</option>
+                                                    <option value="Fiscalização">Fiscalização</option>
+                                                    <option value="Técnico de segurança">Técnico de segurança</option>
+                                                    <option value="Gestor de Segurança">Gestor de Segurança</option>
+                                                    <option value="Entidade Executante">Entidade Executante</option>
+                                                    <option value="Sub Empreiteiro">Sub Empreiteiro</option>
+                                                    <option value="Fornecedor">Fornecedor</option>
+                                                    <option value="Visitante">Visitante</option>
+                                                </select>
+                                            </div>
+
+                                            {/* 4. Tipo de Acesso */}
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">
+                                                    Tipo de Acesso *
+                                                </label>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setJoinAccessType('view')}
+                                                        className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${joinAccessType === 'view' ? 'border-primary bg-primary/10 text-primary shadow-sm' : 'border-gray-200 dark:border-[#444746] text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                                                    >
+                                                        <Eye size={13} /> Visualização
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setJoinAccessType('data_management')}
+                                                        className={`p-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${joinAccessType === 'data_management' ? 'border-primary bg-primary/10 text-primary shadow-sm' : 'border-gray-200 dark:border-[#444746] text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+                                                    >
+                                                        <Edit3 size={13} /> Gestão de dados
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* 5. Contrato com */}
+                                            <div>
+                                                <label className="block text-[11px] font-bold text-gray-700 dark:text-gray-300 mb-1">
+                                                    Contrato com (Empresas presentes na obra):
+                                                </label>
+                                                <select
+                                                    value={joinContractWithCompanyId}
+                                                    onChange={e => setJoinContractWithCompanyId(e.target.value)}
+                                                    className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-medium"
+                                                >
+                                                    <option value="">-- Contrato Direto / Não Aplicável --</option>
+                                                    {companiesInMatchedProject.map(comp => (
+                                                        <option key={comp.id} value={comp.id}>
+                                                            {comp.name} {comp.nif ? `(NIF: ${comp.nif})` : ''} {comp.companyRole ? `[${getCompanyRoleLabel(comp.companyRole)}]` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[10px] text-gray-500 mt-1">
+                                                    Se tem contrato com um empreiteiro ou entidade já em estaleiro, selecione para hierarquia DL 273/2003.
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 ) : (

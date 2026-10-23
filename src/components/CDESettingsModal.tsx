@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Cloud, X, Save, RefreshCw, Trash2, ExternalLink, ChevronDown, ChevronRight, ShieldCheck, CheckCircle2, AlertCircle, Lock } from 'lucide-react';
+import { Cloud, X, Save, RefreshCw, Trash2, ExternalLink, ChevronDown, ChevronRight, ShieldCheck, CheckCircle2, AlertCircle, Lock, Copy, Check, BookOpen, Server, HelpCircle } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { GoogleDriveIcon } from './GoogleDriveIcons';
 
@@ -15,6 +15,10 @@ interface CDESettingsModalProps {
 export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onClose, projectId, title }) => {
     const { projects, updateProjectCDE } = useStore();
     const project = projects.find(p => p.id === projectId);
+
+    // Modal navigation tab
+    const [activeModalTab, setActiveModalTab] = useState<'config' | 'free_setup' | 'self_hosted' | 'troubleshooting'>('config');
+    const [copiedRedirectUri, setCopiedRedirectUri] = useState(false);
 
     // Local State for Form
     const [provider, setProvider] = useState<'onedrive' | 'gdrive' | 'dropbox' | null>(null);
@@ -37,6 +41,14 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
     // Test connection state
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+    const redirectUri = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '';
+    const handleCopyRedirectUri = () => {
+        if (!redirectUri) return;
+        navigator.clipboard.writeText(redirectUri);
+        setCopiedRedirectUri(true);
+        setTimeout(() => setCopiedRedirectUri(false), 2000);
+    };
 
     // Load existing sanitized config from server and store on open
     useEffect(() => {
@@ -363,7 +375,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
 
     return (
         <div className="fixed inset-0 bg-black/50 z-[9000] flex items-center justify-center p-4 backdrop-blur-sm">
-            <div className="bg-white dark:bg-surface rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="bg-white dark:bg-surface rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
                 <div className="p-4 border-b flex justify-between items-center bg-gray-50 dark:bg-[#131314]">
                     <h3 className="font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
                         <Cloud size={20} className="text-primary" />
@@ -374,269 +386,452 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                     </button>
                 </div>
 
-                <div className="p-6 overflow-y-auto custom-scrollbar">
-                    {/* Security Badge */}
-                    <div className="mb-5 p-3.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-start gap-3">
-                        <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
-                        <div className="text-xs text-emerald-900 dark:text-emerald-200">
-                            <span className="font-semibold block">Segurança Máxima Ativa (Backend BFF)</span>
-                            <span className="text-emerald-800 dark:text-emerald-300">
-                                Todas as credenciais, segredos de clientes e tokens são cifrados com <strong>AES-256-GCM</strong> no servidor e nunca expostos em texto simples no browser.
-                            </span>
-                        </div>
-                    </div>
+                {/* Sub-Tabs Navigation */}
+                <div className="flex border-b border-gray-200 dark:border-[#444746] bg-gray-50/70 dark:bg-[#131314]/70 px-4 gap-1 text-xs overflow-x-auto">
+                    <button
+                        onClick={() => setActiveModalTab('config')}
+                        className={`py-2.5 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors whitespace-nowrap ${activeModalTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    >
+                        <Cloud size={14} /> Configuração
+                    </button>
+                    <button
+                        onClick={() => setActiveModalTab('free_setup')}
+                        className={`py-2.5 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors whitespace-nowrap ${activeModalTab === 'free_setup' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    >
+                        <BookOpen size={14} /> Criar Conta Gratuita (Do Zero)
+                    </button>
+                    <button
+                        onClick={() => setActiveModalTab('self_hosted')}
+                        className={`py-2.5 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors whitespace-nowrap ${activeModalTab === 'self_hosted' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    >
+                        <Server size={14} /> Serviço Próprio / WebDAV
+                    </button>
+                    <button
+                        onClick={() => setActiveModalTab('troubleshooting')}
+                        className={`py-2.5 px-3 font-semibold border-b-2 flex items-center gap-1.5 transition-colors whitespace-nowrap ${activeModalTab === 'troubleshooting' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                    >
+                        <HelpCircle size={14} /> Dúvidas & Diagnóstico
+                    </button>
+                </div>
 
-                    {/* Provider Selection */}
-                    <div className="grid grid-cols-3 gap-3 mb-6">
-                        <button
-                            onClick={() => { setProvider('onedrive'); setTestResult(null); }}
-                            className={`p-3 rounded-lg border flex flex-col items-center gap-2 transition-all ${provider === 'onedrive' ? 'bg-primary-light border-primary/20 text-primary-hover font-semibold shadow-sm' : 'bg-white dark:bg-surface border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-gray-600 dark:text-gray-300'}`}
-                        >
-                            <Cloud size={24} className={provider === 'onedrive' ? "text-primary" : "text-gray-400"} />
-                            <span className="text-xs">OneDrive / SharePoint</span>
-                        </button>
-                        <button
-                            onClick={() => { setProvider('gdrive'); setTestResult(null); }}
-                            className={`p-3 rounded-lg border flex flex-col items-center gap-2 transition-all ${provider === 'gdrive' ? 'bg-green-50 border-green-200 text-green-700 font-semibold shadow-sm' : 'bg-white dark:bg-surface border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-gray-600 dark:text-gray-300'}`}
-                        >
-                            <GoogleDriveIcon type="folder" size={24} />
-                            <span className="text-xs">Google Drive</span>
-                        </button>
-                        <button
-                            onClick={() => { setProvider('dropbox'); setTestResult(null); }}
-                            className={`p-3 rounded-lg border flex flex-col items-center gap-2 transition-all ${provider === 'dropbox' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-semibold shadow-sm' : 'bg-white dark:bg-surface border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-gray-600 dark:text-gray-300'}`}
-                        >
-                            <Cloud size={24} className={provider === 'dropbox' ? "text-indigo-600" : "text-gray-400"} />
-                            <span className="text-xs">Dropbox</span>
-                        </button>
-                    </div>
-
-                    {/* Google Drive Manual */}
-                    {provider === 'gdrive' && (
-                        <div className="mb-6 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg overflow-hidden">
-                            <button
-                                onClick={() => setIsManualOpen(!isManualOpen)}
-                                className="w-full flex items-center justify-between p-4 text-left hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors"
-                            >
-                                <div className="flex items-center gap-2 font-semibold text-blue-800 dark:text-blue-300 text-sm">
-                                    <ExternalLink size={16} />
-                                    <span>Como conectar o Google Drive</span>
+                <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                    {/* ════════ TAB 1: CONFIGURAÇÃO ════════ */}
+                    {activeModalTab === 'config' && (
+                        <div>
+                            {/* Security Badge */}
+                            <div className="mb-5 p-3.5 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-start gap-3">
+                                <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+                                <div className="text-xs text-emerald-900 dark:text-emerald-200">
+                                    <span className="font-semibold block">Segurança Máxima Ativa (Backend BFF)</span>
+                                    <span className="text-emerald-800 dark:text-emerald-300">
+                                        Todas as credenciais, segredos de clientes e tokens são cifrados com <strong>AES-256-GCM</strong> no servidor e nunca expostos em texto simples no browser.
+                                    </span>
                                 </div>
-                                {isManualOpen ? <ChevronDown size={16} className="text-primary" /> : <ChevronRight size={16} className="text-primary" />}
-                            </button>
-
-                            {isManualOpen && (
-                                <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-200">
-                                    <ol className="list-decimal list-inside text-xs text-primary-hover dark:text-blue-200 space-y-1 ml-1 border-t border-primary/20 pt-3">
-                                        <li>Aceda à <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">Google Cloud Console</a>.</li>
-                                        <li>Crie um projeto ou selecione um existente.</li>
-                                        <li>Ative a <strong>Google Drive API</strong> em "APIs & Services".</li>
-                                        <li>Configure o "OAuth consent screen" (User Type: External).</li>
-                                        <li>Em "Credentials", crie um <strong>OAuth Client ID</strong> (Web Application).</li>
-                                        <li>Adicione <code>{typeof window !== 'undefined' ? window.location.origin : ''}</code> em "Authorized JavaScript origins".</li>
-                                        <li>Adicione <code>{typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : ''}</code> em "Authorized redirect URIs".</li>
-                                        <li>Copie o <strong>Client ID</strong> e cole abaixo.</li>
-                                    </ol>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {provider === 'gdrive' && (
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Google Client ID</label>
-                                <input
-                                    type="text"
-                                    value={credentials.clientId}
-                                    onChange={e => setCredentials({ ...credentials, clientId: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-green-100 focus:border-green-400"
-                                    placeholder="apps.googleusercontent.com"
-                                />
-                                <p className="text-[10px] text-gray-500 mt-1">Necessário para Autenticação OAuth</p>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Link da Pasta Partilhada</label>
-                                <input
-                                    type="text"
-                                    value={credentials.folderUrl}
-                                    onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-green-100 focus:border-green-400"
-                                    placeholder="https://drive.google.com/drive/folders/..."
-                                />
-                            </div>
-                        </div>
-                    )}
 
-                    {/* OneDrive Manual */}
-                    {provider === 'onedrive' && (
-                        <div className="mb-6 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg overflow-hidden">
-                            <button
-                                onClick={() => setIsManualOpen(!isManualOpen)}
-                                className="w-full flex items-center justify-between p-4 text-left hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors"
-                            >
-                                <div className="flex items-center gap-2 font-semibold text-blue-800 dark:text-blue-300 text-sm">
-                                    <ExternalLink size={16} />
-                                    <span>Como conectar o SharePoint / OneDrive</span>
-                                </div>
-                                {isManualOpen ? <ChevronDown size={16} className="text-primary" /> : <ChevronRight size={16} className="text-primary" />}
-                            </button>
-
-                            {isManualOpen && (
-                                <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-200">
-                                    <ol className="list-decimal list-inside text-xs text-primary-hover dark:text-blue-200 space-y-1 ml-1 border-t border-primary/20 pt-3">
-                                        <li>Aceda ao <a href="https://portal.azure.com/" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">Azure Portal</a> e abra "App registrations".</li>
-                                        <li>Crie um "New registration".</li>
-                                        <li>Copie o <strong>Application (client) ID</strong> e o <strong>Directory (tenant) ID</strong>.</li>
-                                        <li>Em "Certificates & secrets", gere um novo client secret e copie o <strong>Value</strong>.</li>
-                                        <li>Em "API Permissions", adicione <code>Sites.ReadWrite.All</code> e conceda consentimento do administrador ("Grant Admin Consent").</li>
-                                        <li>Preencha os campos abaixo com os dados obtidos.</li>
-                                    </ol>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {provider === 'onedrive' && (
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Link da Pasta / Site do SharePoint</label>
-                                <input
-                                    type="text"
-                                    value={credentials.folderUrl}
-                                    onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary"
-                                    placeholder="https://tenant.sharepoint.com/sites/NomeObra"
-                                />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            {/* Redirect URI Quick Copy */}
+                            <div className="mb-5 p-3 rounded-lg bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-[#444746] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Directory (Tenant) ID</label>
-                                    <input
-                                        type="text"
-                                        value={credentials.tenantId}
-                                        onChange={e => setCredentials({ ...credentials, tenantId: e.target.value })}
-                                        className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary"
-                                        placeholder="00000000-0000-0000-0000-000000000000"
-                                    />
+                                    <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300 block">
+                                        Redirect URI da sua App:
+                                    </span>
+                                    <code className="text-xs font-mono text-primary font-semibold select-all break-all">
+                                        {redirectUri}
+                                    </code>
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Application (Client) ID</label>
-                                    <input
-                                        type="text"
-                                        value={credentials.clientId}
-                                        onChange={e => setCredentials({ ...credentials, clientId: e.target.value })}
-                                        className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary"
-                                        placeholder="00000000-0000-0000-0000-000000000000"
-                                    />
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyRedirectUri}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-white dark:bg-surface border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 transition-colors shrink-0 self-start sm:self-auto"
+                                >
+                                    {copiedRedirectUri ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
+                                    <span>{copiedRedirectUri ? 'Copiado!' : 'Copiar URI'}</span>
+                                </button>
                             </div>
-                            <div>
-                                <div className="flex items-center justify-between mb-1">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        Client Secret
-                                    </label>
-                                    {serverCdeConfig?.hasClientSecret && (
-                                        <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
-                                            <Lock size={12} /> Cifrado no Servidor
-                                        </span>
-                                    )}
-                                </div>
-                                <input
-                                    type="password"
-                                    value={credentials.clientSecret}
-                                    onChange={e => setCredentials({ ...credentials, clientSecret: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary"
-                                    placeholder={serverCdeConfig?.hasClientSecret ? '•••••••••••••••• (deixe inalterado para manter)' : 'Insira o Client Secret'}
-                                />
+
+                            {/* Provider Selection */}
+                            <div className="grid grid-cols-3 gap-3 mb-6">
+                                <button
+                                    onClick={() => { setProvider('onedrive'); setTestResult(null); }}
+                                    className={`p-3 rounded-lg border flex flex-col items-center gap-2 transition-all ${provider === 'onedrive' ? 'bg-primary-light border-primary/20 text-primary-hover font-semibold shadow-sm' : 'bg-white dark:bg-surface border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-gray-600 dark:text-gray-300'}`}
+                                >
+                                    <Cloud size={24} className={provider === 'onedrive' ? "text-primary" : "text-gray-400"} />
+                                    <span className="text-xs">OneDrive / SharePoint</span>
+                                </button>
+                                <button
+                                    onClick={() => { setProvider('gdrive'); setTestResult(null); }}
+                                    className={`p-3 rounded-lg border flex flex-col items-center gap-2 transition-all ${provider === 'gdrive' ? 'bg-green-50 border-green-200 text-green-700 font-semibold shadow-sm' : 'bg-white dark:bg-surface border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-gray-600 dark:text-gray-300'}`}
+                                >
+                                    <GoogleDriveIcon type="folder" size={24} />
+                                    <span className="text-xs">Google Drive</span>
+                                </button>
+                                <button
+                                    onClick={() => { setProvider('dropbox'); setTestResult(null); }}
+                                    className={`p-3 rounded-lg border flex flex-col items-center gap-2 transition-all ${provider === 'dropbox' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-semibold shadow-sm' : 'bg-white dark:bg-surface border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-gray-600 dark:text-gray-300'}`}
+                                >
+                                    <Cloud size={24} className={provider === 'dropbox' ? "text-indigo-600" : "text-gray-400"} />
+                                    <span className="text-xs">Dropbox</span>
+                                </button>
                             </div>
-                        </div>
-                    )}
 
-                    {/* Dropbox Manual */}
-                    {provider === 'dropbox' && (
-                        <div className="mb-6 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg overflow-hidden">
-                            <button
-                                onClick={() => setIsManualOpen(!isManualOpen)}
-                                className="w-full flex items-center justify-between p-4 text-left hover:bg-blue-100/50 dark:hover:bg-blue-900/30 transition-colors"
-                            >
-                                <div className="flex items-center gap-2 font-semibold text-blue-800 dark:text-blue-300 text-sm">
-                                    <ExternalLink size={16} />
-                                    <span>Como conectar o Dropbox</span>
+                            {/* Google Drive Inputs */}
+                            {provider === 'gdrive' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Google Client ID</label>
+                                        <input
+                                            type="text"
+                                            value={credentials.clientId}
+                                            onChange={e => setCredentials({ ...credentials, clientId: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-green-100 focus:border-green-400 font-mono"
+                                            placeholder="ex: 123456789-abcdef.apps.googleusercontent.com"
+                                        />
+                                        <p className="text-[10px] text-gray-500 mt-1">Obtido na Google Cloud Console &rarr; Credenciais &rarr; ID do Cliente OAuth (Web).</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Link da Pasta da Obra (Opcional)</label>
+                                        <input
+                                            type="text"
+                                            value={credentials.folderUrl}
+                                            onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-green-100 focus:border-green-400"
+                                            placeholder="https://drive.google.com/drive/folders/..."
+                                        />
+                                    </div>
                                 </div>
-                                {isManualOpen ? <ChevronDown size={16} className="text-primary" /> : <ChevronRight size={16} className="text-primary" />}
-                            </button>
+                            )}
 
-                            {isManualOpen && (
-                                <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-200">
-                                    <ol className="list-decimal list-inside text-xs text-primary-hover dark:text-blue-200 space-y-1 ml-1 border-t border-primary/20 pt-3">
-                                        <li>Aceda à <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">Dropbox App Console</a>.</li>
-                                        <li>Clique em "Create app" &rarr; "Scoped access" &rarr; "Full Dropbox".</li>
-                                        <li>Na tab "Permissions", ative <code>files.content.write</code> e <code>files.content.read</code>.</li>
-                                        <li>Na tab "Settings", adicione <code>{typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : ''}</code> em "Redirect URIs".</li>
-                                        <li>Copie o <strong>App Key</strong> e o <strong>App Secret</strong> e cole abaixo.</li>
-                                    </ol>
+                            {/* OneDrive / SharePoint Inputs */}
+                            {provider === 'onedrive' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Link da Pasta / Site do SharePoint</label>
+                                        <input
+                                            type="text"
+                                            value={credentials.folderUrl}
+                                            onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary"
+                                            placeholder="https://empresa.sharepoint.com/sites/NomeObra"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Directory (Tenant) ID</label>
+                                            <input
+                                                type="text"
+                                                value={credentials.tenantId}
+                                                onChange={e => setCredentials({ ...credentials, tenantId: e.target.value })}
+                                                className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary font-mono"
+                                                placeholder="00000000-0000-0000-0000-000000000000"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Application (Client) ID</label>
+                                            <input
+                                                type="text"
+                                                value={credentials.clientId}
+                                                onChange={e => setCredentials({ ...credentials, clientId: e.target.value })}
+                                                className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary font-mono"
+                                                placeholder="00000000-0000-0000-0000-000000000000"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">Client Secret</label>
+                                            {serverCdeConfig?.hasClientSecret && (
+                                                <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                                                    <Lock size={12} /> Cifrado no Servidor
+                                                </span>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="password"
+                                            value={credentials.clientSecret}
+                                            onChange={e => setCredentials({ ...credentials, clientSecret: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-primary-light focus:border-primary font-mono"
+                                            placeholder={serverCdeConfig?.hasClientSecret ? '•••••••••••••••• (deixe inalterado para manter)' : 'Insira o Client Secret'}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Dropbox Inputs */}
+                            {provider === 'dropbox' && (
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Dropbox App Key</label>
+                                        <input
+                                            type="text"
+                                            value={credentials.appKey}
+                                            onChange={e => setCredentials({ ...credentials, appKey: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-mono"
+                                            placeholder="Ex: sl98df... "
+                                        />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">Dropbox App Secret</label>
+                                            {serverCdeConfig?.hasAppSecret && (
+                                                <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                                                    <Lock size={12} /> Cifrado no Servidor
+                                                </span>
+                                            )}
+                                        </div>
+                                        <input
+                                            type="password"
+                                            value={credentials.appSecret}
+                                            onChange={e => setCredentials({ ...credentials, appSecret: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 font-mono"
+                                            placeholder={serverCdeConfig?.hasAppSecret ? '•••••••••••••••• (deixe inalterado para manter)' : 'Insira o App Secret'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Caminho da Pasta Inicial (Opcional)</label>
+                                        <input
+                                            type="text"
+                                            value={credentials.folderUrl}
+                                            onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
+                                            className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                                            placeholder="/Obras/Obra Principal"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Test Connection Result Feedback */}
+                            {testResult && (
+                                <div className={`mt-4 p-3 rounded-lg text-sm flex items-start gap-2.5 ${testResult.success ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300' : 'bg-red-50 text-red-600 border border-red-200 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'}`}>
+                                    {testResult.success ? <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
+                                    <div>{testResult.message}</div>
+                                </div>
+                            )}
+
+                            {authError && (
+                                <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300 text-sm rounded-lg flex items-start gap-2">
+                                    <span className="mt-0.5">⚠️</span>
+                                    <div>{authError}</div>
                                 </div>
                             )}
                         </div>
                     )}
 
-                    {provider === 'dropbox' && (
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Dropbox App Key</label>
-                                <input
-                                    type="text"
-                                    value={credentials.appKey}
-                                    onChange={e => setCredentials({ ...credentials, appKey: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                                    placeholder="Ex: sl98df... "
-                                />
+                    {/* ════════ TAB 2: CONTA GRATUITA (DO ZERO) ════════ */}
+                    {activeModalTab === 'free_setup' && (
+                        <div className="space-y-5 text-xs text-gray-700 dark:text-gray-300">
+                            <div className="p-3.5 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800">
+                                <h4 className="font-bold text-sm text-blue-950 dark:text-blue-200 mb-1">
+                                    Guia Rápido: Criar um CDE 100% Gratuito só para esta Obra
+                                </h4>
+                                <p className="text-[11px] text-blue-900/80 dark:text-blue-300/80">
+                                    Não necessita de ter conta corporativa paga. Pode criar uma conta de nuvem gratuita dedicada em 2 minutos para gerir todos os ficheiros da obra em conformidade com o DL 273/2003 e ISO 19650.
+                                </p>
                             </div>
-                            <div>
-                                <div className="flex items-center justify-between mb-1">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        Dropbox App Secret
-                                    </label>
-                                    {serverCdeConfig?.hasAppSecret && (
-                                        <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
-                                            <Lock size={12} /> Cifrado no Servidor
-                                        </span>
-                                    )}
+
+                            {/* Método 1: Dropbox Gratuito */}
+                            <div className="p-4 rounded-xl border border-gray-200 dark:border-[#444746] space-y-3 bg-white dark:bg-[#131314]">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-bold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                        <Cloud size={16} className="text-indigo-600" />
+                                        Opção 1 (Recomendada): Dropbox Gratuito (2 GB de Oferta)
+                                    </span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
+                                        Mais Rápido (2 min)
+                                    </span>
                                 </div>
-                                <input
-                                    type="password"
-                                    value={credentials.appSecret}
-                                    onChange={e => setCredentials({ ...credentials, appSecret: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                                    placeholder={serverCdeConfig?.hasAppSecret ? '•••••••••••••••• (deixe inalterado para manter)' : 'Insira o App Secret'}
-                                />
+                                <ol className="list-decimal list-inside space-y-2 text-xs leading-relaxed">
+                                    <li>
+                                        Registe uma conta gratuita em <a href="https://www.dropbox.com" target="_blank" rel="noopener noreferrer" className="text-primary font-semibold underline">dropbox.com</a> (ex: com o email da obra ou projeto).
+                                    </li>
+                                    <li>
+                                        Aceda à consola de developers do Dropbox: <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary font-semibold underline">dropbox.com/developers/apps</a>.
+                                    </li>
+                                    <li>
+                                        Clique no botão azul <strong>"Create app"</strong>:
+                                        <ul className="list-disc list-inside ml-4 mt-1 space-y-1 text-gray-600 dark:text-gray-400">
+                                            <li>Escolha <strong>"Scoped access"</strong>.</li>
+                                            <li>Escolha <strong>"Full Dropbox"</strong> (ou "App folder" se preferir uma pasta exclusiva).</li>
+                                            <li>Dê um nome à app (ex: <code>SafeSite-Obra-{projectId.slice(0, 5)}</code>).</li>
+                                        </ul>
+                                    </li>
+                                    <li>
+                                        Na aba <strong>"Permissions"</strong>, assinale as seguintes 4 permissões e clique em <em>Submit</em>:
+                                        <code className="block mt-1 p-2 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[11px] text-indigo-600 dark:text-indigo-400">
+                                            files.metadata.write • files.metadata.read • files.content.write • files.content.read
+                                        </code>
+                                    </li>
+                                    <li>
+                                        Na aba <strong>"Settings"</strong>, localize o campo <strong>"Redirect URIs"</strong> e cole exatamente:
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <code className="flex-1 p-1.5 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[11px] text-gray-800 dark:text-gray-200">
+                                                {redirectUri}
+                                            </code>
+                                            <button
+                                                type="button"
+                                                onClick={handleCopyRedirectUri}
+                                                className="px-2 py-1 rounded bg-primary/10 text-primary text-[11px] font-bold hover:bg-primary/20"
+                                            >
+                                                {copiedRedirectUri ? 'Copiado!' : 'Copiar'}
+                                            </button>
+                                        </div>
+                                    </li>
+                                    <li>
+                                        Copie o <strong>App Key</strong> e o <strong>App Secret</strong>, cole na aba "Configuração" e clique em <em>Autorizar & Ligar</em>.
+                                    </li>
+                                </ol>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Caminho da Pasta Inicial (Opcional)</label>
-                                <input
-                                    type="text"
-                                    value={credentials.folderUrl}
-                                    onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
-                                    className="w-full px-3 py-2 border rounded-lg text-sm bg-gray-50 dark:bg-[#131314] focus:bg-white dark:focus:bg-surface transition-colors outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                                    placeholder="/Obras/Obra Principal"
-                                />
+
+                            {/* Método 2: Google Drive Gratuito */}
+                            <div className="p-4 rounded-xl border border-gray-200 dark:border-[#444746] space-y-3 bg-white dark:bg-[#131314]">
+                                <div className="flex items-center justify-between">
+                                    <span className="font-bold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                        <GoogleDriveIcon type="folder" size={16} />
+                                        Opção 2: Google Drive Gratuito (15 GB de Oferta)
+                                    </span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-green-100 text-green-700 dark:bg-green-950/60 dark:text-green-300">
+                                        Maior Espaço
+                                    </span>
+                                </div>
+                                <ol className="list-decimal list-inside space-y-2 text-xs leading-relaxed">
+                                    <li>
+                                        Crie uma conta Google gratuita para a obra (ex: <code>obra.safesite.demo@gmail.com</code>).
+                                    </li>
+                                    <li>
+                                        Aceda a <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="text-primary font-semibold underline">console.cloud.google.com</a> e crie um projeto com o nome da obra.
+                                    </li>
+                                    <li>
+                                        No menu lateral, vá a <strong>APIs e Serviços &rarr; Biblioteca</strong> e ative a <strong>Google Drive API</strong>.
+                                    </li>
+                                    <li>
+                                        Em <strong>Ecrã de consentimento OAuth</strong>, selecione <strong>Externo</strong>, preencha o nome da aplicação e adicione o email da obra como utilizador de teste.
+                                    </li>
+                                    <li>
+                                        Em <strong>Credenciais &rarr; Criar Credenciais &rarr; ID do Cliente OAuth</strong> (Tipo: <em>Aplicação Web</em>):
+                                        <div className="mt-1 space-y-1">
+                                            <p className="text-[11px] text-gray-500">Origens JavaScript autorizadas:</p>
+                                            <code className="block p-1 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[10px]">
+                                                {typeof window !== 'undefined' ? window.location.origin : ''}
+                                            </code>
+                                            <p className="text-[11px] text-gray-500 mt-1">URIs de redirecionamento autorizados:</p>
+                                            <code className="block p-1 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[10px]">
+                                                {redirectUri}
+                                            </code>
+                                        </div>
+                                    </li>
+                                    <li>
+                                        Copie o <strong>Client ID</strong> gerado e cole na aba de configuração.
+                                    </li>
+                                </ol>
                             </div>
                         </div>
                     )}
 
-                    {/* Test Connection Result Feedback */}
-                    {testResult && (
-                        <div className={`mt-4 p-3 rounded-lg text-sm flex items-start gap-2.5 ${testResult.success ? 'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/30 dark:border-green-800 dark:text-green-300' : 'bg-red-50 text-red-600 border border-red-200 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300'}`}>
-                            {testResult.success ? <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" /> : <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />}
-                            <div>{testResult.message}</div>
+                    {/* ════════ TAB 3: SERVIDOR PRÓPRIO / WEBDAV ════════ */}
+                    {activeModalTab === 'self_hosted' && (
+                        <div className="space-y-4 text-xs text-gray-700 dark:text-gray-300">
+                            <div className="p-3.5 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800">
+                                <h4 className="font-bold text-sm text-purple-950 dark:text-purple-200 mb-1">
+                                    Serviço Próprio da Empresa ou Servidor On-Premise
+                                </h4>
+                                <p className="text-[11px] text-purple-900/80 dark:text-purple-300/80">
+                                    Se a sua empresa já possui infraestrutura própria (Nextcloud, MinIO S3, Synology NAS ou servidor WebDAV com SSL), os documentos podem ser sincronizados diretamente para o vosso data center privado.
+                                </p>
+                            </div>
+
+                            {/* Nextcloud / Owncloud */}
+                            <div className="p-4 rounded-xl border border-gray-200 dark:border-[#444746] space-y-2 bg-white dark:bg-[#131314]">
+                                <h5 className="font-bold text-xs text-gray-900 dark:text-gray-100">
+                                    1. Nextcloud / ownCloud (WebDAV)
+                                </h5>
+                                <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                                    O Nextcloud suporta nativamente o protocolo WebDAV com controlo de versões ISO 19650.
+                                </p>
+                                <div className="p-2.5 bg-gray-50 dark:bg-gray-800 rounded-lg font-mono text-[11px] space-y-1">
+                                    <div className="text-gray-500 text-[10px]"># Endereço WebDAV típico do Nextcloud:</div>
+                                    <div className="text-purple-600 dark:text-purple-400">https://cloud.suaempresa.pt/remote.php/dav/files/UTILIZADOR/CDE_Obra/</div>
+                                </div>
+                                <ul className="list-disc list-inside text-[11px] space-y-1 text-gray-600 dark:text-gray-400 pt-1">
+                                    <li>Recomendado: Crie uma "Palavra-passe de aplicação" nas definições de Segurança do seu utilizador no Nextcloud.</li>
+                                    <li>A pasta da obra será mantida sincronizada via protocolo padrão WebDAV.</li>
+                                </ul>
+                            </div>
+
+                            {/* MinIO / S3 Compatível */}
+                            <div className="p-4 rounded-xl border border-gray-200 dark:border-[#444746] space-y-2 bg-white dark:bg-[#131314]">
+                                <h5 className="font-bold text-xs text-gray-900 dark:text-gray-100">
+                                    2. MinIO / Armazenamento S3 Próprio (Object Storage)
+                                </h5>
+                                <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                                    Para empresas com cluster MinIO, Ceph ou VPS próprio:
+                                </p>
+                                <ul className="list-disc list-inside text-[11px] space-y-1 text-gray-600 dark:text-gray-400">
+                                    <li>Crie um Bucket dedicado com o identificador da obra (ex: <code>cde-obra-{projectId.slice(0, 8)}</code>).</li>
+                                    <li>Gere um par <em>Access Key</em> e <em>Secret Key</em> com permissões <code>s3:PutObject</code> e <code>s3:GetObject</code>.</li>
+                                    <li>Todas as chamadas são encaminhadas pelo backend encriptado do SafeSite para manter sigilo total.</li>
+                                </ul>
+                            </div>
+
+                            {/* NAS Synology / QNAP */}
+                            <div className="p-4 rounded-xl border border-gray-200 dark:border-[#444746] space-y-2 bg-white dark:bg-[#131314]">
+                                <h5 className="font-bold text-xs text-gray-900 dark:text-gray-100">
+                                    3. NAS de Escritório (Synology DSM / QNAP QTS)
+                                </h5>
+                                <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                                    Instale o pacote <strong>WebDAV Server</strong> no seu NAS e configure um certificado SSL Let's Encrypt gratuito com porta 5006 (HTTPS). Crie uma pasta partilhada com permissão restrita para o utilizador da obra.
+                                </p>
+                            </div>
                         </div>
                     )}
 
-                    {authError && (
-                        <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 dark:bg-red-950/30 dark:border-red-800 dark:text-red-300 text-sm rounded-lg flex items-start gap-2">
-                            <span className="mt-0.5">⚠️</span>
-                            <div>{authError}</div>
+                    {/* ════════ TAB 4: RESOLUÇÃO DE DÚVIDAS / TROUBLESHOOTING ════════ */}
+                    {activeModalTab === 'troubleshooting' && (
+                        <div className="space-y-4 text-xs text-gray-700 dark:text-gray-300">
+                            <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+                                <h4 className="font-bold text-sm text-amber-950 dark:text-amber-200 mb-1">
+                                    Diagnóstico & Solução de Problemas Comuns
+                                </h4>
+                                <p className="text-[11px] text-amber-900/80 dark:text-amber-300/80">
+                                    Confira as causas mais frequentes quando a ligação falha ou o teste de ligação dá erro.
+                                </p>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="p-3 rounded-lg border border-gray-200 dark:border-[#444746]">
+                                    <h5 className="font-bold text-xs text-red-600 dark:text-red-400 mb-1">
+                                        1. Erro: "Redirect URI mismatch" ou "URI de redirecionamento inválido"
+                                    </h5>
+                                    <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                                        Causa: O endereço configurado na consola (Dropbox ou Google) não é exatamente igual ao que o browser está a usar.
+                                    </p>
+                                    <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-1">
+                                        Solução: Copie o botão <strong>"Copiar URI"</strong> na aba de Configuração e cole-o nas definições da app na consola do provedor.
+                                    </p>
+                                </div>
+
+                                <div className="p-3 rounded-lg border border-gray-200 dark:border-[#444746]">
+                                    <h5 className="font-bold text-xs text-red-600 dark:text-red-400 mb-1">
+                                        2. Janela de login fecha ou é bloqueada (Pop-up blocker)
+                                    </h5>
+                                    <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                                        Causa: O browser bloqueou a abertura de pop-ups de autenticação da Google ou Dropbox.
+                                    </p>
+                                    <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-1">
+                                        Solução: Verifique o ícone de aviso no canto direito da barra de endereços do browser e selecione "Permitir sempre pop-ups deste site".
+                                    </p>
+                                </div>
+
+                                <div className="p-3 rounded-lg border border-gray-200 dark:border-[#444746]">
+                                    <h5 className="font-bold text-xs text-red-600 dark:text-red-400 mb-1">
+                                        3. Permissões insuficientes para criar pastas (403 Forbidden)
+                                    </h5>
+                                    <p className="text-[11px] text-gray-600 dark:text-gray-400">
+                                        Causa: Na consola do Dropbox ou SharePoint faltou selecionar as permissões de escrita (Write).
+                                    </p>
+                                    <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-1">
+                                        Solução: No Dropbox, garanta que <code>files.content.write</code> está ativo. No SharePoint / Azure, conceda <code>Sites.ReadWrite.All</code> com "Admin Consent".
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>

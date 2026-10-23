@@ -41,6 +41,11 @@ export async function GET(req: NextRequest) {
             companyId: r.companyId || undefined,
             companyName: r.companyName || undefined,
             nif: r.nif || undefined,
+            purpose: r.purpose || undefined,
+            accessType: r.accessType || undefined,
+            contractWithCompanyId: r.contractWithCompanyId || undefined,
+            contractWithCompanyName: r.contractWithCompanyName || undefined,
+            isNewCompanyDraft: r.isNewCompanyDraft || undefined,
             status: r.status,
             createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
         }));
@@ -58,7 +63,7 @@ export async function POST(req: NextRequest) {
     try {
         await ensureProjectRequestTable();
         const body = await req.json();
-        const { id, userId, userName, userEmail, projectId, projectName, companyId, companyName, nif } = body;
+        const { id, userId, userName, userEmail, projectId, projectName, companyId, companyName, nif, purpose, accessType, contractWithCompanyId, contractWithCompanyName, isNewCompanyDraft } = body;
 
         if (!userId || !projectId) {
             return NextResponse.json({ error: 'userId e projectId são obrigatórios.' }, { status: 400 });
@@ -69,10 +74,10 @@ export async function POST(req: NextRequest) {
 
         await prisma.$executeRawUnsafe(
             `INSERT INTO "project_access_requests" 
-            ("id", "userId", "userName", "userEmail", "projectId", "projectName", "companyId", "companyName", "nif", "status", "createdAt", "updatedAt")
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, $10)
-            ON CONFLICT ("id") DO UPDATE SET "status" = 'pending', "updatedAt" = $10`,
-            reqId, userId, userName || null, userEmail || null, projectId, projectName || null, companyId || null, companyName || null, nif || null, now
+            ("id", "userId", "userName", "userEmail", "projectId", "projectName", "companyId", "companyName", "nif", "purpose", "accessType", "contractWithCompanyId", "contractWithCompanyName", "isNewCompanyDraft", "status", "createdAt", "updatedAt")
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $15)
+            ON CONFLICT ("id") DO UPDATE SET "status" = 'pending', "updatedAt" = $15`,
+            reqId, userId, userName || null, userEmail || null, projectId, projectName || null, companyId || null, companyName || null, nif || null, purpose || null, accessType || null, contractWithCompanyId || null, contractWithCompanyName || null, !!isNewCompanyDraft, now
         );
 
         return NextResponse.json({
@@ -87,6 +92,11 @@ export async function POST(req: NextRequest) {
                 companyId,
                 companyName,
                 nif,
+                purpose,
+                accessType,
+                contractWithCompanyId,
+                contractWithCompanyName,
+                isNewCompanyDraft: !!isNewCompanyDraft,
                 status: 'pending',
                 createdAt: now.toISOString(),
             }

@@ -139,6 +139,11 @@ export async function ensureProjectRequestTable() {
                 "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            ALTER TABLE "project_access_requests" ADD COLUMN IF NOT EXISTS "purpose" TEXT;
+            ALTER TABLE "project_access_requests" ADD COLUMN IF NOT EXISTS "accessType" TEXT;
+            ALTER TABLE "project_access_requests" ADD COLUMN IF NOT EXISTS "contractWithCompanyId" TEXT;
+            ALTER TABLE "project_access_requests" ADD COLUMN IF NOT EXISTS "contractWithCompanyName" TEXT;
+            ALTER TABLE "project_access_requests" ADD COLUMN IF NOT EXISTS "isNewCompanyDraft" BOOLEAN;
         `);
         projectRequestTableEnsured = true;
     } catch (e: any) {
