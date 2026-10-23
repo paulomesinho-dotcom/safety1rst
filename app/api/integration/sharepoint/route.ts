@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { decryptSecret } from '@/lib/server-crypto';
 
 export async function POST(req: NextRequest) {
     try {
@@ -11,11 +12,13 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Missing credentials' }, { status: 400 });
         }
 
+        const effectiveClientSecret = decryptSecret(clientSecret);
+
         // 1. Get Access Token (Client Credentials)
         const tokenParams = new URLSearchParams();
         tokenParams.append('grant_type', 'client_credentials');
         tokenParams.append('client_id', clientId);
-        tokenParams.append('client_secret', clientSecret);
+        tokenParams.append('client_secret', effectiveClientSecret);
         tokenParams.append('scope', 'https://graph.microsoft.com/.default');
 
         const tokenRes = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {

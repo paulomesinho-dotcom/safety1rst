@@ -76,18 +76,41 @@ export default function AuthCallback() {
                 if (!res.ok) throw new Error(await res.text());
                 const tokenData = await res.json();
 
-                // DONT rely purely on localStorage passing messages to random components.
-                // Apply setting directly to global Zustand store & DB:
+                // Persist securely to backend with AES-256-GCM encryption
+                let sanitizedCdeConfig = null;
                 if (pending.projectId) {
-                    updateProjectCDE(pending.projectId, {
+                    try {
+                        const setupRes = await fetch(`/api/projects/${pending.projectId}/cde/setup`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                provider: 'dropbox',
+                                connected: true,
+                                appKey: pending.appKey,
+                                appSecret: pending.appSecret,
+                                accessToken: tokenData.access_token,
+                                refreshToken: tokenData.refresh_token,
+                                folderPath: pending.folderPath
+                            })
+                        });
+                        if (setupRes.ok) {
+                            const setupData = await setupRes.json();
+                            sanitizedCdeConfig = setupData.cdeConfig;
+                        }
+                    } catch (setupErr) {
+                        console.error('Failed to save encrypted CDE credentials on server:', setupErr);
+                    }
+
+                    // Apply sanitized setting to Zustand store (no plaintext secrets exposed)
+                    updateProjectCDE(pending.projectId, sanitizedCdeConfig || {
                         ...pending.cdeConfig,
                         provider: 'dropbox',
                         connected: true,
                         lastSync: new Date().toISOString(),
                         appKey: pending.appKey,
-                        appSecret: pending.appSecret,
-                        accessToken: tokenData.access_token,
-                        refreshToken: tokenData.refresh_token,
+                        hasAppSecret: true,
+                        appSecretMasked: '••••••••••••••••',
+                        hasRefreshToken: !!tokenData.refresh_token,
                         folderPath: pending.folderPath
                     });
                 }
@@ -97,10 +120,8 @@ export default function AuthCallback() {
                     type: 'dropbox_connected',
                     projectId: pending.projectId,
                     appKey: pending.appKey,
-                    appSecret: pending.appSecret,
                     folderPath: pending.folderPath,
-                    accessToken: tokenData.access_token,
-                    refreshToken: tokenData.refresh_token,
+                    connected: true
                 }));
 
                 setStatus('success');

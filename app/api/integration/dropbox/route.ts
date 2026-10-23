@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { decryptSecret } from '@/lib/server-crypto';
 
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
         const { action, code, appKey, appSecret, redirectUri, refreshToken, path } = body;
 
+        const effectiveAppSecret = appSecret ? decryptSecret(appSecret) : appSecret;
+        const effectiveRefreshToken = refreshToken ? decryptSecret(refreshToken) : refreshToken;
+
         // 1. Exchange Auth Code for Tokens
         if (action === 'exchange') {
-            if (!code || !appKey || !appSecret || !redirectUri) {
+            if (!code || !appKey || !effectiveAppSecret || !redirectUri) {
                 return NextResponse.json({ error: 'Missing parameters for exchange' }, { status: 400 });
             }
 
@@ -15,7 +19,7 @@ export async function POST(req: NextRequest) {
             params.append('code', code);
             params.append('grant_type', 'authorization_code');
             params.append('client_id', appKey);
-            params.append('client_secret', appSecret);
+            params.append('client_secret', effectiveAppSecret);
             params.append('redirect_uri', redirectUri);
 
             const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
@@ -36,15 +40,15 @@ export async function POST(req: NextRequest) {
 
         // 2. Refresh Token
         if (action === 'refresh') {
-            if (!refreshToken || !appKey || !appSecret) {
+            if (!effectiveRefreshToken || !appKey || !effectiveAppSecret) {
                 return NextResponse.json({ error: 'Missing parameters for refresh' }, { status: 400 });
             }
 
             const params = new URLSearchParams();
             params.append('grant_type', 'refresh_token');
-            params.append('refresh_token', refreshToken);
+            params.append('refresh_token', effectiveRefreshToken);
             params.append('client_id', appKey);
-            params.append('client_secret', appSecret);
+            params.append('client_secret', effectiveAppSecret);
 
             const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
                 method: 'POST',
