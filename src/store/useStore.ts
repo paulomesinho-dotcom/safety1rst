@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan } from '../types';
+import { DEFAULT_PLATFORM_PLANS } from '../types';
 
 export interface ProjectRequest {
     id: string;
@@ -109,6 +110,11 @@ export interface AppState {
     updateSubscriptionRequest: (id: string, updates: Partial<SubscriptionRequest>) => void;
     approveSubscriptionRequest: (id: string, reviewedBy?: string) => void;
     rejectSubscriptionRequest: (id: string, reason?: string) => void;
+
+    // Platform Plans & Pricing Configuration
+    platformPlans: PlatformPlan[];
+    updatePlatformPlan: (planId: string, updates: Partial<PlatformPlan>) => Promise<{ success: boolean; message?: string }>;
+    resetPlatformPlans: () => Promise<{ success: boolean; message?: string }>;
 
     // Access Points
     addAccessPoint: (point: Omit<AccessPoint, 'id' | 'createdAt'>) => void;
@@ -523,6 +529,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     projectRequests: [],
     companyRequests: [],
     subscriptionRequests: [],
+    platformPlans: DEFAULT_PLATFORM_PLANS,
     templates: [],
     documents: [],
     notifications: [],
@@ -1076,9 +1083,67 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     get().addNotification('info', `Tem ${newPendingCount} novo(s) pedido(s) de adesão a obras a aguardar aprovação.`);
                 }
                 console.log(`[Store] Sincronização com o servidor concluída: ${srvAccounts?.length || 0} contas, ${srvUsers?.length || 0} utilizadores, ${srvProjects?.length || 0} projetos, ${srvProjectRequests?.length || 0} pedidos de obra.`);
+                // Sincronizar Planos e Preçário da Plataforma
+                try {
+                    const plansRes = await fetch('/api/platform/plans');
+                    const plansData = await plansRes.json();
+                    if (plansRes.ok && plansData.success && Array.isArray(plansData.plans)) {
+                        set({ platformPlans: plansData.plans });
+                    }
+                } catch (planErr) {
+                    console.warn('[Store] Falha ao sincronizar planos da plataforma:', planErr);
+                }
             }
         } catch (e) {
             console.warn('[Store] Falha ao sincronizar com servidor (offline fallback ativo):', e);
+        }
+    },
+
+    updatePlatformPlan: async (planId: string, updates: Partial<PlatformPlan>) => {
+        try {
+            const res = await fetch('/api/platform/plans', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ planId, updates }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                set((state) => ({
+                    platformPlans: data.plans || state.platformPlans.map(p => p.id === planId ? { ...p, ...updates } : p)
+                }));
+                get().addNotification('success', data.message || 'Plano atualizado com sucesso.');
+                return { success: true, message: data.message };
+            }
+            const errMsg = data.error || 'Erro ao atualizar plano da plataforma.';
+            get().addNotification('error', errMsg);
+            return { success: false, message: errMsg };
+        } catch (e: any) {
+            const msg = e.message || 'Falha na comunicação com o servidor.';
+            get().addNotification('error', msg);
+            return { success: false, message: msg };
+        }
+    },
+
+    resetPlatformPlans: async () => {
+        try {
+            const res = await fetch('/api/platform/plans', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reset: true }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                set({ platformPlans: data.plans || DEFAULT_PLATFORM_PLANS });
+                get().addNotification('success', data.message || 'Planos repostos para os valores padrão.');
+                return { success: true, message: data.message };
+            }
+            const errMsg = data.error || 'Erro ao repor planos.';
+            get().addNotification('error', errMsg);
+            return { success: false, message: errMsg };
+        } catch (e: any) {
+            const msg = e.message || 'Falha na comunicação com o servidor.';
+            get().addNotification('error', msg);
+            return { success: false, message: msg };
         }
     },
 

@@ -55,7 +55,8 @@ export default function Home() {
         deleteUserGdpr,
         cleanupInactiveUsers,
         deleteAccount,
-        cleanupOrphanAccounts
+        cleanupOrphanAccounts,
+        platformPlans
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
         currentUser: state.currentUser,
@@ -81,7 +82,8 @@ export default function Home() {
         deleteUserGdpr: state.deleteUserGdpr,
         cleanupInactiveUsers: state.cleanupInactiveUsers,
         deleteAccount: state.deleteAccount,
-        cleanupOrphanAccounts: state.cleanupOrphanAccounts
+        cleanupOrphanAccounts: state.cleanupOrphanAccounts,
+        platformPlans: state.platformPlans,
     })));
 
     // Active Navigation Tab
@@ -232,16 +234,15 @@ export default function Home() {
         return 50; // enterprise
     }, [isSuperAdmin, userAccount]);
 
-    // Joined projects
+    // Joined projects (apenas as obras a que o utilizador está pessoalmente associado)
     const joinedProjects = useMemo(() => {
         if (!currentUser) return [];
         return projects.filter((p: Project) => {
-            if (isSuperAdmin) return true;
             if (p.creatorId && p.creatorId === currentUser.id) return true;
             if (userAccount && p.accountId === userAccount.id) return true;
             return currentUser.projectAccess?.some(pa => pa.projectId === p.id);
         });
-    }, [projects, currentUser, userAccount, isSuperAdmin]);
+    }, [projects, currentUser, userAccount]);
 
     const createdProjectsCount = useMemo(() => {
         if (!userAccount) return 0;
@@ -263,17 +264,16 @@ export default function Home() {
         return users.filter(u => u.accountId === userAccount.id);
     }, [users, userAccount, currentUser]);
 
-    // Access Requests
+    // Access Requests (apenas para obras que o utilizador gere no seu workplace)
     const managedProjectIds = useMemo(() => {
         if (!currentUser) return [];
-        if (isSuperAdmin) return projects.map(p => p.id);
         return projects.filter(p => {
             const isCreator = p.creatorId === currentUser.id;
             const isOwner = userAccount && p.accountId === userAccount.id;
             const isManager = currentUser.projectAccess?.some(pa => pa.projectId === p.id && pa.role === 'manager');
             return isCreator || isOwner || isManager;
         }).map(p => p.id);
-    }, [projects, currentUser, userAccount, isSuperAdmin]);
+    }, [projects, currentUser, userAccount]);
 
     const receivedRequests = useMemo(() => {
         return projectRequests.filter(r => r.status === 'pending' && managedProjectIds.includes(r.projectId));
@@ -608,6 +608,19 @@ export default function Home() {
                                 </span>
                             )}
                         </div>
+
+                        {/* Botão Especial Gestor da Plataforma (Super Admin / Admin) */}
+                        {(isSuperAdmin || currentUser.role === 'admin') && (
+                            <button
+                                onClick={() => router.push('/platform')}
+                                className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white font-bold text-xs shadow-md transition-all border border-indigo-400/30 shrink-0"
+                                title="Aceder ao Workplace do Gestor de toda a Plataforma"
+                            >
+                                <Shield size={14} className="text-amber-300 shrink-0" />
+                                <span className="hidden md:inline">Workplace da Plataforma</span>
+                                <span className="md:hidden">Plataforma</span>
+                            </button>
+                        )}
 
                         <ThemeMenu />
                         <LanguageSwitcher />
@@ -1326,165 +1339,100 @@ export default function Home() {
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {/* Plano Básico */}
-                                <div className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] ${
-                                    currentPlan === 'basic' ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-[var(--border)] hover:border-primary/40'
-                                }`}>
-                                    <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <h4 className="font-extrabold text-base text-[var(--text)]">Básico</h4>
-                                            {currentPlan === 'basic' && (
-                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary text-white">Plano Atual</span>
+                                {(platformPlans && platformPlans.length > 0 ? platformPlans.filter(p => p.id !== 'free') : []).map((plan) => {
+                                    const isCurrent = currentPlan === plan.id;
+                                    const isPopular = plan.isPopular;
+                                    const isEnterprise = plan.id === 'enterprise';
+
+                                    return (
+                                        <div 
+                                            key={plan.id}
+                                            className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] relative ${
+                                                isCurrent 
+                                                    ? 'border-primary ring-2 ring-primary/20 shadow-md' 
+                                                    : isPopular 
+                                                        ? 'border-primary/50 shadow-sm hover:border-primary' 
+                                                        : 'border-[var(--border)] hover:border-primary/40'
+                                            }`}
+                                        >
+                                            {isPopular && (
+                                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-primary to-blue-600 text-white shadow-sm">
+                                                    Mais Popular
+                                                </div>
                                             )}
+
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <h4 className="font-extrabold text-base text-[var(--text)]">{plan.name}</h4>
+                                                    {isCurrent && (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary text-white">Plano Atual</span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-baseline gap-1.5 mb-1">
+                                                    <span className="text-2xl font-black text-primary">{plan.price}</span>
+                                                    {plan.billingPeriod && (
+                                                        <span className="text-xs text-[var(--text-muted)] font-medium">{plan.billingPeriod}</span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-[var(--text-muted)] mb-4">{plan.description}</p>
+
+                                                <ul className="space-y-2 text-xs text-[var(--text)] pt-2 border-t border-[var(--border)]">
+                                                    <li className="flex items-center gap-2">
+                                                        <Check size={14} className="text-emerald-500 shrink-0" />
+                                                        <span>
+                                                            {plan.maxProjects === -1 ? (
+                                                                <strong>Obras Próprias Ilimitadas</strong>
+                                                            ) : (
+                                                                <>Até <strong>{plan.maxProjects} Obra{plan.maxProjects > 1 ? 's' : ''} Própria{plan.maxProjects > 1 ? 's' : ''}</strong> gerida(s)</>
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                    <li className="flex items-center gap-2">
+                                                        <Check size={14} className="text-emerald-500 shrink-0" />
+                                                        <span>
+                                                            {plan.maxUsers === -1 ? (
+                                                                <strong>Utilizadores Ilimitados</strong>
+                                                            ) : (
+                                                                <>Até <strong>{plan.maxUsers} utilizadores</strong> da sua empresa</>
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                    <li className="flex items-center gap-2">
+                                                        <Check size={14} className="text-emerald-500 shrink-0" />
+                                                        <span>
+                                                            {plan.maxJoinedProjects === -1 ? (
+                                                                <>Acessos a obras parceiras <strong>Ilimitados</strong></>
+                                                            ) : (
+                                                                <><strong>{plan.maxJoinedProjects} Obras simultâneas</strong> (+10 acessos por user)</>
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                    {plan.features.map((feature, fIdx) => (
+                                                        <li key={fIdx} className="flex items-center gap-2">
+                                                            <Check size={14} className="text-emerald-500 shrink-0" />
+                                                            <span>{feature}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+
+                                            <button
+                                                disabled={isCurrent}
+                                                onClick={() => handleRequestUpgrade(plan.id as PlanType)}
+                                                className={`w-full py-2 rounded-xl text-xs font-bold mt-6 transition-all ${
+                                                    isCurrent
+                                                        ? 'bg-gray-100 dark:bg-surface text-gray-400 cursor-not-allowed'
+                                                        : isEnterprise
+                                                            ? 'bg-slate-900 dark:bg-white text-white dark:text-gray-900 hover:bg-slate-800 shadow-sm'
+                                                            : 'bg-primary hover:bg-primary-hover text-white shadow-sm'
+                                                }`}
+                                            >
+                                                {isCurrent ? 'Plano Atual' : (isEnterprise ? 'Contactar para Enterprise' : `Pedir Subscrição ${plan.name}`)}
+                                            </button>
                                         </div>
-                                        <div className="text-2xl font-black text-primary mb-1">1 Obra</div>
-                                        <p className="text-xs text-[var(--text-muted)] mb-4">Ideal para empreiteiros a arrancar com uma obra principal.</p>
-
-                                        <ul className="space-y-2 text-xs text-[var(--text)] pt-2 border-t border-[var(--border)]">
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span><strong>1 Obra Própria</strong> gerida pela sua empresa</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Até <strong>5 utilizadores</strong> da sua empresa</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span><strong>15 Obras simultâneas</strong> (+10 acessos por user)</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Até 1.200 registos de controlo de acessos</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Suporte standard</span>
-                                            </li>
-                                        </ul>
-                                    </div>
-
-                                    <button
-                                        disabled={currentPlan === 'basic'}
-                                        onClick={() => handleRequestUpgrade('basic')}
-                                        className={`w-full py-2 rounded-xl text-xs font-bold mt-6 transition-all ${
-                                            currentPlan === 'basic'
-                                                ? 'bg-gray-100 dark:bg-surface text-gray-400 cursor-not-allowed'
-                                                : 'bg-primary hover:bg-primary-hover text-white shadow-sm'
-                                        }`}
-                                    >
-                                        {currentPlan === 'basic' ? 'Plano Atual' : 'Pedir Subscrição Básico'}
-                                    </button>
-                                </div>
-
-                                {/* Plano Premium */}
-                                <div className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] relative ${
-                                    currentPlan === 'premium' ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-primary/50 shadow-sm hover:border-primary'
-                                }`}>
-                                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-primary to-blue-600 text-white shadow-sm">
-                                        Mais Popular
-                                    </div>
-                                    <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <h4 className="font-extrabold text-base text-[var(--text)]">Premium</h4>
-                                            {currentPlan === 'premium' && (
-                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary text-white">Plano Atual</span>
-                                            )}
-                                        </div>
-                                        <div className="text-2xl font-black text-primary mb-1">3 Obras</div>
-                                        <p className="text-xs text-[var(--text-muted)] mb-4">Para empresas de construção com múltiplos projetos em curso.</p>
-
-                                        <ul className="space-y-2 text-xs text-[var(--text)] pt-2 border-t border-[var(--border)]">
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Até <strong>3 Obras Próprias</strong> em simultâneo</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Até <strong>10 utilizadores</strong> da sua empresa</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span><strong>15 Obras simultâneas</strong> (+10 acessos por user)</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Gestão Documental & CDE na Nuvem</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Até 3.600 registos de acessos</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Suporte prioritário</span>
-                                            </li>
-                                        </ul>
-                                    </div>
-
-                                    <button
-                                        disabled={currentPlan === 'premium'}
-                                        onClick={() => handleRequestUpgrade('premium')}
-                                        className={`w-full py-2 rounded-xl text-xs font-bold mt-6 transition-all ${
-                                            currentPlan === 'premium'
-                                                ? 'bg-gray-100 dark:bg-surface text-gray-400 cursor-not-allowed'
-                                                : 'bg-primary hover:bg-primary-hover text-white shadow-sm'
-                                        }`}
-                                    >
-                                        {currentPlan === 'premium' ? 'Plano Atual' : 'Pedir Subscrição Premium'}
-                                    </button>
-                                </div>
-
-                                {/* Plano Enterprise */}
-                                <div className={`rounded-lg border p-6 flex flex-col justify-between transition-all bg-[var(--bg-card)] ${
-                                    currentPlan === 'enterprise' ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-[var(--border)] hover:border-primary/40'
-                                }`}>
-                                    <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <h4 className="font-extrabold text-base text-[var(--text)]">Enterprise</h4>
-                                            {currentPlan === 'enterprise' && (
-                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary text-white">Plano Atual</span>
-                                            )}
-                                        </div>
-                                        <div className="text-2xl font-black text-primary mb-1">Ilimitado</div>
-                                        <p className="text-xs text-[var(--text-muted)] mb-4">Grandes construtoras com necessidades à medida e infraestrutura dedicada.</p>
-
-                                        <ul className="space-y-2 text-xs text-[var(--text)] pt-2 border-t border-[var(--border)]">
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span><strong>Obras Próprias Ilimitadas</strong></span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Até <strong>50 utilizadores</strong> da sua empresa</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Acessos a obras <strong>Ilimitados</strong></span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Registo de controlo de acessos ilimitado</span>
-                                            </li>
-                                            <li className="flex items-center gap-2">
-                                                <Check size={14} className="text-emerald-500 shrink-0" />
-                                                <span>Gestor de conta dedicado & Onboarding</span>
-                                            </li>
-                                        </ul>
-                                    </div>
-
-                                    <button
-                                        disabled={currentPlan === 'enterprise'}
-                                        onClick={() => handleRequestUpgrade('enterprise')}
-                                        className={`w-full py-2 rounded-xl text-xs font-bold mt-6 transition-all ${
-                                            currentPlan === 'enterprise'
-                                                ? 'bg-gray-100 dark:bg-surface text-gray-400 cursor-not-allowed'
-                                                : 'bg-slate-900 dark:bg-white text-white dark:text-gray-900 hover:bg-slate-800 shadow-sm'
-                                        }`}
-                                    >
-                                        {currentPlan === 'enterprise' ? 'Plano Atual' : 'Contactar para Enterprise'}
-                                    </button>
-                                </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

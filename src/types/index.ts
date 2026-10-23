@@ -36,6 +36,117 @@ export interface User {
 
 export type PlanType = 'free' | 'basic' | 'premium' | 'enterprise';
 
+export interface PlatformPlan {
+    id: PlanType;
+    name: string;
+    price: string;
+    billingPeriod: string;
+    description: string;
+    maxProjects: number; // 0 for free (only guest access), 1, 3, or 999999 for enterprise
+    maxUsers: number;
+    maxJoinedProjects: number;
+    maxAccessControlRecords: number;
+    cdeCloudEnabled: boolean;
+    companyModuleEnabled: boolean;
+    isPopular?: boolean;
+    badge?: string;
+    features: string[];
+}
+
+export const DEFAULT_PLATFORM_PLANS: PlatformPlan[] = [
+    {
+        id: 'free',
+        name: 'Gratuito',
+        price: '0 €',
+        billingPeriod: '/mês',
+        description: 'Para prestadores de serviços, técnicos ou subempreiteiros a ingressar em obras parceiras.',
+        maxProjects: 0,
+        maxUsers: 1,
+        maxJoinedProjects: 5,
+        maxAccessControlRecords: 0,
+        cdeCloudEnabled: false,
+        companyModuleEnabled: false,
+        isPopular: false,
+        features: [
+            'Acesso até 5 obras de terceiros por convite',
+            '1 Utilizador da empresa',
+            'Visualização de documentação e registos',
+            'Submissão de fichas de trabalhadores e equipamentos',
+            'Suporte comunitário'
+        ]
+    },
+    {
+        id: 'basic',
+        name: 'Básico',
+        price: '49 €',
+        billingPeriod: '/mês',
+        description: 'Ideal para empreiteiros a arrancar com uma obra principal própria.',
+        maxProjects: 1,
+        maxUsers: 5,
+        maxJoinedProjects: 15,
+        maxAccessControlRecords: 1200,
+        cdeCloudEnabled: true,
+        companyModuleEnabled: true,
+        isPopular: false,
+        features: [
+            '1 Obra Própria gerida pela sua empresa',
+            'Até 5 utilizadores da sua empresa',
+            '15 Obras simultâneas (+10 acessos por user)',
+            'Módulo "A Minha Empresa" & Trabalhadores',
+            'Até 1.200 registos de controlo de acessos',
+            'Suporte standard'
+        ]
+    },
+    {
+        id: 'premium',
+        name: 'Premium',
+        price: '99 €',
+        billingPeriod: '/mês',
+        description: 'Para empresas de construção com múltiplos estaleiros em curso.',
+        maxProjects: 3,
+        maxUsers: 10,
+        maxJoinedProjects: 15,
+        maxAccessControlRecords: 3600,
+        cdeCloudEnabled: true,
+        companyModuleEnabled: true,
+        isPopular: true,
+        badge: 'Mais Popular',
+        features: [
+            'Até 3 Obras Próprias em simultâneo',
+            'Até 10 utilizadores da sua empresa',
+            '15 Obras simultâneas (+10 acessos por user)',
+            'Gestão Documental & CDE na Nuvem (SharePoint, Google Drive, Dropbox)',
+            'Módulo de Formações e Equipamentos completo',
+            'Até 3.600 registos de acessos',
+            'Suporte prioritário'
+        ]
+    },
+    {
+        id: 'enterprise',
+        name: 'Enterprise',
+        price: 'Sob Consulta',
+        billingPeriod: '',
+        description: 'Solução corporativa completa para grandes construtoras e donos de obra.',
+        maxProjects: 999999,
+        maxUsers: 999999,
+        maxJoinedProjects: 999999,
+        maxAccessControlRecords: 999999,
+        cdeCloudEnabled: true,
+        companyModuleEnabled: true,
+        isPopular: false,
+        badge: 'Corporativo',
+        features: [
+            'Obras Próprias Ilimitadas',
+            'Utilizadores e Membros Ilimitados',
+            'Acesso Ilimitado a Obras de parceiros',
+            'Integração CDE Avançada & Servidor Próprio WebDAV/MinIO',
+            'Formulários e Modelos Customizados',
+            'Registos de controlo de acessos ilimitados',
+            'SLA Garantido & Suporte dedicado 24/7'
+        ]
+    }
+];
+
 export type SubscriptionRequestStatus = 'pending_email' | 'pending_approval' | 'pending' | 'approved' | 'rejected';
 
 export interface SubscriptionRequest {

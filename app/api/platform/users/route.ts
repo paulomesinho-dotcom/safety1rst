@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma, ensureUserColumns } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 
 // GET /api/platform/users
 // Devolve todos os utilizadores da plataforma com detalhes de estado, projetos ativos e proteções RGPD
@@ -73,6 +74,13 @@ export async function PATCH(req: NextRequest) {
             }
             if (target.role === 'superadmin') {
                 return NextResponse.json({ error: 'Não é possível suspender uma conta Super Administrador.' }, { status: 403 });
+            }
+            if (target.role === 'admin') {
+                const session = await auth();
+                const requesterRole = (session?.user as any)?.role;
+                if (requesterRole !== 'superadmin') {
+                    return NextResponse.json({ error: 'Permissão negada. Apenas o Super Administrador pode suspender Administradores da plataforma.' }, { status: 403 });
+                }
             }
 
             const now = new Date();
@@ -271,6 +279,13 @@ export async function DELETE(req: NextRequest) {
         if (target.role === 'superadmin') {
             return NextResponse.json({ error: 'Não é permitido eliminar contas Super Administrador.' }, { status: 403 });
         }
+        if (target.role === 'admin') {
+            const session = await auth();
+            const requesterRole = (session?.user as any)?.role;
+            if (requesterRole !== 'superadmin') {
+                return NextResponse.json({ error: 'Permissão negada. Administradores da plataforma não podem eliminar outros administradores. Apenas o Super Administrador tem essa permissão.' }, { status: 403 });
+            }
+        }
 
         // 1. Regra do Algoritmo: Contas pagas NUNCA podem ser apagadas via inatividade/RGPD direto
         if (target.tenant && target.tenant.plan !== 'free') {
@@ -390,6 +405,15 @@ export async function POST(req: NextRequest) {
         const cleanEmail = (email || '').trim().toLowerCase();
         if (!cleanEmail) {
             return NextResponse.json({ error: 'O email é obrigatório.' }, { status: 400 });
+        }
+
+        // Restrição de hierarquia: Apenas o Super Administrador pode criar Administradores da plataforma
+        if (role === 'admin' || role === 'superadmin') {
+            const session = await auth();
+            const requesterRole = (session?.user as any)?.role;
+            if (requesterRole !== 'superadmin') {
+                return NextResponse.json({ error: 'Permissão negada. Apenas o Super Administrador pode criar ou nomear Administradores da aplicação.' }, { status: 403 });
+            }
         }
 
         let tenantId = accountId;
