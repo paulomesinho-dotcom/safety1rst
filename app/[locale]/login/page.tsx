@@ -37,7 +37,6 @@ export default function LoginPage() {
     const [regData, setRegData] = useState({
         name: '',
         email: '',
-        nif: '',
         password: '',
     });
     const [consentRgpd, setConsentRgpd] = useState(false);
@@ -111,7 +110,7 @@ export default function LoginPage() {
         e.preventDefault();
         setRegError('');
 
-        if (!regData.name.trim() || !regData.email.trim() || !regData.nif.trim() || !regData.password) {
+        if (!regData.name.trim() || !regData.email.trim() || !regData.password) {
             setRegError('Por favor preencha todos os campos obrigatórios.');
             return;
         }
@@ -155,8 +154,7 @@ export default function LoginPage() {
                 body: JSON.stringify({
                     name: regData.name.trim(),
                     email: emailClean,
-                    nif: regData.nif.trim(),
-                    companyName: `Empresa (${regData.nif.trim()})`,
+                    companyName: regData.name.trim(),
                     password: regData.password,
                     plan: 'free',
                     consentRgpd: true,
@@ -172,8 +170,8 @@ export default function LoginPage() {
             // Registar pedido de subscrição pendente de email no store local
             addSubscriptionRequest({
                 id: `req_${nanoid(8)}`,
-                companyName: `Empresa (${regData.nif.trim()})`,
-                nif: regData.nif.trim(),
+                companyName: regData.name.trim(),
+                nif: '',
                 contactName: regData.name.trim(),
                 email: emailClean,
                 password: regData.password,
@@ -418,14 +416,14 @@ export default function LoginPage() {
                                 <div className="space-y-4 animate-in fade-in duration-300">
                                     <div className="text-center pb-1">
                                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                                            Preencha os dados da sua empresa para criar a sua conta de acesso ao Workplace.
+                                            Preencha os seus dados para criar a sua conta de acesso ao Workplace.
                                         </p>
                                     </div>
 
                                     {/* Register Form */}
                                     <form onSubmit={handleRegister} className="space-y-3">
                                         <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">Nome *</label>
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Nome Completo *</label>
                                             <div className="relative">
                                                 <User className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                                 <input
@@ -446,19 +444,6 @@ export default function LoginPage() {
                                                     className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                                                     value={regData.email}
                                                     onChange={e => setRegData({ ...regData, email: e.target.value })}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">NIF da empresa *</label>
-                                            <div className="relative">
-                                                <FileText className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                                                <input
-                                                    type="text" required
-                                                    className="w-full pl-8 pr-2.5 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                                                    value={regData.nif}
-                                                    onChange={e => setRegData({ ...regData, nif: e.target.value })}
                                                 />
                                             </div>
                                         </div>

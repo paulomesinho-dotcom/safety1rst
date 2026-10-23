@@ -14,9 +14,9 @@ export async function POST(req: NextRequest) {
         const finalCompanyName = (companyName || (cleanNif ? `Empresa (${cleanNif})` : 'Empresa')).trim();
 
         // Validações
-        if (!cleanNif || !finalContactName || !email?.trim() || !password) {
+        if (!finalContactName || !email?.trim() || !password) {
             return NextResponse.json(
-                { error: 'Todos os campos obrigatórios (Nome, Email, NIF da empresa e Palavra-passe) devem ser preenchidos.' },
+                { error: 'Todos os campos obrigatórios (Nome, Email e Palavra-passe) devem ser preenchidos.' },
                 { status: 400 }
             );
         }

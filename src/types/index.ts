@@ -530,7 +530,7 @@ export interface Worker {
     approvedAt?: string;
 
     accountId: string;
-    projectId: string;
+    projectId?: string;
     createdAt: string;
 }
 
@@ -602,7 +602,7 @@ export interface Equipment {
     customDocuments?: Record<string, any>;
 
     accountId: string;
-    projectId: string;
+    projectId?: string;
     createdAt: string;
 }
 

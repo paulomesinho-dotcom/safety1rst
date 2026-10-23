@@ -428,11 +428,11 @@ export default function Home() {
         }
 
         const selectedCompany = companiesInMatchedProject.find(c => c.id === selectedCompanyId);
-        const finalCompanyName = selectedCompany ? selectedCompany.name : (joinCompanyName.trim() || userAccount?.name || 'Subempreiteiro');
-        const finalNif = selectedCompany ? selectedCompany.nif : (joinCompanyNif.trim() || userAccount?.vatNumber || '');
+        const finalCompanyName = selectedCompany ? selectedCompany.name : (joinCompanyName.trim() || userAccount?.name || '');
+        const finalNif = selectedCompany ? (selectedCompany.nif || '') : (joinCompanyNif.trim() || userAccount?.vatNumber || '');
 
-        if (!selectedCompanyId && !finalCompanyName) {
-            setJoinError('Por favor indique o nome da empresa ou entidade.');
+        if (!finalCompanyName || !finalNif) {
+            setJoinError('Por favor indique o nome e o NIF/NIPC da empresa para ser identificado pelo gestor do projeto.');
             return;
         }
 
@@ -642,6 +642,22 @@ export default function Home() {
                                 className="px-3.5 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] hover:bg-[var(--bg-input)] text-[var(--text)] font-semibold text-xs shadow-sm transition-all flex items-center gap-2"
                             >
                                 <KeyRound size={14} className="text-primary" /> Solicitar Projeto
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    const isPaidOrAdmin = currentPlan !== 'free' || currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
+                                    if (!isPaidOrAdmin) {
+                                        setActiveTab('subscriptions');
+                                        addNotification('warning', 'O acesso ao módulo "A Minha Empresa" requer no mínimo o Plano Básico.');
+                                    } else {
+                                        router.push('/company');
+                                    }
+                                }}
+                                className="px-3.5 py-2 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                                title="Gerir a minha empresa, trabalhadores, equipamentos, formação e documentos"
+                            >
+                                <Building2 size={15} /> A Minha Empresa
                             </button>
 
                             {currentPlan !== 'free' && (
@@ -2201,17 +2217,18 @@ export default function Home() {
                                                     </div>
                                                     <div>
                                                         <label className="block text-[11px] font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                                            NIF da Empresa (opcional)
+                                                            NIF / NIPC da Empresa *
                                                         </label>
                                                         <input
                                                             type="text"
-                                                            placeholder={userAccount?.vatNumber || "ex: 501234567"}
+                                                            required
+                                                            placeholder="ex: 501234567"
                                                             value={joinCompanyNif}
                                                             onChange={e => setJoinCompanyNif(e.target.value)}
                                                             className="w-full p-2 text-xs border border-gray-300 dark:border-[#444746] rounded-lg bg-white dark:bg-surface focus:ring-2 focus:ring-primary outline-none font-mono"
                                                         />
                                                         <p className="text-[10px] text-gray-500 mt-1">
-                                                            Não é obrigatório que este NIF já conste na obra. A empresa será associada mediante aprovação do gestor.
+                                                            Identificação fiscal para que o gestor da obra o possa reconhecer e aprovar o acesso.
                                                         </p>
                                                     </div>
                                                 </div>

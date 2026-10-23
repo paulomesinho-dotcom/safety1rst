@@ -1981,31 +1981,14 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         if (status === 'approved') {
             let targetCompanyId = req.companyId;
 
-            // Se o NIF ou nome da empresa foi fornecido mas a empresa ainda não constava na obra
+            // Se o NIF ou nome foi fornecido, associa apenas se a empresa já existir previamente na obra (criação é sempre direta)
             if (!targetCompanyId && (req.companyName || req.nif)) {
                 const existingComp = state.companies.find(c =>
                     c.projectId === req.projectId &&
                     ((req.nif && c.nif === req.nif) || (req.companyName && c.name.toLowerCase() === req.companyName.toLowerCase()))
                 );
-
                 if (existingComp) {
                     targetCompanyId = existingComp.id;
-                } else {
-                    const newCompId = nanoid();
-                    const newComp: Company = {
-                        id: newCompId,
-                        name: req.companyName || 'Subempreiteiro',
-                        nif: req.nif || '999999990',
-                        email: req.userEmail || '',
-                        accountId: state.projects.find(p => p.id === req.projectId)?.accountId || state.currentUser?.accountId || 'default',
-                        projectId: req.projectId,
-                        companyRole: 'subempreiteiro',
-                        tier: 2,
-                        createdAt: new Date().toISOString(),
-                    };
-                    updatedCompanies = [...state.companies, newComp];
-                    dbInsert('companies', newComp).catch(console.error);
-                    targetCompanyId = newCompId;
                 }
             }
 
