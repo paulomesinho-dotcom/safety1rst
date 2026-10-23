@@ -22,6 +22,7 @@ import {
     initializeCompanyStructure, 
     uploadToCDEFolder, 
     archiveCDEFile,
+    createOneDriveFolder,
     COMPANY_STANDARD_FOLDERS, 
     COMPANY_SPECIAL_SUBFOLDERS 
 } from '@/lib/cde-manager';
@@ -566,7 +567,12 @@ export default function MyCompanyPage() {
             const res = await fetch(`/api/projects/${compId}/cde`);
             if (res.ok) {
                 const data = await res.json();
-                setCompanyCdeConfig(data.cdeConfig || null);
+                const cfg = data.cdeConfig || null;
+                if (cfg) {
+                    cfg.projectId = compId;
+                    cfg.companyId = compId;
+                }
+                setCompanyCdeConfig(cfg);
             }
         } catch (e) {
             console.error('Failed to fetch corporate CDE config:', e);
@@ -931,10 +937,14 @@ export default function MyCompanyPage() {
     const handleInitializeCompanyFolders = async () => {
         setIsInitializingFolders(true);
         try {
-            const config = companyCdeConfig || {
-                provider: 'local',
-                connected: false,
-                folderPath: 'SafeSite_Empresa'
+            const compId = masterCompany?.id || 'comp_master';
+            const config = {
+                ...(companyCdeConfig || {}),
+                projectId: compId,
+                companyId: compId,
+                connected: Boolean(companyCdeConfig?.connected),
+                provider: companyCdeConfig?.provider || 'local',
+                folderPath: companyCdeConfig?.folderPath || 'SafeSite_Empresa'
             };
 
             const companyInfo = {
@@ -1124,7 +1134,7 @@ export default function MyCompanyPage() {
     };
 
     // Create New Custom Subfolder
-    const handleCreateNewFolder = (e: React.FormEvent) => {
+    const handleCreateNewFolder = async (e: React.FormEvent) => {
         e.preventDefault();
         const cleanName = newFolderName.trim();
         if (!cleanName) return;
@@ -1140,6 +1150,22 @@ export default function MyCompanyPage() {
         setIsNewFolderModalOpen(false);
         setNewFolderName('');
         addNotification('success', `Pasta "${cleanName}" criada com sucesso.`);
+
+        // Sincronizar criação física na Cloud (SharePoint / OneDrive / Google Drive / Dropbox)
+        if (companyCdeConfig?.connected) {
+            const compId = masterCompany?.id || 'comp_master';
+            const effectiveConfig = {
+                ...companyCdeConfig,
+                projectId: compId,
+                companyId: compId
+            };
+            if (companyCdeConfig.provider === 'onedrive' || (companyCdeConfig.provider as string) === 'sharepoint') {
+                createOneDriveFolder(effectiveConfig, newFolderParent || 'root', cleanName).catch(err => {
+                    console.error('Erro ao criar pasta no SharePoint:', err);
+                    addNotification('warning', `Pasta registada na app, mas falhou no SharePoint: ${err.message}`);
+                });
+            }
+        }
     };
 
     // Search & Filter

@@ -1,15 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { decryptSecret } from '@/lib/server-crypto';
+import { getProjectCdeConfig } from '@/lib/server-cde';
 
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json();
-        const { clientId, clientSecret, tenantId, siteUrl, path, action = 'list', folderId } = body;
+        let { 
+            clientId, 
+            clientSecret, 
+            tenantId, 
+            siteUrl, 
+            action = 'list', 
+            folderId, 
+            parentId, 
+            folderName, 
+            name, 
+            fileName, 
+            fileBase64, 
+            mimeType, 
+            fileId, 
+            projectId, 
+            companyId 
+        } = body;
+
+        // If credentials are incomplete or masked on client, resolve them from the server-side encrypted store
+        const lookupId = projectId || companyId;
+        if ((!clientId || !clientSecret || !tenantId || !siteUrl || clientSecret.includes('••••')) && lookupId) {
+            const stored = await getProjectCdeConfig(lookupId);
+            if (stored) {
+                clientId = clientId || stored.clientId;
+                clientSecret = stored.clientSecret || clientSecret;
+                tenantId = tenantId || stored.tenantId;
+                siteUrl = siteUrl || stored.siteUrl;
+            }
+        }
 
         console.log('[SharePoint API] Request:', { action, siteUrl, hasSecret: !!clientSecret });
 
         if (!clientId || !clientSecret || !tenantId || !siteUrl) {
-            return NextResponse.json({ error: 'Missing credentials' }, { status: 400 });
+            return NextResponse.json({ error: 'Missing credentials for SharePoint' }, { status: 400 });
         }
 
         const effectiveClientSecret = decryptSecret(clientSecret);
@@ -36,44 +65,23 @@ export async function POST(req: NextRequest) {
         const tokenData = await tokenRes.json();
         const accessToken = tokenData.access_token;
 
-        // 2. Resolve Site ID (if not provided only siteUrl is known)
-        // Parse Host and Path from URL
-        // Example: https://contoso.sharepoint.com/sites/ProjectA
+        // 2. Resolve Site ID
         const url = new URL(siteUrl);
         const host = url.hostname;
-        const sitePath = url.pathname; // /sites/ProjectA
+        const sitePath = url.pathname;
 
-        // Graph API format: sites/{hostname}:{server-relative-path}
-        // If path is '/', use sites/{hostname} (Root Site)
-        // If path exists, use sites/{hostname}:{path}
-
-        let graphSiteUrl = '';
-        const cleanPath = sitePath === '/' ? '' : sitePath.replace(/\/$/, '');
-
-        // Naive heuristic: If URL contains '/Shared Documents' or '/Forms', strip it to guess the site root
-        // Many users paste the browser URL of a folder
-        const commonJunk = ['/Shared Documents', '/Forms', '/Lists', '/_layouts', '/sitepages'];
-        let smartPath = cleanPath;
-
-        // Case-insensitive junk removal
+        let smartPath = sitePath === '/' ? '' : sitePath.replace(/\/$/, '');
+        const commonJunk = ['/shared documents', '/documentos partilhados', '/documentos', '/forms', '/lists', '/_layouts', '/sitepages'];
         const lowerPath = smartPath.toLowerCase();
         for (const junk of commonJunk) {
-            const idx = lowerPath.indexOf(junk.toLowerCase());
-            if (idx !== -1) {
-                smartPath = smartPath.substring(0, idx);
-            }
+            const idx = lowerPath.indexOf(junk);
+            if (idx !== -1) smartPath = smartPath.substring(0, idx);
         }
-
-        // Remove trailing slash again after cleanup
         smartPath = smartPath.replace(/\/$/, '');
 
-        if (!smartPath) {
-            // Root Site
-            graphSiteUrl = `https://graph.microsoft.com/v1.0/sites/${host}`;
-        } else {
-            // Subsite
-            graphSiteUrl = `https://graph.microsoft.com/v1.0/sites/${host}:${smartPath}`;
-        }
+        const graphSiteUrl = !smartPath 
+            ? `https://graph.microsoft.com/v1.0/sites/${host}`
+            : `https://graph.microsoft.com/v1.0/sites/${host}:${smartPath}`;
 
         console.log('[SharePoint API] Looking up site:', graphSiteUrl);
 
@@ -84,8 +92,6 @@ export async function POST(req: NextRequest) {
         if (!siteRes.ok) {
             const errText = await siteRes.text();
             console.error('[SharePoint API] Site LookUp Error:', errText);
-
-            // detailed error for UI
             return NextResponse.json({
                 error: `SharePoint Connection Failed. Checked URL: ${graphSiteUrl}. Graph Response: ${errText}`
             }, { status: 404 });
@@ -96,10 +102,7 @@ export async function POST(req: NextRequest) {
 
         // 3. Handle Actions
         if (action === 'list') {
-            // Get Default Drive (Documents Library)
             let queryUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`;
-
-            // If specific folder ID is requested
             if (folderId && folderId !== 'root') {
                 queryUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${folderId}/children`;
             }
@@ -114,18 +117,125 @@ export async function POST(req: NextRequest) {
             }
 
             const driveData = await driveRes.json();
-
-            // Map to generic format
-            const files = driveData.value.map((item: any) => ({
+            const files = (driveData.value || []).map((item: any) => ({
                 id: item.id,
                 name: item.name,
                 mimeType: item.folder ? 'application/vnd.google-apps.folder' : item.file?.mimeType,
                 webViewLink: item.webUrl,
-                iconLink: null, // Graph doesn't provide generic icon links quite like Drive
+                iconLink: null,
                 size: item.size
             }));
 
             return NextResponse.json({ files, siteId });
+        }
+
+        if (action === 'create_folder') {
+            const effectiveName = folderName || name;
+            if (!effectiveName) {
+                return NextResponse.json({ error: 'Nome da pasta obrigatório' }, { status: 400 });
+            }
+            const effectiveParent = parentId || folderId || 'root';
+            const isRoot = effectiveParent === 'root' || !effectiveParent;
+            const childrenUrl = isRoot
+                ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`
+                : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${effectiveParent}/children`;
+
+            // Check if folder exists
+            try {
+                const listRes = await fetch(childrenUrl, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                if (listRes.ok) {
+                    const listData = await listRes.json();
+                    const existing = (listData.value || []).find((item: any) =>
+                        item.folder && item.name.toLowerCase() === effectiveName.toLowerCase()
+                    );
+                    if (existing) {
+                        return NextResponse.json({ 
+                            folder: { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl } 
+                        });
+                    }
+                }
+            } catch (e) { }
+
+            const createRes = await fetch(childrenUrl, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: effectiveName,
+                    folder: {},
+                    '@microsoft.graph.conflictBehavior': 'rename'
+                })
+            });
+
+            if (!createRes.ok) {
+                const errText = await createRes.text();
+                return NextResponse.json({ error: `Falha ao criar pasta: ${errText}` }, { status: 500 });
+            }
+
+            const createdItem = await createRes.json();
+            return NextResponse.json({
+                folder: {
+                    id: createdItem.id,
+                    name: createdItem.name,
+                    exists: false,
+                    webViewLink: createdItem.webUrl
+                }
+            });
+        }
+
+        if (action === 'upload') {
+            if (!fileName || !fileBase64) {
+                return NextResponse.json({ error: 'fileName e fileBase64 são obrigatórios' }, { status: 400 });
+            }
+            const effectiveFolder = folderId || parentId || 'root';
+            const isRoot = effectiveFolder === 'root' || !effectiveFolder;
+            const uploadUrl = isRoot
+                ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(fileName)}:/content`
+                : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${effectiveFolder}:/${encodeURIComponent(fileName)}:/content`;
+
+            const fileBuffer = Buffer.from(fileBase64, 'base64');
+            const uploadRes = await fetch(uploadUrl, {
+                method: 'PUT',
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': mimeType || 'application/octet-stream'
+                },
+                body: fileBuffer
+            });
+
+            if (!uploadRes.ok) {
+                const err = await uploadRes.text();
+                return NextResponse.json({ error: `Falha ao carregar ficheiro: ${err}` }, { status: 500 });
+            }
+
+            const item = await uploadRes.json();
+            return NextResponse.json({
+                file: {
+                    id: item.id,
+                    name: item.name,
+                    webViewLink: item.webUrl,
+                    size: item.size
+                }
+            });
+        }
+
+        if (action === 'delete') {
+            if (!fileId) {
+                return NextResponse.json({ error: 'fileId é obrigatório' }, { status: 400 });
+            }
+            const delRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${fileId}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (!delRes.ok && delRes.status !== 404) {
+                const err = await delRes.text();
+                return NextResponse.json({ error: `Falha ao eliminar ficheiro: ${err}` }, { status: 500 });
+            }
+            return NextResponse.json({ success: true });
         }
 
         return NextResponse.json({ error: 'Invalid Action' }, { status: 400 });

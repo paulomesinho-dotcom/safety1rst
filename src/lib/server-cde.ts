@@ -366,6 +366,242 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         return { files, siteId };
     }
 
+    // Helper: Ensure/Create folder in SharePoint
+    const ensureSharePointFolder = async (parentId: string, folderName: string) => {
+        const isRoot = !parentId || parentId === 'root';
+        const childrenUrl = isRoot
+            ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`
+            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`;
+
+        try {
+            const listRes = await fetch(childrenUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (listRes.ok) {
+                const listData = await listRes.json();
+                const existing = (listData.value || []).find((item: any) =>
+                    item.folder && item.name.toLowerCase() === folderName.toLowerCase()
+                );
+                if (existing) {
+                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl };
+                }
+            }
+        } catch (e) {
+            console.warn('SharePoint List pre-check warning:', e);
+        }
+
+        const createRes = await fetch(childrenUrl, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: folderName,
+                folder: {},
+                '@microsoft.graph.conflictBehavior': 'rename'
+            })
+        });
+
+        if (createRes.ok) {
+            const item = await createRes.json();
+            return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl };
+        }
+
+        if (createRes.status === 409) {
+            const listRes = await fetch(childrenUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (listRes.ok) {
+                const listData = await listRes.json();
+                const existing = (listData.value || []).find((item: any) =>
+                    item.folder && item.name.toLowerCase() === folderName.toLowerCase()
+                );
+                if (existing) {
+                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl };
+                }
+            }
+        }
+
+        const errText = await createRes.text();
+        throw new Error(`Falha ao criar pasta "${folderName}" no SharePoint: ${errText}`);
+    };
+
+    if (action === 'create_folder') {
+        const folderName = payload.folderName || payload.name;
+        if (!folderName) throw new Error('Nome da pasta obrigatório.');
+        const parentId = payload.parentId || 'root';
+        return await ensureSharePointFolder(parentId, folderName);
+    }
+
+    if (action === 'initialize_company_structure') {
+        const { company, workers = [], equipment = [] } = payload;
+        const logs: string[] = [];
+
+        const COMPANY_STANDARD_FOLDERS = [
+            '01-Empresa',
+            '02-Trabalhadores',
+            '03-Equipamentos',
+            '04-Formação e Qualificações',
+            '05-Segurança e Saúde (SST)',
+            '06-Modelos e Minutas'
+        ];
+
+        const COMPANY_SPECIAL_SUBFOLDERS: Record<string, string[]> = {
+            '01-Empresa': [
+                '01-Certidões e Legal',
+                '02-Seguros',
+                '03-Alvará e Licenças',
+                '04-Medicina no Trabalho',
+                '05-Folhas de Remuneração (DRI)'
+            ]
+        };
+
+        const createdFolders: Record<string, string> = {};
+
+        // 1. Criar Pastas Principais da Empresa
+        for (const folderName of COMPANY_STANDARD_FOLDERS) {
+            try {
+                const result = await ensureSharePointFolder('root', folderName);
+                createdFolders[folderName] = result.id;
+                logs.push(result.exists ? `Existente no SharePoint: ${folderName}` : `Criada no SharePoint: ${folderName}`);
+
+                // 2. Criar Subpastas de Gestão Documental
+                if (COMPANY_SPECIAL_SUBFOLDERS[folderName]) {
+                    for (const sub of COMPANY_SPECIAL_SUBFOLDERS[folderName]) {
+                        try {
+                            const subRes = await ensureSharePointFolder(result.id, sub);
+                            logs.push(subRes.exists ? `  └─ Existente: ${sub}` : `  └─ Criada: ${sub}`);
+                        } catch (subErr: any) {
+                            logs.push(`  └─ Erro ao criar ${sub}: ${subErr.message}`);
+                        }
+                    }
+                }
+            } catch (err: any) {
+                logs.push(`Erro em ${folderName}: ${err.message}`);
+            }
+        }
+
+        // 3. Criar Pastas Individuais dos Trabalhadores da Empresa
+        const workersParentId = createdFolders['02-Trabalhadores'];
+        if (workersParentId && Array.isArray(workers)) {
+            for (const worker of workers) {
+                try {
+                    const idTag = worker.idNumber || worker.nif || (worker.id ? worker.id.slice(0, 8) : 'COLAB');
+                    const workerFolderName = `${idTag}-${(worker.name || 'Colaborador').trim()}`;
+                    const wRes = await ensureSharePointFolder(workersParentId, workerFolderName);
+                    await ensureSharePointFolder(wRes.id, 'Arquivo');
+                    logs.push(`SharePoint: Pasta Colaborador "${workerFolderName}"`);
+                } catch (err: any) {
+                    logs.push(`Erro no colaborador ${worker.name}: ${err.message}`);
+                }
+            }
+        }
+
+        // 4. Criar Pastas Individuais dos Equipamentos da Empresa
+        const equipParentId = createdFolders['03-Equipamentos'];
+        if (equipParentId && Array.isArray(equipment)) {
+            for (const equip of equipment) {
+                try {
+                    const idTag = equip.licensePlate || equip.serialNumber || (equip.id ? equip.id.slice(0, 8) : 'EQUIP');
+                    const equipFolderName = `${idTag}-${(equip.name || 'Equipamento').trim()}`;
+                    const eqRes = await ensureSharePointFolder(equipParentId, equipFolderName);
+                    await ensureSharePointFolder(eqRes.id, 'Arquivo');
+                    logs.push(`SharePoint: Pasta Equipamento "${equipFolderName}"`);
+                } catch (err: any) {
+                    logs.push(`Erro no equipamento ${equip.name}: ${err.message}`);
+                }
+            }
+        }
+
+        return { success: true, logs, createdFolders };
+    }
+
+    if (action === 'initialize_project_structure') {
+        const logs: string[] = [];
+        const STANDARD_FOLDERS = [
+            '01-Empresas',
+            '02-Trabalhadores',
+            '03-Equipamentos',
+            '04-Formação',
+            '05-Segurança e Saúde',
+            '06-Atas e Comunicações'
+        ];
+        const SPECIAL_SUBFOLDERS: Record<string, string[]> = {
+            '01-Empresas': ['00-Reports']
+        };
+        const createdFolders: Record<string, string> = {};
+
+        for (const folderName of STANDARD_FOLDERS) {
+            try {
+                const result = await ensureSharePointFolder('root', folderName);
+                createdFolders[folderName] = result.id;
+                logs.push(result.exists ? `Existente no SharePoint: ${folderName}` : `Criada no SharePoint: ${folderName}`);
+
+                if (SPECIAL_SUBFOLDERS[folderName]) {
+                    for (const sub of SPECIAL_SUBFOLDERS[folderName]) {
+                        await ensureSharePointFolder(result.id, sub);
+                    }
+                }
+            } catch (err: any) {
+                logs.push(`Erro em ${folderName}: ${err.message}`);
+            }
+        }
+
+        return { success: true, logs, createdFolders };
+    }
+
+    if (action === 'upload' || action === 'upload_file') {
+        const { folderId = 'root', fileName, fileBase64, mimeType } = payload;
+        if (!fileName) throw new Error('Nome do ficheiro obrigatório.');
+        if (!fileBase64) throw new Error('Conteúdo do ficheiro obrigatório.');
+
+        const fileBuffer = Buffer.from(fileBase64, 'base64');
+        const isRoot = !folderId || folderId === 'root';
+        const uploadUrl = isRoot
+            ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(fileName)}:/content`
+            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${folderId}:/${encodeURIComponent(fileName)}:/content`;
+
+        const uploadRes = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': mimeType || 'application/octet-stream'
+            },
+            body: fileBuffer
+        });
+
+        if (!uploadRes.ok) {
+            const err = await uploadRes.text();
+            throw new Error(`Falha ao carregar ficheiro para o SharePoint: ${err}`);
+        }
+
+        const item = await uploadRes.json();
+        return {
+            id: item.id,
+            name: item.name,
+            webViewLink: item.webUrl,
+            size: item.size
+        };
+    }
+
+    if (action === 'delete' || action === 'delete_file') {
+        const { fileId } = payload;
+        if (!fileId) throw new Error('ID do ficheiro obrigatório.');
+
+        const delRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${fileId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        if (!delRes.ok && delRes.status !== 404) {
+            const err = await delRes.text();
+            throw new Error(`Falha ao eliminar ficheiro no SharePoint: ${err}`);
+        }
+
+        return { success: true, message: 'Ficheiro eliminado do SharePoint.' };
+    }
+
     throw new Error(`Ação '${action}' não suportada para SharePoint.`);
 }
 

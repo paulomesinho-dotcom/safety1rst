@@ -1,11 +1,11 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Upload, Search, Archive, Plus, ChevronDown, ChevronRight, FileText, FolderPlus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { useStore } from '@/store/useStore';
-import { archiveCDEFile, refreshDropboxToken, initializeProjectStructure } from '@/lib/cde-manager';
+import { archiveCDEFile, refreshDropboxToken, initializeProjectStructure, createOneDriveFolder } from '@/lib/cde-manager';
 import { GoogleDriveIcon } from '@/components/GoogleDriveIcons';
 
 const Documents = () => {
@@ -203,7 +203,9 @@ const Documents = () => {
                 const items = await fetchDropboxContent(project.cdeConfig, folderId === 'root' ? '' : folderId);
                 setDriveItems(items);
             } else if (provider === 'onedrive') {
-                alert('SharePoint folder creation pending.');
+                await createOneDriveFolder({ ...project.cdeConfig, projectId: project.id } as any, folderId === 'root' ? '' : folderId, name);
+                const items = await fetchSharePointContent(project.cdeConfig, folderId);
+                setDriveItems(items);
             }
         } catch (e: any) {
             alert(`Failed to create folder (${provider}): ` + e.message);

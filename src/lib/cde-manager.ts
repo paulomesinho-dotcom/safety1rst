@@ -220,11 +220,50 @@ async function createDropboxFolder(accessToken: string, parentPath: string, name
     }
 }
 
-async function createOneDriveFolder(config: CDEConfig, parentId: string, name: string): Promise<CreateFolderResult> {
-    // Rely on /api/integration/sharepoint
-    // Note: SharePoint logic handles "Ensure" usually via "children/Name" endpoint which creates-if-missing?
-    // Not implemented fully yet in route.
-    throw new Error('OneDrive automation pending');
+export async function createOneDriveFolder(config: CDEConfig, parentId: string, name: string): Promise<CreateFolderResult> {
+    const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+
+    // 1. Tentar via endpoint de ação CDE no servidor (que tem credenciais desencriptadas)
+    try {
+        const res = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'create_folder',
+                payload: { parentId, folderName: name }
+            })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.result) return data.result;
+        }
+    } catch (err) {
+        console.warn('Fallback para /api/integration/sharepoint:', err);
+    }
+
+    // 2. Fallback via /api/integration/sharepoint
+    const res2 = await fetch('/api/integration/sharepoint', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'create_folder',
+            clientId: config.clientId,
+            clientSecret: (config as any).clientSecret,
+            tenantId: config.tenantId,
+            siteUrl: config.siteUrl,
+            parentId,
+            folderName: name,
+            projectId: compOrProjId
+        })
+    });
+
+    if (!res2.ok) {
+        const errData = await res2.json().catch(() => ({ error: 'Erro desconhecido' }));
+        throw new Error(errData.error || 'Falha ao criar pasta no SharePoint');
+    }
+
+    const data2 = await res2.json();
+    return data2.folder || data2;
 }
 
 export async function refreshDropboxToken(config: CDEConfig): Promise<{ accessToken: string, expiresAt: number }> {
@@ -259,6 +298,28 @@ export async function initializeProjectStructure(
 ): Promise<string[]> {
     if (!config.connected) throw new Error('CDE not connected');
 
+    const compOrProjId = (config as any).projectId || 'root';
+
+    // Execução ultra-rápida no servidor para SharePoint
+    if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+        try {
+            const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'initialize_project_structure',
+                    payload: {}
+                })
+            });
+            if (srvRes.ok) {
+                const srvData = await srvRes.json();
+                if (srvData.result?.logs) return srvData.result.logs;
+            }
+        } catch (srvErr) {
+            console.warn('Server initialize_project_structure fallback:', srvErr);
+        }
+    }
+
     const rootId = (config.provider === 'gdrive' ? config.folderId :
         config.provider === 'dropbox' ? (config.folderPath || '') :
             'root');
@@ -277,6 +338,8 @@ export async function initializeProjectStructure(
                     result = await createGoogleDriveFolder(config.accessToken!, rootId, folderName);
                 } else if (config.provider === 'dropbox') {
                     result = await createDropboxFolder(config.accessToken!, rootId, folderName);
+                } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+                    result = await createOneDriveFolder(config, rootId, folderName);
                 }
 
                 if (result) {
@@ -290,12 +353,11 @@ export async function initializeProjectStructure(
                                 await createGoogleDriveFolder(config.accessToken!, result.id, sub);
                             } else if (config.provider === 'dropbox') {
                                 await createDropboxFolder(config.accessToken!, result.id, sub);
+                            } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+                                await createOneDriveFolder(config, result.id, sub);
                             }
                         }
                     }
-
-                    // 3. For '01-Empresas', keep logic generic for now.
-                    // The prompt asked for "00-Reports" inside "01-Empresas" - Handled above.
                 }
             } catch (e: any) {
                 const errJson = JSON.stringify(e.message || e);
@@ -350,6 +412,33 @@ export async function initializeCompanyStructure(
 ): Promise<string[]> {
     if (!config.connected) throw new Error('CDE não está conectado. Ligue o CDE para criar a estrutura na Cloud.');
 
+    const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+
+    // Execução direta e segura no servidor para Microsoft SharePoint / Entra ID
+    if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+        try {
+            const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'initialize_company_structure',
+                    payload: { company, workers, equipment }
+                })
+            });
+
+            if (srvRes.ok) {
+                const srvData = await srvRes.json();
+                if (srvData.result?.logs) return srvData.result.logs;
+            } else {
+                const err = await srvRes.json().catch(() => ({ error: 'Falha ao contactar servidor CDE' }));
+                throw new Error(err.error || 'Falha ao criar pastas no SharePoint.');
+            }
+        } catch (srvErr: any) {
+            console.warn('Server initialize_company_structure error, trying step-by-step:', srvErr);
+            throw srvErr;
+        }
+    }
+
     const rootId = (config.provider === 'gdrive' ? config.folderId :
         config.provider === 'dropbox' ? (config.folderPath || '') :
             'root');
@@ -363,6 +452,8 @@ export async function initializeCompanyStructure(
             return await createGoogleDriveFolder(config.accessToken!, parentId, folderName);
         } else if (config.provider === 'dropbox') {
             return await createDropboxFolder(config.accessToken!, parentId, folderName);
+        } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+            return await createOneDriveFolder(config, parentId, folderName);
         }
         return { id: `${parentId}/${folderName}`, name: folderName, exists: false };
     };
@@ -446,7 +537,7 @@ export async function uploadToCDEFolder(
     }
 
     if (config.provider === 'gdrive') {
-        const uploaded = await uploadToGoogleDrive(config.accessToken, targetFolderIdOrPath, file);
+        const uploaded = await uploadToGoogleDrive(config.accessToken!, targetFolderIdOrPath, file);
         return {
             id: uploaded.id,
             webViewLink: uploaded.webViewLink,
@@ -454,12 +545,41 @@ export async function uploadToCDEFolder(
             name: file.name
         };
     } else if (config.provider === 'dropbox') {
-        const uploaded = await uploadToDropbox(config.accessToken, targetFolderIdOrPath, file);
+        const uploaded = await uploadToDropbox(config.accessToken!, targetFolderIdOrPath, file);
         return {
             id: uploaded.id,
             webViewLink: uploaded.webViewLink,
             size: file.size,
             name: file.name
+        };
+    } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+        const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+        const arrayBuffer = await file.arrayBuffer();
+        const base64 = Buffer.from(arrayBuffer).toString('base64');
+        const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'upload_file',
+                payload: {
+                    folderId: targetFolderIdOrPath,
+                    fileName: file.name,
+                    fileBase64: base64,
+                    mimeType: file.type || 'application/octet-stream'
+                }
+            })
+        });
+        if (!srvRes.ok) {
+            const err = await srvRes.json().catch(() => ({ error: 'Falha no upload para SharePoint' }));
+            throw new Error(err.error || 'Falha no upload para SharePoint');
+        }
+        const srvData = await srvRes.json();
+        const item = srvData.result;
+        return {
+            id: item.id,
+            webViewLink: item.webViewLink,
+            size: item.size || file.size,
+            name: item.name
         };
     }
 
@@ -503,6 +623,9 @@ export async function createEntityFolder(
         } else if (config.provider === 'dropbox') {
             const res = await createDropboxFolder(config.accessToken!, rootId, parentName);
             parentIdOrPath = res.id; // Correct path
+        } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+            const res = await createOneDriveFolder(config, rootId, parentName);
+            parentIdOrPath = res.id;
         }
 
         // 3. Create Entity Folder (Number-Name)
@@ -515,6 +638,9 @@ export async function createEntityFolder(
         } else if (config.provider === 'dropbox') {
             const res = await createDropboxFolder(config.accessToken!, parentIdOrPath!, folderName);
             entityFolderId = res.id;
+        } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+            const res = await createOneDriveFolder(config, parentIdOrPath!, folderName);
+            entityFolderId = res.id;
         }
 
         // 4. Create "Arquivo" subfolder
@@ -522,6 +648,8 @@ export async function createEntityFolder(
             await createGoogleDriveFolder(config.accessToken!, entityFolderId, 'Arquivo');
         } else if (config.provider === 'dropbox') {
             await createDropboxFolder(config.accessToken!, entityFolderId, 'Arquivo');
+        } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+            await createOneDriveFolder(config, entityFolderId, 'Arquivo');
         }
 
 
@@ -690,14 +818,14 @@ async function uploadToGoogleDrive(accessToken: string, folderId: string, file: 
  * Delete a file from CDE (for Rollback)
  */
 export async function deleteCDEFile(config: CDEConfig, fileId: string): Promise<void> {
-    if (!config.connected || !config.accessToken) return;
+    if (!config.connected) return;
 
     try {
-        if (config.provider === 'gdrive') {
+        if (config.provider === 'gdrive' && config.accessToken) {
             await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?access_token=${config.accessToken}`, {
                 method: 'DELETE'
             });
-        } else if (config.provider === 'dropbox') {
+        } else if (config.provider === 'dropbox' && config.accessToken) {
             await fetch('https://api.dropboxapi.com/2/files/delete_v2', {
                 method: 'POST',
                 headers: {
@@ -705,6 +833,16 @@ export async function deleteCDEFile(config: CDEConfig, fileId: string): Promise<
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ path: fileId })
+            });
+        } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+            const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+            await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'delete_file',
+                    payload: { fileId }
+                })
             });
         }
     } catch (e) {
@@ -961,6 +1099,53 @@ export async function uploadToEntityFolder(
             // 4. Upload
             const upRes = await uploadToDropbox(config.accessToken, targetFolderPath, file);
             return { ...upRes, archivedId, archivedParentId }; // archivedNewId undefined if no collision
+        } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+            const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+
+            // 1. Ensure Parent Folder (01-Empresas, 02-Trabalhadores, 03-Equipamentos)
+            const parentRes = await createOneDriveFolder(config, 'root', parentName);
+
+            // 2. Ensure Entity Folder (Identifier-Name)
+            const entityRes = await createOneDriveFolder(config, parentRes.id, folderName);
+            targetFolderId = entityRes.id;
+            archivedParentId = targetFolderId;
+
+            // 3. Ensure Arquivo subfolder
+            await createOneDriveFolder(config, entityRes.id, 'Arquivo').catch(() => {});
+
+            // 4. Convert File to Base64
+            const arrayBuffer = await file.arrayBuffer();
+            const base64 = Buffer.from(arrayBuffer).toString('base64');
+
+            // 5. Upload via Server CDE Action
+            const uploadRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'upload_file',
+                    payload: {
+                        folderId: targetFolderId,
+                        fileName: file.name,
+                        fileBase64: base64,
+                        mimeType: file.type || 'application/octet-stream'
+                    }
+                })
+            });
+
+            if (!uploadRes.ok) {
+                const errData = await uploadRes.json().catch(() => ({ error: 'Falha no upload para SharePoint' }));
+                throw new Error(errData.error || 'Falha no upload para SharePoint');
+            }
+
+            const uploadData = await uploadRes.json();
+            const fileItem = uploadData.result;
+
+            return {
+                id: fileItem.id,
+                webViewLink: fileItem.webViewLink,
+                archivedId,
+                archivedParentId
+            };
         }
     } catch (e: any) {
         const errJson = JSON.stringify(e.message || e);
