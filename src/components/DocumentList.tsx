@@ -55,10 +55,14 @@ export const DocumentList: React.FC<DocumentListProps> = ({ projectId, entityId,
         const docToDelete = documents.find(d => d.id === id);
         if (!docToDelete) return;
 
-        if (project?.cdeConfig?.connected && docToDelete.cdeFileId) {
+        const storeState = useStore.getState();
+        const companyForCde = storeState.companies.find(c => c.id === entityId || c.id === projectId || (!c.projectId && c.accountId === storeState.currentUser?.accountId));
+        const effectiveCdeConfig = project?.cdeConfig || (companyForCde as any)?.cdeConfig;
+
+        if (effectiveCdeConfig?.connected && docToDelete.cdeFileId) {
             // 1. Delete Physical File
             console.log(`Deleting file ${docToDelete.name} (${docToDelete.cdeFileId})`);
-            await deleteCDEFile(project.cdeConfig, docToDelete.cdeFileId);
+            await deleteCDEFile(effectiveCdeConfig, docToDelete.cdeFileId);
 
             // Notify Parent
             if (onDelete) onDelete(docToDelete.cdeFileId);

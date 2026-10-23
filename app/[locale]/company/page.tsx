@@ -14,15 +14,20 @@ import {
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
     LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
     User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter,
-    FolderPlus, FolderCheck, FileSpreadsheet, HardDrive, RotateCw, History, Paperclip, ChevronDown
+    FolderPlus, FolderCheck, FileSpreadsheet, HardDrive, RotateCw, History, Paperclip, ChevronDown,
+    Archive
 } from 'lucide-react';
 import { CDESettingsModal } from '@/components/CDESettingsModal';
 import { 
     initializeCompanyStructure, 
     uploadToCDEFolder, 
+    archiveCDEFile,
     COMPANY_STANDARD_FOLDERS, 
     COMPANY_SPECIAL_SUBFOLDERS 
 } from '@/lib/cde-manager';
+import { DocumentUpload } from '@/components/DocumentUpload';
+import { DocumentList } from '@/components/DocumentList';
+import { GoogleDriveIcon } from '@/components/GoogleDriveIcons';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
     FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon 
@@ -131,6 +136,102 @@ const getMedicalFitnessBadge = (fitness?: string, expiry?: string) => {
     }
 };
 
+const RequirementCard = ({
+    label,
+    category,
+    entityId,
+    projectId,
+    expiryDate,
+    policyNumber,
+    isEditing = true,
+    children
+}: {
+    label: string;
+    category: string;
+    entityId: string;
+    projectId: string;
+    expiryDate?: string;
+    policyNumber?: string;
+    isEditing?: boolean;
+    children?: React.ReactNode;
+}) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const { documents } = useStore();
+    const hasDocs = documents.some(d => d.entityId === entityId && d.category === category && !d.archived);
+
+    useEffect(() => {
+        if (hasDocs) setIsExpanded(true);
+    }, [hasDocs]);
+
+    const isExpired = expiryDate ? new Date(expiryDate) < new Date() : false;
+
+    return (
+        <div className="flex flex-col gap-2 p-3 bg-white dark:bg-surface border border-gray-100 dark:border-[#444746] rounded-xl shadow-xs hover:border-primary/20 transition-all">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div 
+                    className="flex items-start sm:items-center gap-3 cursor-pointer flex-1"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                >
+                    <div className={cn(
+                        "p-2 rounded-lg transition-colors mt-0.5 sm:mt-0",
+                        isExpanded ? "bg-primary-light text-primary" : "bg-gray-50 dark:bg-[#131314] text-gray-400"
+                    )}>
+                        <FileText size={18} />
+                    </div>
+                    <div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white leading-tight">{label}</div>
+                        <div className="text-[11px] text-gray-400 uppercase tracking-wider mt-0.5">
+                            {policyNumber ? `N.º ${policyNumber}` : category.replace(/_/g, ' ')}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                    {expiryDate ? (
+                        <span className={cn(
+                            "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase",
+                            isExpired 
+                                ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800" 
+                                : "bg-green-50 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-300 dark:border-green-800"
+                        )}>
+                            {isExpired ? <AlertTriangle size={10} /> : <Check size={10} />}
+                            {new Date(expiryDate).toLocaleDateString()}
+                        </span>
+                    ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
+                            Sem data
+                        </span>
+                    )}
+
+                    <div className="hidden sm:block h-4 w-px bg-gray-200 dark:bg-[#444746] mx-1" />
+
+                    <DocumentUpload
+                        entityId={entityId}
+                        projectId={projectId}
+                        category={category}
+                        layout="button"
+                        label="Upload"
+                        systemLabel={label}
+                    />
+                </div>
+            </div>
+
+            {children && <div className="mt-2 pl-0 sm:pl-11">{children}</div>}
+
+            {isExpanded && (
+                <div className="mt-2 pl-0 sm:pl-11 animate-in fade-in slide-in-from-top-2 duration-200">
+                    <DocumentList
+                        entityId={entityId}
+                        projectId={projectId}
+                        category={category}
+                        isEditing={isEditing}
+                    />
+                </div>
+            )}
+        </div>
+    );
+};
+
 export default function MyCompanyPage() {
     const router = useRouter();
     const { isDark } = useTheme();
@@ -237,6 +338,7 @@ export default function MyCompanyPage() {
     // Company Details Modal (View vs Edit mode)
     const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
     const [companyModalMode, setCompanyModalMode] = useState<'view' | 'edit'>('view');
+    const [companyModalTab, setCompanyModalTab] = useState<'identification' | 'legal' | 'documents'>('identification');
     const [companySearchTerm, setCompanySearchTerm] = useState('');
 
     // Export / Sincronizar Modal State
@@ -502,6 +604,12 @@ export default function MyCompanyPage() {
     // Document Filters & Search
     const [docSearchTerm, setDocSearchTerm] = useState('');
     const [docStatusFilter, setDocStatusFilter] = useState<'all' | 'valid' | 'expiring' | 'expired' | 'permanent' | 'archived'>('all');
+
+    // CDE Document Explorer Navigation States
+    const [cdeCurrentPath, setCdeCurrentPath] = useState<Array<{ id: string; name: string }>>([{ id: 'root', name: 'CDE' }]);
+    const [cdeExpandedFolders, setCdeExpandedFolders] = useState<Set<string>>(new Set(['01-Empresa']));
+    const [isCdeNewMenuOpen, setIsCdeNewMenuOpen] = useState(false);
+    const [cdeDocSearch, setCdeDocSearchTerm] = useState('');
 
     // Folder Initialization State & Result Modal
     const [isInitializingFolders, setIsInitializingFolders] = useState(false);
@@ -1144,6 +1252,7 @@ export default function MyCompanyPage() {
     // Modal state for Worker (Dual mode: view vs edit)
     const [isWorkerModalOpen, setIsWorkerModalOpen] = useState(false);
     const [workerModalMode, setWorkerModalMode] = useState<'view' | 'edit'>('view');
+    const [workerModalTab, setWorkerModalTab] = useState<'identification' | 'labor' | 'safety' | 'documents'>('identification');
     const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
     const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
     const [workerForm, setWorkerForm] = useState(defaultWorkerForm);
@@ -1197,6 +1306,7 @@ export default function MyCompanyPage() {
             epiDeliveryList: w.epiDeliveryList || ['Capacete', 'Colete Refletor', 'Botins de Proteção', 'Luvas de Proteção'],
             epiDate: w.epiDate || '',
         });
+        setWorkerModalTab('identification');
         setWorkerModalMode('view');
         setIsWorkerModalOpen(true);
     };
@@ -1205,12 +1315,14 @@ export default function MyCompanyPage() {
         setSelectedWorker(null);
         setEditingWorkerId(null);
         setWorkerForm(defaultWorkerForm);
+        setWorkerModalTab('identification');
         setWorkerModalMode('edit');
         setIsWorkerModalOpen(true);
     };
 
     const handleOpenEditWorker = (w: Worker) => {
         handleOpenViewWorker(w);
+        setWorkerModalTab('identification');
         setWorkerModalMode('edit');
     };
 
@@ -2315,598 +2427,427 @@ export default function MyCompanyPage() {
 
                             {/* ════════ TAB: DOCUMENTOS ════════ */}
                             {activeTab === 'documents' && (
-                                <div className="space-y-6">
-                                    {/* Top Control Bar */}
-                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                <div className="space-y-4">
+                                    {/* Clean CDE Explorer Header */}
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 dark:border-[#444746] gap-4">
                                         <div>
-                                            <h2 className="text-base font-bold text-[var(--text)] flex items-center gap-2">
-                                                <Folder className="text-primary" size={20} />
-                                                Gestão Documental & Repositório da Empresa
+                                            <h2 className="text-xl font-normal text-google-text flex items-center gap-2">
+                                                <Folder className="text-primary" size={22} />
+                                                <span>Documentos da Empresa</span>
                                             </h2>
-                                            <p className="text-xs text-[var(--text-muted)] mt-1">
-                                                Estrutura normalizada de pastas, controlo de validades legais (Seguros, FAT, Não Dívida, CE) e arquivo digital ISO 19650.
-                                            </p>
+                                            {/* Breadcrumbs Navigation */}
+                                            <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-1 flex-wrap">
+                                                {cdeCurrentPath.map((p, idx) => (
+                                                    <span key={p.id || idx} className="flex items-center gap-1.5">
+                                                        {idx > 0 && <span>/</span>}
+                                                        <span
+                                                            className={cn(
+                                                                "cursor-pointer transition-colors",
+                                                                idx === cdeCurrentPath.length - 1 ? "font-bold text-[var(--text)]" : "hover:underline hover:text-primary"
+                                                            )}
+                                                            onClick={() => setCdeCurrentPath(cdeCurrentPath.slice(0, idx + 1))}
+                                                        >
+                                                            {p.name}
+                                                        </span>
+                                                    </span>
+                                                ))}
+                                            </div>
                                         </div>
 
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            {/* Button: Criar Pastas Tipo */}
+                                        <div className="flex flex-wrap items-center gap-2.5">
+                                            {/* Button: Pastas Tipo */}
                                             <button
                                                 type="button"
                                                 onClick={handleInitializeCompanyFolders}
                                                 disabled={isInitializingFolders}
-                                                className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-60"
-                                                title="Criar estrutura normalizada de pastas para a Empresa, Trabalhadores e Equipamentos"
+                                                className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                                                title="Inicializar estrutura de pastas padronizada"
                                             >
                                                 {isInitializingFolders ? (
-                                                    <RotateCw size={14} className="animate-spin" />
+                                                    <RotateCw size={14} className="animate-spin text-primary" />
                                                 ) : (
-                                                    <FolderCheck size={15} />
+                                                    <FolderPlus size={15} className="text-primary" />
                                                 )}
-                                                <span>Criar Pastas Tipo da Empresa</span>
+                                                <span>Pastas Tipo</span>
                                             </button>
 
-                                            {/* Button: Colocar Documento */}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    handleUploadEntityTypeChange('company');
-                                                    setIsUploadDocModalOpen(true);
-                                                }}
-                                                className="py-2 px-3.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-                                            >
-                                                <Plus size={15} />
-                                                <span>Colocar Documento</span>
-                                            </button>
+                                            {/* Button: Dropdown Novo */}
+                                            <div className="relative">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsCdeNewMenuOpen(!isCdeNewMenuOpen)}
+                                                    className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-primary rounded-full hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
+                                                >
+                                                    <Plus size={15} className="text-white" />
+                                                    <span>Novo</span>
+                                                    <ChevronDown size={13} className="text-white/80" />
+                                                </button>
 
-                                            {/* Button: Nova Pasta */}
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setNewFolderParent(selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath);
-                                                    setIsNewFolderModalOpen(true);
-                                                }}
-                                                className="py-2 px-3 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/50 hover:bg-[var(--bg-input)] text-xs font-medium text-[var(--text)] flex items-center gap-1.5 transition-all cursor-pointer"
-                                                title="Criar nova subpasta"
-                                            >
-                                                <FolderPlus size={14} />
-                                                <span>Nova Pasta</span>
-                                            </button>
+                                                {isCdeNewMenuOpen && (
+                                                    <>
+                                                        <div className="fixed inset-0 z-40" onClick={() => setIsCdeNewMenuOpen(false)}></div>
+                                                        <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-surface rounded-xl shadow-xl border border-gray-100 dark:border-[#444746] py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setIsCdeNewMenuOpen(false);
+                                                                    setNewFolderParent(cdeCurrentPath.length > 1 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : '01-Empresa');
+                                                                    setIsNewFolderModalOpen(true);
+                                                                }}
+                                                                className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
+                                                            >
+                                                                <GoogleDriveIcon type="folder" size={16} />
+                                                                <span>Nova pasta</span>
+                                                            </button>
+                                                            <div className="h-px bg-gray-100 dark:bg-gray-800 my-1"></div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setIsCdeNewMenuOpen(false);
+                                                                    const currentFolder = cdeCurrentPath.length > 1 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : '01-Empresa';
+                                                                    setUploadDocForm(prev => ({ ...prev, folderPath: currentFolder }));
+                                                                    setIsUploadDocModalOpen(true);
+                                                                }}
+                                                                className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
+                                                            >
+                                                                <FileText size={16} className="text-primary" />
+                                                                <span>Carregar ficheiro</span>
+                                                            </button>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
 
                                             {/* Button: Definições CDE */}
                                             <button
                                                 type="button"
                                                 onClick={() => setIsCdeModalOpen(true)}
-                                                className="py-2 px-3 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/50 hover:bg-[var(--bg-input)] text-xs font-medium text-[var(--text)] flex items-center gap-1.5 transition-all cursor-pointer"
-                                                title="Configurar ligação ao Google Drive, Dropbox, SharePoint ou Servidor Próprio"
+                                                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all cursor-pointer shadow-xs"
+                                                title="Configurar integração com Cloud CDE"
                                             >
                                                 <Cloud size={14} className={companyCdeConfig?.connected ? "text-emerald-500" : "text-amber-500"} />
                                                 <span>CDE: {companyCdeConfig?.connected ? (companyCdeConfig.provider?.toUpperCase() || 'Cloud') : 'Local'}</span>
                                             </button>
-                                        </div>
-                                    </div>
 
-                                    {/* KPI Summary Row */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                                        <div 
-                                            onClick={() => setDocStatusFilter('all')}
-                                            className={cn(
-                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-primary/50 shadow-sm",
-                                                docStatusFilter === 'all' ? "border-primary ring-1 ring-primary/20" : "border-[var(--border)]"
-                                            )}
-                                        >
-                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
-                                                <span>Total Documentos</span>
-                                                <FileText size={14} className="text-primary" />
-                                            </div>
-                                            <div className="text-xl font-black text-[var(--text)] mt-1">{docKpiStats.total}</div>
-                                            <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Catálogo corporativo</div>
-                                        </div>
-
-                                        <div 
-                                            onClick={() => setDocStatusFilter('valid')}
-                                            className={cn(
-                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-emerald-500/50 shadow-sm",
-                                                docStatusFilter === 'valid' ? "border-emerald-500 ring-1 ring-emerald-500/20" : "border-[var(--border)]"
-                                            )}
-                                        >
-                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
-                                                <span>Válidos</span>
-                                                <CheckCircle2 size={14} className="text-emerald-500" />
-                                            </div>
-                                            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{docKpiStats.valid}</div>
-                                            <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Conformidade assegurada</div>
-                                        </div>
-
-                                        <div 
-                                            onClick={() => setDocStatusFilter('expiring')}
-                                            className={cn(
-                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-amber-500/50 shadow-sm",
-                                                docStatusFilter === 'expiring' ? "border-amber-500 ring-1 ring-amber-500/20" : "border-[var(--border)]"
-                                            )}
-                                        >
-                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
-                                                <span>A Expirar (&le; 30d)</span>
-                                                <Clock size={14} className="text-amber-500" />
-                                            </div>
-                                            <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">{docKpiStats.expiring}</div>
-                                            <div className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">Renovação necessária</div>
-                                        </div>
-
-                                        <div 
-                                            onClick={() => setDocStatusFilter('expired')}
-                                            className={cn(
-                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-red-500/50 shadow-sm",
-                                                docStatusFilter === 'expired' ? "border-red-500 ring-1 ring-red-500/20" : "border-[var(--border)]"
-                                            )}
-                                        >
-                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
-                                                <span>Expirados</span>
-                                                <AlertTriangle size={14} className="text-red-500" />
-                                            </div>
-                                            <div className="text-xl font-black text-red-600 dark:text-red-400 mt-1">{docKpiStats.expired}</div>
-                                            <div className="text-[10px] text-red-600/80 dark:text-red-400/80 mt-0.5">Não conformes</div>
-                                        </div>
-
-                                        <div 
-                                            onClick={() => setDocStatusFilter('permanent')}
-                                            className={cn(
-                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-blue-500/50 shadow-sm",
-                                                docStatusFilter === 'permanent' ? "border-blue-500 ring-1 ring-blue-500/20" : "border-[var(--border)]"
-                                            )}
-                                        >
-                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
-                                                <span>Permanentes</span>
-                                                <Shield size={14} className="text-blue-500" />
-                                            </div>
-                                            <div className="text-xl font-black text-blue-600 dark:text-blue-400 mt-1">{docKpiStats.permanent}</div>
-                                            <div className="text-[10px] text-blue-600/80 dark:text-blue-400/80 mt-0.5">Sem termo de validade</div>
-                                        </div>
-                                    </div>
-
-                                    {/* Main Two-Pane Split Layout */}
-                                    <div className="flex flex-col lg:flex-row gap-5 items-start">
-                                        {/* ═══ LEFT PANE: Folder Tree ═══ */}
-                                        <div className="w-full lg:w-72 xl:w-80 shrink-0 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-4 shadow-sm space-y-3">
-                                            <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
-                                                <div className="flex items-center gap-2">
-                                                    <Folder size={16} className="text-primary" />
-                                                    <span className="font-bold text-xs text-[var(--text)]">Estrutura de Pastas</span>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setSelectedFolderPath('all')}
-                                                    className={cn(
-                                                        "text-[10px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer",
-                                                        selectedFolderPath === 'all' 
-                                                            ? "bg-primary text-white" 
-                                                            : "text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--bg-input)]"
-                                                    )}
-                                                >
-                                                    Ver Todas ({corporateDocuments.length})
-                                                </button>
-                                            </div>
-
-                                            {/* Folder search input */}
+                                            {/* Search input */}
                                             <div className="relative">
-                                                <Search size={13} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
+                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                                                 <input
                                                     type="text"
-                                                    value={folderSearchTerm}
-                                                    onChange={e => setFolderSearchTerm(e.target.value)}
-                                                    placeholder="Filtrar pastas..."
-                                                    className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary"
+                                                    value={cdeDocSearch}
+                                                    onChange={e => setCdeDocSearchTerm(e.target.value)}
+                                                    placeholder="Pesquisar..."
+                                                    className="bg-gray-100 dark:bg-surface border-none rounded-full pl-9 pr-4 py-1.5 text-xs w-48 sm:w-56 focus:ring-2 focus:ring-primary-light outline-none transition-all focus:bg-white dark:focus:bg-surface focus:shadow-sm"
                                                 />
                                             </div>
+                                        </div>
+                                    </div>
 
-                                            {/* Tree listing */}
-                                            <div className="space-y-1 max-h-[580px] overflow-y-auto pr-1">
-                                                {COMPANY_STANDARD_FOLDERS.map(topFolder => {
-                                                    const subfolders = allCompanyFolders.filter(f => f.parent === topFolder);
-                                                    const isExpanded = expandedFolders.has(topFolder);
-                                                    const isSelected = selectedFolderPath === topFolder;
-                                                    const docCount = folderDocCounts[topFolder] || 0;
+                                    {/* Main Explorer View: Left Folder Tree & Right Content Table */}
+                                    <div className="flex h-[620px] gap-6 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-2xl overflow-hidden shadow-xs">
+                                        {/* Left Sidebar (Tree View) */}
+                                        <div className="w-64 flex-shrink-0 border-r border-gray-100 dark:border-[#444746] hidden md:flex md:flex-col p-4 h-full bg-gray-50/50 dark:bg-[#131314]/30">
+                                            <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] pb-2 border-b border-[var(--border)] mb-2 flex items-center justify-between">
+                                                <span>Pastas CDE</span>
+                                                <span className="text-[10px] font-mono">{allCompanyFolders.length}</span>
+                                            </div>
 
-                                                    // Filter matches
-                                                    if (folderSearchTerm.trim()) {
-                                                        const q = folderSearchTerm.toLowerCase();
-                                                        const matchesTop = topFolder.toLowerCase().includes(q);
-                                                        const matchesSub = subfolders.some(s => s.name.toLowerCase().includes(q));
-                                                        if (!matchesTop && !matchesSub) return null;
-                                                    }
+                                            <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar pr-1 space-y-0.5">
+                                                {/* Root item */}
+                                                <div
+                                                    className={cn(
+                                                        "flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                                                        cdeCurrentPath.length === 1 && cdeCurrentPath[0].id === 'root'
+                                                            ? "bg-primary-light text-primary font-bold"
+                                                            : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
+                                                    )}
+                                                    onClick={() => setCdeCurrentPath([{ id: 'root', name: 'CDE' }])}
+                                                >
+                                                    <GoogleDriveIcon type="folder" size={16} />
+                                                    <span className="truncate">CDE (Raiz da Empresa)</span>
+                                                </div>
+
+                                                {/* Standard Company Folders */}
+                                                {COMPANY_STANDARD_FOLDERS.map(top => {
+                                                    const isSelected = cdeCurrentPath.length > 1 && cdeCurrentPath[1].id === top;
+                                                    const isExpanded = cdeExpandedFolders.has(top);
+                                                    const subfolders = allCompanyFolders.filter(f => f.parent === top);
 
                                                     return (
-                                                        <div key={topFolder} className="space-y-0.5">
-                                                            {/* Top Level Item */}
-                                                            <div 
+                                                        <div key={top} className="space-y-0.5">
+                                                            <div
                                                                 className={cn(
-                                                                    "flex items-center justify-between py-1.5 px-2 rounded-lg text-xs cursor-pointer transition-colors group",
-                                                                    isSelected 
-                                                                        ? "bg-primary/10 text-primary font-bold border border-primary/20" 
-                                                                        : "hover:bg-[var(--bg-input)] text-[var(--text)]"
+                                                                    "flex items-center justify-between py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                                                                    isSelected
+                                                                        ? "bg-primary-light text-primary font-bold"
+                                                                        : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
                                                                 )}
                                                             >
-                                                                <div 
-                                                                    className="flex items-center gap-1.5 min-w-0 flex-1"
-                                                                    onClick={() => setSelectedFolderPath(topFolder)}
+                                                                <div
+                                                                    className="flex items-center gap-1.5 flex-1 min-w-0"
+                                                                    onClick={() => setCdeCurrentPath([{ id: 'root', name: 'CDE' }, { id: top, name: top }])}
                                                                 >
-                                                                    <Folder size={14} className={isSelected ? "text-primary" : "text-[var(--text-muted)]"} />
-                                                                    <span className="truncate">{topFolder}</span>
+                                                                    <GoogleDriveIcon type="folder" size={16} />
+                                                                    <span className="truncate">{top}</span>
                                                                 </div>
-
-                                                                <div className="flex items-center gap-1 shrink-0">
-                                                                    {docCount > 0 && (
-                                                                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] font-mono">
-                                                                            {docCount}
-                                                                        </span>
-                                                                    )}
-                                                                    {subfolders.length > 0 && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                toggleFolderExpand(topFolder);
-                                                                            }}
-                                                                            className="p-1 hover:bg-[var(--border)] rounded text-[var(--text-muted)] cursor-pointer"
-                                                                        >
-                                                                            <ChevronDown 
-                                                                                size={12} 
-                                                                                className={cn("transition-transform duration-200", !isExpanded && "-rotate-90")} 
-                                                                            />
-                                                                        </button>
-                                                                    )}
-                                                                </div>
+                                                                {subfolders.length > 0 && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setCdeExpandedFolders(prev => {
+                                                                                const next = new Set(prev);
+                                                                                if (next.has(top)) next.delete(top);
+                                                                                else next.add(top);
+                                                                                return next;
+                                                                            });
+                                                                        }}
+                                                                        className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-surface text-gray-500 cursor-pointer"
+                                                                    >
+                                                                        {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                                                    </button>
+                                                                )}
                                                             </div>
 
-                                                            {/* Subfolders */}
-                                                            {isExpanded && subfolders.length > 0 && (
-                                                                <div className="pl-4 border-l border-[var(--border)]/70 ml-2 space-y-0.5">
-                                                                    {subfolders.map(sub => {
-                                                                        if (folderSearchTerm.trim()) {
-                                                                            const q = folderSearchTerm.toLowerCase();
-                                                                            if (!sub.name.toLowerCase().includes(q)) return null;
-                                                                        }
-                                                                        const isSubSelected = selectedFolderPath === sub.path;
-                                                                        const subCount = folderDocCounts[sub.path] || 0;
-
-                                                                        return (
-                                                                            <div
-                                                                                key={sub.path}
-                                                                                onClick={() => setSelectedFolderPath(sub.path)}
-                                                                                className={cn(
-                                                                                    "flex items-center justify-between py-1 px-2 rounded-md text-[11px] cursor-pointer transition-colors",
-                                                                                    isSubSelected 
-                                                                                        ? "bg-primary text-white font-semibold" 
-                                                                                        : "hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)]"
-                                                                                )}
-                                                                            >
-                                                                                <div className="flex items-center gap-1.5 truncate">
-                                                                                    <span className="text-[9px]">📁</span>
-                                                                                    <span className="truncate">{sub.name}</span>
-                                                                                </div>
-                                                                                {subCount > 0 && (
-                                                                                    <span className={cn(
-                                                                                        "text-[9px] px-1.5 py-0.2 rounded-full font-mono",
-                                                                                        isSubSelected ? "bg-white/20 text-white" : "bg-[var(--bg-input)] text-[var(--text-muted)]"
-                                                                                    )}>
-                                                                                        {subCount}
-                                                                                    </span>
-                                                                                )}
-                                                                            </div>
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                            )}
+                                                            {/* Subfolders in Tree */}
+                                                            {isExpanded && subfolders.map(sub => {
+                                                                const isSubSelected = cdeCurrentPath.some(p => p.id === sub.path);
+                                                                return (
+                                                                    <div
+                                                                        key={sub.path}
+                                                                        className={cn(
+                                                                            "flex items-center gap-1.5 py-1.5 pl-6 pr-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                                                                            isSubSelected
+                                                                                ? "bg-primary-light text-primary font-bold"
+                                                                                : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                                        )}
+                                                                        onClick={() => {
+                                                                            setCdeCurrentPath([
+                                                                                { id: 'root', name: 'CDE' },
+                                                                                { id: top, name: top },
+                                                                                { id: sub.path, name: sub.name }
+                                                                            ]);
+                                                                        }}
+                                                                    >
+                                                                        <GoogleDriveIcon type="folder" size={14} />
+                                                                        <span className="truncate">{sub.name}</span>
+                                                                    </div>
+                                                                );
+                                                            })}
                                                         </div>
                                                     );
                                                 })}
-
-                                                {/* Custom User Folders */}
-                                                {customFolders.length > 0 && (
-                                                    <div className="pt-2 border-t border-[var(--border)]">
-                                                        <div className="text-[10px] font-bold text-[var(--text-muted)] px-2 mb-1 uppercase tracking-wider">
-                                                            Pastas Personalizadas
-                                                        </div>
-                                                        {customFolders.map(cf => (
-                                                            <div
-                                                                key={cf}
-                                                                onClick={() => setSelectedFolderPath(cf)}
-                                                                className={cn(
-                                                                    "flex items-center justify-between py-1 px-2 rounded-md text-[11px] cursor-pointer transition-colors",
-                                                                    selectedFolderPath === cf ? "bg-primary text-white font-semibold" : "hover:bg-[var(--bg-input)] text-[var(--text-muted)]"
-                                                                )}
-                                                            >
-                                                                <span className="truncate">📁 {cf}</span>
-                                                                {(folderDocCounts[cf] || 0) > 0 && (
-                                                                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-[var(--bg-input)]">
-                                                                        {folderDocCounts[cf]}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
                                             </div>
-
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setNewFolderParent(selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath);
-                                                    setIsNewFolderModalOpen(true);
-                                                }}
-                                                className="w-full py-1.5 rounded-lg border border-dashed border-[var(--border)] hover:border-primary/50 text-[11px] text-[var(--text-muted)] hover:text-primary flex items-center justify-center gap-1 transition-all cursor-pointer"
-                                            >
-                                                <Plus size={12} />
-                                                <span>Nova Subpasta</span>
-                                            </button>
                                         </div>
 
-                                        {/* ═══ RIGHT PANE: Documents Compliance & Files ═══ */}
-                                        <div className="flex-1 min-w-0 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
-                                            {/* Folder header & breadcrumb */}
-                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border)]">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="text-base font-bold text-[var(--text)] flex items-center gap-1.5 truncate">
-                                                        <Folder size={17} className="text-primary shrink-0" />
-                                                        {selectedFolderPath === 'all' ? 'Todos os Documentos' : selectedFolderPath}
-                                                    </span>
-                                                    <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] font-mono shrink-0">
-                                                        {filteredDocuments.length} ficheiro(s)
-                                                    </span>
-                                                </div>
-
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        handleUploadEntityTypeChange(
-                                                            selectedFolderPath.startsWith('02-Trabalhadores') ? 'worker' :
-                                                            selectedFolderPath.startsWith('03-Equipamentos') ? 'equipment' : 'company'
-                                                        );
-                                                        setUploadDocForm(prev => ({
-                                                            ...prev,
-                                                            folderPath: selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath
-                                                        }));
-                                                        setIsUploadDocModalOpen(true);
-                                                    }}
-                                                    className="py-1.5 px-3 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
-                                                >
-                                                    <Plus size={14} />
-                                                    <span>Colocar Ficheiro nesta Pasta</span>
-                                                </button>
-                                            </div>
-
-                                            {/* Search & Status Filters */}
-                                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                                                <div className="relative flex-1">
-                                                    <Search size={14} className="absolute left-3 top-3 text-[var(--text-muted)]" />
-                                                    <input
-                                                        type="text"
-                                                        value={docSearchTerm}
-                                                        onChange={e => setDocSearchTerm(e.target.value)}
-                                                        placeholder="Pesquisar por nome, código de apólice ou categoria..."
-                                                        className="w-full text-xs pl-9 pr-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary"
-                                                    />
-                                                </div>
-
-                                                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                                                    {[
-                                                        { key: 'all', label: 'Todos' },
-                                                        { key: 'valid', label: 'Válidos' },
-                                                        { key: 'expiring', label: 'A Expirar' },
-                                                        { key: 'expired', label: 'Expirados' },
-                                                        { key: 'permanent', label: 'Permanentes' },
-                                                        { key: 'archived', label: 'Arquivados' },
-                                                    ].map(filter => (
-                                                        <button
-                                                            key={filter.key}
-                                                            type="button"
-                                                            onClick={() => setDocStatusFilter(filter.key as any)}
-                                                            className={cn(
-                                                                "text-[11px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer",
-                                                                docStatusFilter === filter.key
-                                                                    ? "bg-primary text-white shadow-sm"
-                                                                    : "bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)]"
-                                                            )}
+                                        {/* Right Main Table */}
+                                        <div className="flex-1 flex flex-col min-w-0 p-4 overflow-y-auto">
+                                            {/* Table view matching Project Documents */}
+                                            <table className="w-full text-left text-xs text-gray-600 dark:text-gray-300">
+                                                <thead>
+                                                    <tr className="border-b border-gray-200 dark:border-[#444746] text-gray-400 font-normal">
+                                                        <th className="py-2.5 px-3 font-normal w-10 text-center">#</th>
+                                                        <th className="py-2.5 px-3 font-normal">Nome</th>
+                                                        <th className="py-2.5 px-3 font-normal w-24">Versão</th>
+                                                        <th className="py-2.5 px-3 font-normal w-32">Data</th>
+                                                        <th className="py-2.5 px-3 font-normal w-24">Tamanho</th>
+                                                        <th className="w-20 text-right pr-4">Ações</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {/* Parent navigation row */}
+                                                    {cdeCurrentPath.length > 1 && (
+                                                        <tr
+                                                            className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
+                                                            onClick={() => setCdeCurrentPath(cdeCurrentPath.slice(0, cdeCurrentPath.length - 1))}
                                                         >
-                                                            {filter.label}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
+                                                            <td className="py-2 px-3 text-center">
+                                                                <div className="flex justify-center">
+                                                                    <GoogleDriveIcon type="folder" size={20} />
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-2 px-3 font-medium text-gray-500">
+                                                                .. (Voltar para pasta anterior)
+                                                            </td>
+                                                            <td colSpan={4}></td>
+                                                        </tr>
+                                                    )}
 
-                                            {/* Document Cards / List */}
-                                            {filteredDocuments.length === 0 ? (
-                                                <div className="p-10 border border-dashed border-[var(--border)] rounded-2xl text-center space-y-3">
-                                                    <div className="w-12 h-12 mx-auto rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                                                        <FileText size={22} />
-                                                    </div>
-                                                    <div className="text-xs font-bold text-[var(--text)]">
-                                                        Nenhum documento encontrado
-                                                    </div>
-                                                    <p className="text-[11px] text-[var(--text-muted)] max-w-sm mx-auto">
-                                                        {docSearchTerm.trim() || docStatusFilter !== 'all'
-                                                            ? 'Nenhum documento corresponde aos filtros selecionados. Tente limpar os critérios.'
-                                                            : 'Ainda não foram colocados documentos nesta pasta. Clique em "Colocar Ficheiro" para adicionar certidões, apólices ou fichas de aptidão.'}
-                                                    </p>
-                                                    <div className="pt-2 flex items-center justify-center gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                handleUploadEntityTypeChange(
-                                                                    selectedFolderPath.startsWith('02-Trabalhadores') ? 'worker' :
-                                                                    selectedFolderPath.startsWith('03-Equipamentos') ? 'equipment' : 'company'
-                                                                );
-                                                                setUploadDocForm(prev => ({
-                                                                    ...prev,
-                                                                    folderPath: selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath
-                                                                }));
-                                                                setIsUploadDocModalOpen(true);
-                                                            }}
-                                                            className="py-1.5 px-3 rounded-xl bg-primary text-white text-xs font-bold flex items-center gap-1.5 shadow-sm hover:bg-primary-hover transition-colors cursor-pointer"
-                                                        >
-                                                            <Plus size={14} />
-                                                            <span>Colocar Documento Agora</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-2">
-                                                    {filteredDocuments.map(doc => {
-                                                        const statusInfo = getDocumentStatusInfo(doc);
-                                                        const sizeFormatted = doc.size 
-                                                            ? (doc.size > 1048576 
-                                                                ? `${(doc.size / 1048576).toFixed(1)} MB` 
-                                                                : `${Math.round(doc.size / 1024)} KB`)
-                                                            : '—';
+                                                    {/* Display Folders for the current level */}
+                                                    {(() => {
+                                                        const currentLevelId = cdeCurrentPath[cdeCurrentPath.length - 1].id;
+                                                        let visibleFolders: Array<{ id: string; name: string }> = [];
 
-                                                        // Resolve entity label
-                                                        let entityLabel = companyForm.name || 'Empresa';
-                                                        let EntityIcon = Building2;
-                                                        if (doc.entityType === 'worker') {
-                                                            const w = companyWorkers.find(x => x.id === doc.entityId);
-                                                            entityLabel = w ? w.name : 'Colaborador';
-                                                            EntityIcon = User;
-                                                        } else if (doc.entityType === 'equipment') {
-                                                            const eq = companyEquipment.find(x => x.id === doc.entityId);
-                                                            entityLabel = eq ? eq.name : 'Equipamento';
-                                                            EntityIcon = Wrench;
+                                                        if (currentLevelId === 'root') {
+                                                            visibleFolders = COMPANY_STANDARD_FOLDERS.map(f => ({ id: f, name: f }));
+                                                        } else {
+                                                            visibleFolders = allCompanyFolders
+                                                                .filter(f => f.parent === currentLevelId)
+                                                                .map(f => ({ id: f.path, name: f.name }));
                                                         }
 
-                                                        return (
-                                                            <div 
-                                                                key={doc.id}
-                                                                className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/30 hover:border-primary/40 hover:bg-[var(--bg-input)]/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3"
+                                                        // Apply search filter if active
+                                                        if (cdeDocSearch.trim()) {
+                                                            const q = cdeDocSearch.toLowerCase();
+                                                            visibleFolders = visibleFolders.filter(f => f.name.toLowerCase().includes(q));
+                                                        }
+
+                                                        return visibleFolders.map(folder => (
+                                                            <tr
+                                                                key={folder.id}
+                                                                className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
+                                                                onClick={() => setCdeCurrentPath([...cdeCurrentPath, { id: folder.id, name: folder.name }])}
                                                             >
-                                                                <div className="flex items-start gap-3 min-w-0 flex-1">
-                                                                    <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-                                                                        <FileText size={18} />
+                                                                <td className="py-2 px-3 text-center">
+                                                                    <div className="flex justify-center">
+                                                                        <GoogleDriveIcon type="folder" size={22} />
                                                                     </div>
+                                                                </td>
+                                                                <td className="py-2 px-3">
+                                                                    <span className="font-semibold text-gray-900 dark:text-white block hover:text-primary transition-colors">
+                                                                        {folder.name}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="py-2 px-3 text-gray-400 font-mono">—</td>
+                                                                <td className="py-2 px-3 text-gray-400">—</td>
+                                                                <td className="py-2 px-3 text-gray-400 font-mono">—</td>
+                                                                <td className="py-2 px-3 text-right pr-4">
+                                                                    <ChevronRight size={14} className="inline text-gray-400 group-hover:text-primary transition-colors" />
+                                                                </td>
+                                                            </tr>
+                                                        ));
+                                                    })()}
 
-                                                                    <div className="min-w-0 flex-1 space-y-1">
-                                                                        <div className="flex flex-wrap items-center gap-2">
-                                                                            <span className="font-bold text-xs text-[var(--text)] truncate">
-                                                                                {doc.name}
-                                                                            </span>
+                                                    {/* Display Files for the current level */}
+                                                    {(() => {
+                                                        const currentLevelId = cdeCurrentPath[cdeCurrentPath.length - 1].id;
+                                                        let filesInLevel = corporateDocuments.filter(doc => {
+                                                            if (currentLevelId === 'root') {
+                                                                return !doc.folderPath || doc.folderPath === 'all' || doc.folderPath === 'root';
+                                                            }
+                                                            return doc.folderPath === currentLevelId || doc.folderPath?.startsWith(`${currentLevelId}/`);
+                                                        });
 
-                                                                            {doc.documentCode && (
-                                                                                <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]" title="Código / N.º Apólice">
-                                                                                    {doc.documentCode}
-                                                                                </span>
-                                                                            )}
+                                                        if (cdeDocSearch.trim()) {
+                                                            const q = cdeDocSearch.toLowerCase();
+                                                            filesInLevel = filesInLevel.filter(d =>
+                                                                (d.name || '').toLowerCase().includes(q) ||
+                                                                (d.category || '').toLowerCase().includes(q) ||
+                                                                (d.documentCode || '').toLowerCase().includes(q)
+                                                            );
+                                                        }
 
-                                                                            {doc.version && (
-                                                                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-primary/10 text-primary font-mono">
-                                                                                    v{doc.version}
-                                                                                </span>
-                                                                            )}
+                                                        if (filesInLevel.length === 0 && (cdeCurrentPath.length > 1 && allCompanyFolders.filter(f => f.parent === currentLevelId).length === 0)) {
+                                                            return (
+                                                                <tr>
+                                                                    <td colSpan={6} className="py-12 text-center text-gray-400">
+                                                                        <GoogleDriveIcon type="default" size={40} className="mx-auto mb-2 opacity-20" />
+                                                                        <p className="text-xs">Esta pasta está vazia.</p>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setUploadDocForm(prev => ({ ...prev, folderPath: currentLevelId === 'root' ? '01-Empresa' : currentLevelId }));
+                                                                                setIsUploadDocModalOpen(true);
+                                                                            }}
+                                                                            className="mt-3 px-3 py-1 rounded-full text-xs font-semibold bg-primary text-white hover:bg-primary-hover shadow-xs transition-all cursor-pointer inline-flex items-center gap-1"
+                                                                        >
+                                                                            <Plus size={12} /> Carregar documento
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        }
 
-                                                                            <span className={cn(
-                                                                                "text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1",
-                                                                                statusInfo.badgeClass
-                                                                            )}>
-                                                                                {statusInfo.status === 'valid' && <CheckCircle size={10} />}
-                                                                                {statusInfo.status === 'expiring' && <Clock size={10} />}
-                                                                                {statusInfo.status === 'expired' && <AlertTriangle size={10} />}
-                                                                                {statusInfo.status === 'permanent' && <Shield size={10} />}
-                                                                                <span>{statusInfo.label}</span>
-                                                                            </span>
+                                                        return filesInLevel.map(doc => {
+                                                            const version = doc.version ? `v${doc.version}.0` : 'v1.0';
+                                                            const displayDate = (doc as any).updatedAt ? new Date((doc as any).updatedAt).toLocaleDateString() : (doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : '—');
+                                                            const displaySize = doc.size ? (doc.size > 1048576 ? `${(doc.size / 1048576).toFixed(1)} MB` : `${Math.round(doc.size / 1024)} KB`) : '—';
 
-                                                                            {doc.isConfidential && (
-                                                                                <span className="text-[10px] font-medium px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                                                                                    RGPD Confidencial
-                                                                                </span>
-                                                                            )}
+                                                            return (
+                                                                <tr
+                                                                    key={doc.id}
+                                                                    className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
+                                                                    onClick={() => {
+                                                                        if (doc.url) window.open(doc.url, '_blank');
+                                                                    }}
+                                                                >
+                                                                    <td className="py-2 px-3 text-center">
+                                                                        <div className="flex justify-center">
+                                                                            <GoogleDriveIcon type={doc.type || 'pdf'} size={20} />
                                                                         </div>
-
-                                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-muted)]">
-                                                                            <span className="flex items-center gap-1">
-                                                                                <EntityIcon size={12} className="text-primary shrink-0" />
-                                                                                <span className="truncate max-w-[160px]">{entityLabel}</span>
+                                                                    </td>
+                                                                    <td className="py-2 px-3">
+                                                                        <span className="font-medium text-gray-900 dark:text-white block group-hover:text-primary transition-colors">
+                                                                            {doc.name}
+                                                                        </span>
+                                                                        {doc.documentCode && (
+                                                                            <span className="text-[10px] text-gray-400 font-mono">
+                                                                                Ref: {doc.documentCode}
                                                                             </span>
-
-                                                                            <span className="flex items-center gap-1">
-                                                                                <Folder size={12} className="shrink-0" />
-                                                                                <span className="truncate max-w-[200px]">{doc.folderPath || '01-Empresa'}</span>
-                                                                            </span>
-
-                                                                            {doc.expiryDate ? (
-                                                                                <span className="flex items-center gap-1">
-                                                                                    <Calendar size={12} className="shrink-0" />
-                                                                                    <span>Validade: {new Date(doc.expiryDate).toLocaleDateString()}</span>
-                                                                                </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="py-2 px-3">
+                                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary font-mono">
+                                                                            {version}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="py-2 px-3 text-gray-500 font-mono">
+                                                                        {displayDate}
+                                                                    </td>
+                                                                    <td className="py-2 px-3 text-gray-500 font-mono">
+                                                                        {displaySize}
+                                                                    </td>
+                                                                    <td className="py-2 px-3 text-right pr-4">
+                                                                        <div className="flex items-center gap-1 justify-end">
+                                                                            {doc.archived ? (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        unarchiveDocument(doc.id);
+                                                                                        addNotification('success', 'Documento restaurado.');
+                                                                                    }}
+                                                                                    className="p-1 rounded-full text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
+                                                                                    title="Restaurar Documento"
+                                                                                >
+                                                                                    <History size={15} />
+                                                                                </button>
                                                                             ) : (
-                                                                                <span>Validade: Permanente</span>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        if (confirm(`Arquivar o documento "${doc.name}"?`)) {
+                                                                                            updateDocument(doc.id, { archived: true });
+                                                                                            addNotification('info', 'Documento movido para o Arquivo.');
+                                                                                        }
+                                                                                    }}
+                                                                                    className="p-1 rounded-full text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
+                                                                                    title="Arquivar Versão"
+                                                                                >
+                                                                                    <Archive size={15} />
+                                                                                </button>
                                                                             )}
-
-                                                                            <span className="font-mono">{sizeFormatted}</span>
-
-                                                                            {doc.cdeFileId && (
-                                                                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-[10px]">
-                                                                                    <Cloud size={11} /> Sincronizado Cloud
-                                                                                </span>
+                                                                            {doc.url && (
+                                                                                <a
+                                                                                    href={doc.url}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    onClick={(e) => e.stopPropagation()}
+                                                                                    className="p-1 rounded-full text-gray-400 hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                                                                                    title="Abrir no CDE"
+                                                                                >
+                                                                                    <ExternalLink size={15} />
+                                                                                </a>
                                                                             )}
                                                                         </div>
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* Document Row Actions */}
-                                                                <div className="flex items-center gap-1.5 self-end md:self-center shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-[var(--border)] w-full md:w-auto justify-end">
-                                                                    {doc.url && (
-                                                                        <a
-                                                                            href={doc.url}
-                                                                            target="_blank"
-                                                                            rel="noreferrer"
-                                                                            className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-card)] text-primary hover:text-primary-hover transition-colors"
-                                                                            title="Abrir no Visualizador CDE"
-                                                                        >
-                                                                            <ExternalLink size={14} />
-                                                                        </a>
-                                                                    )}
-
-                                                                    {doc.archived ? (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                unarchiveDocument(doc.id);
-                                                                                addNotification('success', 'Documento restaurado do arquivo!');
-                                                                            }}
-                                                                            className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-emerald-50 text-emerald-600 transition-colors cursor-pointer"
-                                                                            title="Restaurar Documento"
-                                                                        >
-                                                                            <History size={14} />
-                                                                        </button>
-                                                                    ) : (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                updateDocument(doc.id, { archived: true });
-                                                                                addNotification('info', 'Documento movido para o arquivo.');
-                                                                            }}
-                                                                            className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-amber-600 transition-colors cursor-pointer"
-                                                                            title="Arquivar Versão"
-                                                                        >
-                                                                            <Folder size={14} />
-                                                                        </button>
-                                                                    )}
-
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            if (confirm(`Pretende eliminar o documento "${doc.name}"?`)) {
-                                                                                deleteDocument(doc.id);
-                                                                                addNotification('success', 'Documento removido.');
-                                                                            }
-                                                                        }}
-                                                                        className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-red-50 text-[var(--text-muted)] hover:text-red-600 transition-colors cursor-pointer"
-                                                                        title="Eliminar Documento"
-                                                                    >
-                                                                        <Trash2 size={14} />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
+                                                                    </td>
+                                                                </tr>
+                                                            );
+                                                        });
+                                                    })()}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
                                 </div>
@@ -3003,180 +2944,599 @@ export default function MyCompanyPage() {
                         isOpen={isWorkerModalOpen}
                         onClose={() => setIsWorkerModalOpen(false)}
                     >
-                        {workerModalMode === 'view' ? (
+                        {/* Tab Switcher for Worker Modal */}
+                        <div className="flex items-center gap-1 p-1 bg-[var(--bg-input)] rounded-xl border border-[var(--border)] mb-5">
+                            <button
+                                type="button"
+                                onClick={() => setWorkerModalTab('identification')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    workerModalTab === 'identification'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <User size={14} />
+                                <span>Identificação</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setWorkerModalTab('labor')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    workerModalTab === 'labor'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <Briefcase size={14} />
+                                <span>Dados Laborais</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setWorkerModalTab('safety')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    workerModalTab === 'safety'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <Shield size={14} />
+                                <span>Segurança & Saúde</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setWorkerModalTab('documents')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    workerModalTab === 'documents'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <Folder size={14} />
+                                <span>Documentos</span>
+                            </button>
+                        </div>
+
+                        {/* TAB 1: IDENTIFICAÇÃO */}
+                        {workerModalTab === 'identification' && (
+                            workerModalMode === 'view' ? (
+                                <div className="space-y-6">
+                                    {/* Banner de Sincronização e Conformidade */}
+                                    <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
+                                                <Shield size={20} />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xs font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                                    Registo Padronizado com Norma IFC (ISO 16739) & DL 273/2003
+                                                </h4>
+                                                <p className="text-[11px] text-[var(--text-muted)]">
+                                                    Os dados deste colaborador estão compatibilizados com o esquema BIM e podem ser sincronizados diretamente para qualquer estaleiro.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (selectedWorker) {
+                                                    setSelectedWorkerForExport(selectedWorker);
+                                                    setExportEntityType('worker');
+                                                    setExportTargetProjectId(userProjects[0]?.id || '');
+                                                    setIsExportModalOpen(true);
+                                                }
+                                            }}
+                                            className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 shadow-sm cursor-pointer"
+                                        >
+                                            <Share2 size={13} /> Sincronizar com Obra
+                                        </button>
+                                    </div>
+
+                                    {/* 1. Identificação & Dados Pessoais (IfcPerson) */}
+                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
+                                        <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <User size={15} className="text-primary" />
+                                                <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                    1. Identificação e Dados Pessoais
+                                                </h4>
+                                            </div>
+                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                                IfcPerson
+                                            </span>
+                                        </div>
+                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nome Completo</span>
+                                                <span className="font-bold text-[var(--text)]">{selectedWorker?.name || workerForm.name || '—'}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">NIF</span>
+                                                <span className="font-mono text-[var(--text)] font-semibold">{selectedWorker?.nif || workerForm.nif || '—'}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">N.º Segurança Social (NISS)</span>
+                                                <span className="font-mono text-[var(--text)]">{selectedWorker?.ssn || workerForm.ssn || '—'}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Documento de Identificação</span>
+                                                <span className="text-[var(--text)]">
+                                                    {selectedWorker?.idCardNumber ? `${(selectedWorker?.idCardType || 'CC').toUpperCase()}: ${selectedWorker.idCardNumber}` : '—'}
+                                                    {selectedWorker?.idCardExpiry ? ` (Validade: ${new Date(selectedWorker.idCardExpiry).toLocaleDateString()})` : ''}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nacionalidade</span>
+                                                <span className="text-[var(--text)] font-medium">
+                                                    {selectedWorker?.nationalityType === 'other'
+                                                        ? `Extracomunitário (${selectedWorker.foreignCountry || 'Outra'})`
+                                                        : selectedWorker?.nationalityType === 'eu_etc'
+                                                        ? `União Europeia / EEE (${selectedWorker.foreignCountry || 'U.E.'})`
+                                                        : 'Portugal (PT)'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Data Nasc. / Género</span>
+                                                <span className="text-[var(--text)]">
+                                                    {selectedWorker?.birthDate ? new Date(selectedWorker.birthDate).toLocaleDateString() : '—'} • {selectedWorker?.gender === 'F' ? 'Feminino' : 'Masculino'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contactos</span>
+                                                <div className="text-[var(--text)]">
+                                                    {selectedWorker?.phone && <div>Tel: {selectedWorker.phone}</div>}
+                                                    {selectedWorker?.email && <div>Email: {selectedWorker.email}</div>}
+                                                    {!selectedWorker?.phone && !selectedWorker?.email && '—'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Morada</span>
+                                                <div className="text-[var(--text)]">
+                                                    {selectedWorker?.address || workerForm.address ? (
+                                                        `${selectedWorker?.address || workerForm.address}${selectedWorker?.postalCode ? `, ${selectedWorker.postalCode}` : ''} ${selectedWorker?.city || ''}`
+                                                    ) : '—'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contacto de Emergência</span>
+                                                <span className="text-[var(--text)]">
+                                                    {(selectedWorker?.emergencyContactName || workerForm.emergencyContactName) ? (
+                                                        `${selectedWorker?.emergencyContactName || workerForm.emergencyContactName} ${(selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone) ? `(${selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone})` : ''}`
+                                                    ) : '—'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Modal Footer (View Mode) */}
+                                    <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
+                                        <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
+                                            Fechar
+                                        </SecondaryButton>
+                                    </div>
+                                </div>
+                            ) : (
+                                <form onSubmit={handleSaveWorker} className="space-y-6">
+                                    {/* 1. Identificação e Dados Pessoais (IfcPerson) */}
+                                    <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
+                                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
+                                            <div className="flex items-center gap-2">
+                                                <User size={15} className="text-primary" />
+                                                <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                    1. Identificação e Dados Pessoais (Norma IFC: IfcPerson)
+                                                </h4>
+                                            </div>
+                                            <span className="text-[10px] text-[var(--text-muted)] font-mono">ISO 16739</span>
+                                        </div>
+
+                                        {/* Nomes */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <InputGroup label="Primeiro Nome *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={workerForm.firstName}
+                                                    onChange={e => setWorkerForm({ ...workerForm, firstName: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: João"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Nome do Meio">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.middleName}
+                                                    onChange={e => setWorkerForm({ ...workerForm, middleName: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: Carlos"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Apelido *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={workerForm.lastName}
+                                                    onChange={e => setWorkerForm({ ...workerForm, lastName: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: Silva"
+                                                />
+                                            </InputGroup>
+                                        </div>
+
+                                        {/* Nacionalidade */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <InputGroup label="Nacionalidade *">
+                                                <select
+                                                    value={workerForm.nationalityType}
+                                                    onChange={e => setWorkerForm({ ...workerForm, nationalityType: e.target.value as any })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="portugal">Portugal (PT)</option>
+                                                    <option value="eu_etc">U.E., Islândia, Liechtenstein, Noruega, Suíça e Andorra</option>
+                                                    <option value="other">Outra Nacionalidade (Extracomunitário)</option>
+                                                </select>
+                                            </InputGroup>
+                                            {workerForm.nationalityType !== 'portugal' && (
+                                                <InputGroup label="País de Origem *">
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        value={workerForm.foreignCountry}
+                                                        onChange={e => setWorkerForm({ ...workerForm, foreignCountry: e.target.value })}
+                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                        placeholder="ex: Brasil, Cabo Verde, Espanha..."
+                                                    />
+                                                </InputGroup>
+                                            )}
+                                        </div>
+
+                                        {/* Documentos de Identificação e Fiscais */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                            <InputGroup label="NIF do Colaborador *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={workerForm.nif}
+                                                    onChange={e => setWorkerForm({ ...workerForm, nif: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                    placeholder="ex: 123456789"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Tipo de Documento *">
+                                                <select
+                                                    value={workerForm.idCardType}
+                                                    onChange={e => setWorkerForm({ ...workerForm, idCardType: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="cc">Cartão de Cidadão</option>
+                                                    <option value="passaporte">Passaporte</option>
+                                                    <option value="titulo_residencia">Título de Residência (AIMA/SEF)</option>
+                                                    <option value="outro">Outro Documento</option>
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="N.º do Documento *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={workerForm.idCardNumber}
+                                                    onChange={e => setWorkerForm({ ...workerForm, idCardNumber: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                    placeholder="ex: 00000000 0 ZZ0"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Validade do Documento">
+                                                <input
+                                                    type="date"
+                                                    value={workerForm.idCardExpiry}
+                                                    onChange={e => setWorkerForm({ ...workerForm, idCardExpiry: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                            <InputGroup label="N.º Seg. Social (NISS)">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.ssn}
+                                                    onChange={e => setWorkerForm({ ...workerForm, ssn: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                    placeholder="ex: 12000000000"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Data de Nascimento">
+                                                <input
+                                                    type="date"
+                                                    value={workerForm.birthDate}
+                                                    onChange={e => setWorkerForm({ ...workerForm, birthDate: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Género">
+                                                <select
+                                                    value={workerForm.gender}
+                                                    onChange={e => setWorkerForm({ ...workerForm, gender: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="M">Masculino</option>
+                                                    <option value="F">Feminino</option>
+                                                    <option value="outro">Outro / Prefere não declarar</option>
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="Telefone">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.phone}
+                                                    onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: 912345678"
+                                                />
+                                            </InputGroup>
+                                        </div>
+
+                                        {/* Morada e Emergência */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <div className="sm:col-span-2">
+                                                <InputGroup label="Morada">
+                                                    <input
+                                                        type="text"
+                                                        value={workerForm.address}
+                                                        onChange={e => setWorkerForm({ ...workerForm, address: e.target.value })}
+                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                        placeholder="Rua, Número, Andar..."
+                                                    />
+                                                </InputGroup>
+                                            </div>
+                                            <InputGroup label="Código Postal e Localidade">
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={workerForm.postalCode}
+                                                        onChange={e => setWorkerForm({ ...workerForm, postalCode: e.target.value })}
+                                                        className="w-24 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                        placeholder="0000-000"
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        value={workerForm.city}
+                                                        onChange={e => setWorkerForm({ ...workerForm, city: e.target.value })}
+                                                        className="flex-1 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                        placeholder="Localidade"
+                                                    />
+                                                </div>
+                                            </InputGroup>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                            <InputGroup label="Contacto de Emergência (Nome)">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.emergencyContactName}
+                                                    onChange={e => setWorkerForm({ ...workerForm, emergencyContactName: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: Maria Silva (Esposa)"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Contacto de Emergência (Telefone)">
+                                                <input
+                                                    type="text"
+                                                    value={workerForm.emergencyContactPhone}
+                                                    onChange={e => setWorkerForm({ ...workerForm, emergencyContactPhone: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: 919876543"
+                                                />
+                                            </InputGroup>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
+                                        <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
+                                            Cancelar
+                                        </SecondaryButton>
+                                        <PrimaryButton type="submit" className="px-4 py-2 text-xs font-bold">
+                                            <Save size={14} className="mr-1.5 inline" />
+                                            {editingWorkerId ? "Guardar Alterações" : "Adicionar Colaborador à Empresa"}
+                                        </PrimaryButton>
+                                    </div>
+                                </form>
+                            )
+                        )}
+
+                        {/* TAB 2: DADOS LABORAIS */}
+                        {workerModalTab === 'labor' && (
                             <div className="space-y-6">
-                                {/* Banner de Sincronização e Conformidade */}
-                                <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
-                                            <Shield size={20} />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-xs font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                                                Registo Padronizado com Norma IFC (ISO 16739) & DL 273/2003
-                                            </h4>
-                                            <p className="text-[11px] text-[var(--text-muted)]">
-                                                Os dados deste colaborador estão compatibilizados com o esquema BIM e podem ser sincronizados diretamente para qualquer estaleiro.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (selectedWorker) {
-                                                setSelectedWorkerForExport(selectedWorker);
-                                                setExportEntityType('worker');
-                                                setExportTargetProjectId(userProjects[0]?.id || '');
-                                                setIsExportModalOpen(true);
-                                            }
-                                        }}
-                                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 shadow-sm cursor-pointer"
-                                    >
-                                        <Share2 size={13} /> Sincronizar com Obra
-                                    </button>
-                                </div>
-
-                                {/* 1. Identificação & Dados Pessoais (IfcPerson) */}
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
-                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <User size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                1. Identificação e Dados Pessoais
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                            IfcPerson
-                                        </span>
-                                    </div>
-                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nome Completo</span>
-                                            <span className="font-bold text-[var(--text)]">{selectedWorker?.name || workerForm.name || '—'}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">NIF</span>
-                                            <span className="font-mono text-[var(--text)] font-semibold">{selectedWorker?.nif || workerForm.nif || '—'}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">N.º Segurança Social (NISS)</span>
-                                            <span className="font-mono text-[var(--text)]">{selectedWorker?.ssn || workerForm.ssn || '—'}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Documento de Identificação</span>
-                                            <span className="text-[var(--text)]">
-                                                {selectedWorker?.idCardNumber ? `${(selectedWorker?.idCardType || 'CC').toUpperCase()}: ${selectedWorker.idCardNumber}` : '—'}
-                                                {selectedWorker?.idCardExpiry ? ` (Validade: ${new Date(selectedWorker.idCardExpiry).toLocaleDateString()})` : ''}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nacionalidade</span>
-                                            <span className="text-[var(--text)] font-medium">
-                                                {selectedWorker?.nationalityType === 'other'
-                                                    ? `Extracomunitário (${selectedWorker.foreignCountry || 'Outra'})`
-                                                    : selectedWorker?.nationalityType === 'eu_etc'
-                                                    ? `União Europeia / EEE (${selectedWorker.foreignCountry || 'U.E.'})`
-                                                    : 'Portugal (PT)'}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Data Nasc. / Género</span>
-                                            <span className="text-[var(--text)]">
-                                                {selectedWorker?.birthDate ? new Date(selectedWorker.birthDate).toLocaleDateString() : '—'} • {selectedWorker?.gender === 'F' ? 'Feminino' : 'Masculino'}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contactos</span>
-                                            <div className="text-[var(--text)]">
-                                                {selectedWorker?.phone && <div>Tel: {selectedWorker.phone}</div>}
-                                                {selectedWorker?.email && <div>Email: {selectedWorker.email}</div>}
-                                                {!selectedWorker?.phone && !selectedWorker?.email && '—'}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Morada</span>
-                                            <div className="text-[var(--text)]">
-                                                {selectedWorker?.address || workerForm.address ? (
-                                                    `${selectedWorker?.address || workerForm.address}${selectedWorker?.postalCode ? `, ${selectedWorker.postalCode}` : ''} ${selectedWorker?.city || ''}`
-                                                ) : '—'}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contacto de Emergência</span>
-                                            <span className="text-[var(--text)]">
-                                                {(selectedWorker?.emergencyContactName || workerForm.emergencyContactName) ? (
-                                                    `${selectedWorker?.emergencyContactName || workerForm.emergencyContactName} ${(selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone) ? `(${selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone})` : ''}`
-                                                ) : '—'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
                                 {/* 2. Função & Recurso BIM (IfcLaborResource / IfcActorRole) */}
                                 <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
                                     <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <Briefcase size={15} className="text-primary" />
                                             <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                2. Função e Qualificação Profissional
+                                                Função e Qualificação Profissional (Norma IFC)
                                             </h4>
                                         </div>
                                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
                                             IfcLaborResource / IfcActorRole
                                         </span>
                                     </div>
-                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Função Padronizada</span>
-                                            <span className="font-bold text-[var(--text)]">{selectedWorker?.role || workerForm.role || '—'}</span>
+                                    {workerModalMode === 'view' ? (
+                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Função Padronizada</span>
+                                                <span className="font-bold text-[var(--text)]">{selectedWorker?.role || workerForm.role || '—'}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Recurso IFC</span>
+                                                <span className="font-mono text-primary font-bold">{selectedWorker?.ifcLaborType || workerForm.ifcLaborType || 'USERDEFINED'}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Papel IFC</span>
+                                                <span className="font-mono text-[var(--text)]">{selectedWorker?.ifcActorRole || 'LABOUR'}</span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Recurso IFC (PredefinedType)</span>
-                                            <span className="font-mono text-primary font-bold">{selectedWorker?.ifcLaborType || workerForm.ifcLaborType || 'USERDEFINED'}</span>
+                                    ) : (
+                                        <div className="p-4 space-y-3">
+                                            <InputGroup label="Função Padronizada (Norma IFC / Obra) *">
+                                                <select
+                                                    value={workerForm.workerRoleId}
+                                                    required
+                                                    onChange={e => {
+                                                        const roleId = e.target.value;
+                                                        const roleDef = getRoleDefinition(roleId);
+                                                        const roleLabel = roleId === 'OTHER'
+                                                            ? (workerForm.roleCustom || 'Outra')
+                                                            : tRoles(`roles.${roleId}`);
+
+                                                        setWorkerForm({
+                                                            ...workerForm,
+                                                            workerRoleId: roleId,
+                                                            role: roleLabel,
+                                                            occupation: roleDef?.ifcLaborResource?.objectType ?? '',
+                                                            ifcLaborType: roleDef?.ifcLaborResource?.predefinedType ?? ''
+                                                        });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="">— Selecionar função padronizada IFC —</option>
+                                                    <optgroup label="Responsáveis de Obra">
+                                                        {WORKER_ROLES.filter(r => r.group === 'SITE_RESPONSIBLE').map(r => (
+                                                            <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                    <optgroup label="Segurança no Trabalho (SHST)">
+                                                        {WORKER_ROLES.filter(r => r.group === 'SHST_RESPONSIBLE').map(r => (
+                                                            <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                        ))}
+                                                    </optgroup>
+                                                    {OPERATIVE_CATEGORIES.map(cat => {
+                                                        const catRoles = WORKER_ROLES.filter(r => r.group === 'OPERATIVE' && r.category === cat);
+                                                        if (!catRoles.length) return null;
+                                                        return (
+                                                            <optgroup key={cat} label={tRoles(`categories.${cat}`)}>
+                                                                {catRoles.map(r => (
+                                                                    <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                                ))}
+                                                            </optgroup>
+                                                        );
+                                                    })}
+                                                </select>
+                                            </InputGroup>
                                         </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Papel IFC (IfcActorRole)</span>
-                                            <span className="font-mono text-[var(--text)]">{selectedWorker?.ifcActorRole || 'CONSTRUCTIONMANAGER / LABOUR'}</span>
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
 
-                                {/* 3. Vínculo Laboral & Enquadramento (IfcPersonAndOrganization) */}
+                                {/* 3. Vínculo Laboral & Enquadramento */}
                                 <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
                                     <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <Building2 size={15} className="text-primary" />
                                             <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                3. Vínculo Laboral & Enquadramento
+                                                Vínculo Laboral & Enquadramento Contratual
                                             </h4>
                                         </div>
                                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
                                             IfcPersonAndOrganization
                                         </span>
                                     </div>
-                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Vínculo Contratual</span>
-                                            <span className="font-semibold text-[var(--text)]">{getContractTypeLabel(selectedWorker?.contractType || workerForm.contractType)}</span>
+                                    {workerModalMode === 'view' ? (
+                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Vínculo Contratual</span>
+                                                <span className="font-semibold text-[var(--text)]">{getContractTypeLabel(selectedWorker?.contractType || workerForm.contractType)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Categoria Profissional Legal</span>
+                                                <span className="text-[var(--text)]">{getProfessionCategoryLabel(selectedWorker?.professionCategory || workerForm.professionCategory)}</span>
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Horário de Trabalho</span>
+                                                <span className="text-[var(--text)]">{getWorkScheduleLabel(selectedWorker?.workSchedule || workerForm.workSchedule)}</span>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Categoria Profissional Legal</span>
-                                            <span className="text-[var(--text)]">{getProfessionCategoryLabel(selectedWorker?.professionCategory || workerForm.professionCategory)}</span>
+                                    ) : (
+                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                            <InputGroup label="Tipo de Vínculo Contratual">
+                                                <select
+                                                    value={workerForm.contractType}
+                                                    onChange={e => setWorkerForm({ ...workerForm, contractType: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    {CONTRACT_TYPE_OPTIONS.map(opt => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="Categoria Profissional">
+                                                <select
+                                                    value={workerForm.professionCategory}
+                                                    onChange={e => setWorkerForm({ ...workerForm, professionCategory: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    {PROFESSION_CATEGORY_OPTIONS.map(opt => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="Horário">
+                                                <select
+                                                    value={workerForm.workSchedule}
+                                                    onChange={e => setWorkerForm({ ...workerForm, workSchedule: e.target.value })}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    {WORK_SCHEDULE_OPTIONS.map(opt => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                            </InputGroup>
                                         </div>
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Horário de Trabalho</span>
-                                            <span className="text-[var(--text)]">{getWorkScheduleLabel(selectedWorker?.workSchedule || workerForm.workSchedule)}</span>
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
 
+                                {/* Anexo Inline: Contrato de Trabalho */}
+                                <RequirementCard
+                                    label="Contrato de Trabalho / Declaração de Cedência"
+                                    category="work_contract"
+                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
+                                    projectId={masterCompany?.id || 'comp_master'}
+                                    expiryDate={selectedWorker?.contractExpiry || workerForm.contractExpiry}
+                                    isEditing={workerModalMode === 'edit'}
+                                >
+                                    {workerModalMode === 'edit' && (
+                                        <div className="pt-2">
+                                            <InputGroup label="Data de Término / Validade do Contrato (se a termo)">
+                                                <input
+                                                    type="date"
+                                                    value={workerForm.contractExpiry}
+                                                    onChange={e => setWorkerForm({ ...workerForm, contractExpiry: e.target.value })}
+                                                    className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                        </div>
+                                    )}
+                                </RequirementCard>
+
+                                {workerModalMode === 'edit' && (
+                                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
+                                        <PrimaryButton type="button" onClick={handleSaveWorker} className="px-4 py-2 text-xs font-bold">
+                                            Guardar Dados Laborais
+                                        </PrimaryButton>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* TAB 3: SEGURANÇA & SAÚDE */}
+                        {workerModalTab === 'safety' && (
+                            <div className="space-y-6">
                                 {/* 4. Saúde, Segurança & EPIs (DL 273/2003) */}
                                 <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
                                     <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <Shield size={15} className="text-primary" />
                                             <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                4. Saúde, Segurança no Trabalho & EPIs
+                                                Saúde, Segurança no Trabalho & EPIs (DL 273/2003)
                                             </h4>
                                         </div>
                                         <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -3184,529 +3544,179 @@ export default function MyCompanyPage() {
                                         </span>
                                     </div>
                                     <div className="p-4 space-y-4 text-xs">
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Aptidão Médica (FAT)</span>
-                                                {(() => {
-                                                    const badge = getMedicalFitnessBadge(selectedWorker?.medicalFitness || workerForm.medicalFitness, selectedWorker?.medicalExpiry || workerForm.medicalExpiry);
-                                                    return (
-                                                        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border", badge.color)}>
-                                                            <Check size={12} /> {badge.label}
+                                        {workerModalMode === 'view' ? (
+                                            <>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                                                    <div>
+                                                        <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Aptidão Médica (FAT)</span>
+                                                        {(() => {
+                                                            const badge = getMedicalFitnessBadge(selectedWorker?.medicalFitness || workerForm.medicalFitness, selectedWorker?.medicalExpiry || workerForm.medicalExpiry);
+                                                            return (
+                                                                <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border", badge.color)}>
+                                                                    <Check size={12} /> {badge.label}
+                                                                </span>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data / Validade do Exame</span>
+                                                        <span className="font-medium text-[var(--text)]">
+                                                            {(selectedWorker?.medicalExpiry || workerForm.medicalExpiry)
+                                                                ? new Date(selectedWorker?.medicalExpiry || workerForm.medicalExpiry).toLocaleDateString()
+                                                                : 'Sem data registada'}
                                                         </span>
-                                                    );
-                                                })()}
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data / Validade do Exame</span>
-                                                <span className="font-medium text-[var(--text)]">
-                                                    {(selectedWorker?.medicalExpiry || workerForm.medicalExpiry)
-                                                        ? new Date(selectedWorker?.medicalExpiry || workerForm.medicalExpiry).toLocaleDateString()
-                                                        : 'Sem data registada'}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data de Entrega de EPI</span>
-                                                <span className="text-[var(--text)]">
-                                                    {(selectedWorker?.epiDate || workerForm.epiDate)
-                                                        ? new Date(selectedWorker?.epiDate || workerForm.epiDate).toLocaleDateString()
-                                                        : 'Registada com admissão'}
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        {/* EPIs List */}
-                                        <div>
-                                            <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-2">EPIs Atribuídos / Entregues</span>
-                                            <div className="flex flex-wrap gap-2">
-                                                {(selectedWorker?.epiDeliveryList || workerForm.epiDeliveryList || []).map((epi: string) => (
-                                                    <span key={epi} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1.5">
-                                                        <Check size={12} /> {epi}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        {(selectedWorker?.medicalObservations || workerForm.medicalObservations) && (
-                                            <div className="p-3 rounded-lg bg-[var(--bg-input)]/50 border border-[var(--border)] text-[11px]">
-                                                <span className="font-bold text-[var(--text)] block mb-1">Observações Médicas:</span>
-                                                <p className="text-[var(--text-muted)]">{selectedWorker?.medicalObservations || workerForm.medicalObservations}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Modal Footer (View Mode) */}
-                                <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
-                                    <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
-                                        Fechar
-                                    </SecondaryButton>
-                                </div>
-                            </div>
-                        ) : (
-                            <form onSubmit={handleSaveWorker} className="space-y-6">
-                                {/* 1. Identificação e Dados Pessoais (IfcPerson) */}
-                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
-                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
-                                        <div className="flex items-center gap-2">
-                                            <User size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                1. Identificação e Dados Pessoais (Norma IFC: IfcPerson)
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] text-[var(--text-muted)] font-mono">ISO 16739</span>
-                                    </div>
-
-                                    {/* Nomes */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                        <InputGroup label="Primeiro Nome *">
-                                            <input
-                                                type="text"
-                                                required
-                                                value={workerForm.firstName}
-                                                onChange={e => setWorkerForm({ ...workerForm, firstName: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: João"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Nome do Meio">
-                                            <input
-                                                type="text"
-                                                value={workerForm.middleName}
-                                                onChange={e => setWorkerForm({ ...workerForm, middleName: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: Carlos"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Apelido *">
-                                            <input
-                                                type="text"
-                                                required
-                                                value={workerForm.lastName}
-                                                onChange={e => setWorkerForm({ ...workerForm, lastName: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: Silva"
-                                            />
-                                        </InputGroup>
-                                    </div>
-
-                                    {/* Nacionalidade */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <InputGroup label="Nacionalidade *">
-                                            <select
-                                                value={workerForm.nationalityType}
-                                                onChange={e => setWorkerForm({ ...workerForm, nationalityType: e.target.value as any })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="portugal">Portugal (PT)</option>
-                                                <option value="eu_etc">U.E., Islândia, Liechtenstein, Noruega, Suíça e Andorra</option>
-                                                <option value="other">Outra Nacionalidade (Extracomunitário)</option>
-                                            </select>
-                                        </InputGroup>
-                                        {workerForm.nationalityType !== 'portugal' && (
-                                            <InputGroup label="País de Origem *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={workerForm.foreignCountry}
-                                                    onChange={e => setWorkerForm({ ...workerForm, foreignCountry: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: Brasil, Cabo Verde, Espanha..."
-                                                />
-                                            </InputGroup>
-                                        )}
-                                    </div>
-
-                                    {/* Documentos de Identificação e Fiscais */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                                        <InputGroup label="NIF do Colaborador *">
-                                            <input
-                                                type="text"
-                                                required
-                                                value={workerForm.nif}
-                                                onChange={e => setWorkerForm({ ...workerForm, nif: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                placeholder="ex: 234567890"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Tipo de Documento ID">
-                                            <select
-                                                value={workerForm.idCardType}
-                                                onChange={e => setWorkerForm({ ...workerForm, idCardType: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="cc">Cartão de Cidadão</option>
-                                                <option value="bi">Bilhete de Identidade</option>
-                                                <option value="passaporte">Passaporte</option>
-                                                <option value="residencia">Título de Residência</option>
-                                                <option value="outro">Outro...</option>
-                                            </select>
-                                        </InputGroup>
-                                        <InputGroup label="N.º do Documento">
-                                            <input
-                                                type="text"
-                                                value={workerForm.idCardNumber}
-                                                onChange={e => setWorkerForm({ ...workerForm, idCardNumber: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="N.º Identificação"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="N.º Seg. Social (NISS)">
-                                            <input
-                                                type="text"
-                                                value={workerForm.ssn}
-                                                onChange={e => setWorkerForm({ ...workerForm, ssn: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                placeholder="ex: 12034567890"
-                                            />
-                                        </InputGroup>
-                                    </div>
-
-                                    {/* Demografia e Contactos */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                                        <InputGroup label="Data de Nascimento">
-                                            <input
-                                                type="date"
-                                                value={workerForm.birthDate}
-                                                onChange={e => setWorkerForm({ ...workerForm, birthDate: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Género">
-                                            <select
-                                                value={workerForm.gender}
-                                                onChange={e => setWorkerForm({ ...workerForm, gender: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="M">Masculino</option>
-                                                <option value="F">Feminino</option>
-                                                <option value="outro">Outro / Prefere não declarar</option>
-                                            </select>
-                                        </InputGroup>
-                                        <InputGroup label="Telefone">
-                                            <input
-                                                type="text"
-                                                value={workerForm.phone}
-                                                onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: 912345678"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Email">
-                                            <input
-                                                type="email"
-                                                value={workerForm.email}
-                                                onChange={e => setWorkerForm({ ...workerForm, email: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="colaborador@empresa.pt"
-                                            />
-                                        </InputGroup>
-                                    </div>
-
-                                    {/* Morada */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                        <div className="sm:col-span-2">
-                                            <InputGroup label="Morada">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.address}
-                                                    onChange={e => setWorkerForm({ ...workerForm, address: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="Rua, Número, Andar..."
-                                                />
-                                            </InputGroup>
-                                        </div>
-                                        <InputGroup label="Código Postal e Localidade">
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.postalCode}
-                                                    onChange={e => setWorkerForm({ ...workerForm, postalCode: e.target.value })}
-                                                    className="w-24 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="0000-000"
-                                                />
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.city}
-                                                    onChange={e => setWorkerForm({ ...workerForm, city: e.target.value })}
-                                                    className="flex-1 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="Localidade"
-                                                />
-                                            </div>
-                                        </InputGroup>
-                                    </div>
-
-                                    {/* Contacto de Emergência */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                                        <InputGroup label="Contacto de Emergência (Nome)">
-                                            <input
-                                                type="text"
-                                                value={workerForm.emergencyContactName}
-                                                onChange={e => setWorkerForm({ ...workerForm, emergencyContactName: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: Maria Silva (Esposa)"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Contacto de Emergência (Telefone)">
-                                            <input
-                                                type="text"
-                                                value={workerForm.emergencyContactPhone}
-                                                onChange={e => setWorkerForm({ ...workerForm, emergencyContactPhone: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: 919876543"
-                                            />
-                                        </InputGroup>
-                                    </div>
-                                </div>
-
-                                {/* 2. Função e Qualificação Profissional (IfcLaborResource / IfcActorRole) */}
-                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
-                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
-                                        <div className="flex items-center gap-2">
-                                            <Briefcase size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                2. Função e Qualificação Profissional (Norma IFC)
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] text-[var(--text-muted)] font-mono">IfcLaborResource / IfcActorRole</span>
-                                    </div>
-
-                                    <div className="space-y-3">
-                                        <InputGroup label="Função Padronizada (Norma IFC / Obra) *">
-                                            <select
-                                                value={workerForm.workerRoleId}
-                                                required
-                                                onChange={e => {
-                                                    const roleId = e.target.value;
-                                                    const roleDef = getRoleDefinition(roleId);
-                                                    const roleLabel = roleId === 'OTHER'
-                                                        ? (workerForm.roleCustom || 'Outra')
-                                                        : tRoles(`roles.${roleId}`);
-
-                                                    setWorkerForm({
-                                                        ...workerForm,
-                                                        workerRoleId: roleId,
-                                                        role: roleLabel,
-                                                        occupation: roleDef?.ifcLaborResource?.objectType ?? '',
-                                                        ifcLaborType: roleDef?.ifcLaborResource?.predefinedType ?? ''
-                                                    });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="">— Selecionar função padronizada IFC —</option>
-
-                                                <optgroup label="Responsáveis de Obra">
-                                                    {WORKER_ROLES.filter(r => r.group === 'SITE_RESPONSIBLE').map(r => (
-                                                        <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
-                                                    ))}
-                                                </optgroup>
-
-                                                <optgroup label="Segurança no Trabalho (SHST)">
-                                                    {WORKER_ROLES.filter(r => r.group === 'SHST_RESPONSIBLE').map(r => (
-                                                        <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
-                                                    ))}
-                                                </optgroup>
-
-                                                {OPERATIVE_CATEGORIES.map(cat => {
-                                                    const catRoles = WORKER_ROLES.filter(r => r.group === 'OPERATIVE' && r.category === cat);
-                                                    if (!catRoles.length) return null;
-                                                    return (
-                                                        <optgroup key={cat} label={tRoles(`categories.${cat}`)}>
-                                                            {catRoles.map(r => (
-                                                                <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
-                                                            ))}
-                                                        </optgroup>
-                                                    );
-                                                })}
-                                            </select>
-                                        </InputGroup>
-
-                                        {workerForm.workerRoleId === 'OTHER' && (
-                                            <InputGroup label="Especificar Função Personalizada *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={workerForm.roleCustom}
-                                                    onChange={e => setWorkerForm({ 
-                                                        ...workerForm, 
-                                                        roleCustom: e.target.value,
-                                                        role: e.target.value 
-                                                    })}
-                                                    placeholder="Indique a função específica..."
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                        )}
-
-                                        {/* Mapeamento IFC Dinâmico */}
-                                        {workerForm.workerRoleId && (
-                                            <div className="p-3 rounded-lg bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-[11px] flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-semibold text-blue-800 dark:text-blue-300">Classificação BIM / IFC:</span>
-                                                    <span className="font-mono text-[var(--text)]">
-                                                        {workerForm.ifcLaborType ? `IfcLaborResourceType: ${workerForm.ifcLaborType}` : 'IfcActorRole: Standard'}
-                                                    </span>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data de Entrega de EPI</span>
+                                                        <span className="text-[var(--text)]">
+                                                            {(selectedWorker?.epiDate || workerForm.epiDate)
+                                                                ? new Date(selectedWorker?.epiDate || workerForm.epiDate).toLocaleDateString()
+                                                                : 'Registada com admissão'}
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                                                    {workerForm.occupation || 'Standard Labor'}
-                                                </span>
-                                            </div>
+
+                                                <div>
+                                                    <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-2">EPIs Atribuídos / Entregues</span>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(selectedWorker?.epiDeliveryList || workerForm.epiDeliveryList || []).map((epi: string) => (
+                                                            <span key={epi} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1.5">
+                                                                <Check size={12} /> {epi}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                    <InputGroup label="Data do Exame Médico (Ficha de Aptidão)">
+                                                        <input
+                                                            type="date"
+                                                            value={workerForm.medicalExpiry}
+                                                            onChange={e => setWorkerForm({ ...workerForm, medicalExpiry: e.target.value })}
+                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                        />
+                                                    </InputGroup>
+                                                    <InputGroup label="Resultado da Aptidão Médica">
+                                                        <select
+                                                            value={workerForm.medicalFitness}
+                                                            onChange={e => setWorkerForm({ ...workerForm, medicalFitness: e.target.value })}
+                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                        >
+                                                            <option value="apto">Apto para a Função (Sem Restrições)</option>
+                                                            <option value="apto_condicionado">Apto Condicionado / com Restrições</option>
+                                                            <option value="inapto">Inapto Temporariamente</option>
+                                                            <option value="outro">Outro / Pendente</option>
+                                                        </select>
+                                                    </InputGroup>
+                                                </div>
+
+                                                <InputGroup label="Observações / Condicionantes Médicas">
+                                                    <textarea
+                                                        rows={2}
+                                                        value={workerForm.medicalObservations}
+                                                        onChange={e => setWorkerForm({ ...workerForm, medicalObservations: e.target.value })}
+                                                        placeholder="Ex: Apto com restrição para trabalhos em altura..."
+                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary resize-none"
+                                                    />
+                                                </InputGroup>
+
+                                                <div>
+                                                    <div className="flex items-center justify-between mb-2">
+                                                        <span className="text-[11px] font-semibold text-[var(--text)] uppercase tracking-wider">
+                                                            EPIs Obrigatórios Entregues (DL 273/2003)
+                                                        </span>
+                                                        <span className="text-[10px] text-[var(--text-muted)]">Clique para selecionar</span>
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {ALL_EPIS.map(epi => {
+                                                            const selected = workerForm.epiDeliveryList.includes(epi);
+                                                            return (
+                                                                <button
+                                                                    key={epi}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const current = workerForm.epiDeliveryList || [];
+                                                                        const updated = selected
+                                                                            ? current.filter(e => e !== epi)
+                                                                            : [...current, epi];
+                                                                        setWorkerForm({ ...workerForm, epiDeliveryList: updated });
+                                                                    }}
+                                                                    className={cn(
+                                                                        "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5",
+                                                                        selected
+                                                                            ? "bg-primary text-white border-primary shadow-sm"
+                                                                            : "bg-[var(--bg-input)] text-[var(--text-muted)] border-[var(--border)] hover:border-primary/40"
+                                                                    )}
+                                                                >
+                                                                    {selected ? <Check size={12} /> : null}
+                                                                    {epi}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </>
                                         )}
                                     </div>
                                 </div>
 
-                                {/* 3. Vínculo Laboral & Enquadramento (IfcPersonAndOrganization) */}
-                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
-                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
-                                        <div className="flex items-center gap-2">
-                                            <Building2 size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                3. Vínculo Laboral & Enquadramento
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] text-[var(--text-muted)] font-mono">IfcPersonAndOrganization</span>
+                                {/* Anexos Inline: Ficha de Aptidão Médica e Ficha de Entrega de EPI */}
+                                <RequirementCard
+                                    label="Ficha de Aptidão Médica (FAT)"
+                                    category="medical_fitness"
+                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
+                                    projectId={masterCompany?.id || 'comp_master'}
+                                    expiryDate={selectedWorker?.medicalExpiry || workerForm.medicalExpiry}
+                                    isEditing={workerModalMode === 'edit'}
+                                />
+
+                                <RequirementCard
+                                    label="Ficha de Entrega de EPI Assinada (DL 273/2003)"
+                                    category="ppe_receipt"
+                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
+                                    projectId={masterCompany?.id || 'comp_master'}
+                                    isEditing={workerModalMode === 'edit'}
+                                />
+
+                                {workerModalMode === 'edit' && (
+                                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
+                                        <PrimaryButton type="button" onClick={handleSaveWorker} className="px-4 py-2 text-xs font-bold">
+                                            Guardar Segurança & Saúde
+                                        </PrimaryButton>
                                     </div>
+                                )}
+                            </div>
+                        )}
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                        <InputGroup label="Tipo de Vínculo Contratual">
-                                            <select
-                                                value={workerForm.contractType}
-                                                onChange={e => setWorkerForm({ ...workerForm, contractType: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                {CONTRACT_TYPE_OPTIONS.map(opt => (
-                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                ))}
-                                            </select>
-                                        </InputGroup>
-                                        <InputGroup label="Categoria Profissional Legal">
-                                            <select
-                                                value={workerForm.professionCategory}
-                                                onChange={e => setWorkerForm({ ...workerForm, professionCategory: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                {PROFESSION_CATEGORY_OPTIONS.map(opt => (
-                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                ))}
-                                            </select>
-                                        </InputGroup>
-                                        <InputGroup label="Horário de Trabalho">
-                                            <select
-                                                value={workerForm.workSchedule}
-                                                onChange={e => setWorkerForm({ ...workerForm, workSchedule: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                {WORK_SCHEDULE_OPTIONS.map(opt => (
-                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                ))}
-                                            </select>
-                                        </InputGroup>
-                                    </div>
-                                </div>
-
-                                {/* 4. Saúde, Segurança no Trabalho & Acessos (DL 273/2003) */}
-                                <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
-                                    <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
-                                        <div className="flex items-center gap-2">
-                                            <Shield size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                4. Saúde, Segurança no Trabalho & EPIs
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">DL 273/2003</span>
-                                    </div>
-
-                                    {/* Aptidão Médica */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <InputGroup label="Data do Exame Médico (Ficha de Aptidão)">
-                                            <input
-                                                type="date"
-                                                value={workerForm.medicalExpiry}
-                                                onChange={e => setWorkerForm({ ...workerForm, medicalExpiry: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Resultado da Aptidão Médica">
-                                            <select
-                                                value={workerForm.medicalFitness}
-                                                onChange={e => setWorkerForm({ ...workerForm, medicalFitness: e.target.value })}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="apto">Apto para a Função (Sem Restrições)</option>
-                                                <option value="apto_condicionado">Apto Condicionado / com Restrições</option>
-                                                <option value="inapto">Inapto Temporariamente</option>
-                                                <option value="outro">Outro / Pendente</option>
-                                            </select>
-                                        </InputGroup>
-                                    </div>
-
-                                    <InputGroup label="Observações / Condicionantes Médicas">
-                                        <textarea
-                                            rows={2}
-                                            value={workerForm.medicalObservations}
-                                            onChange={e => setWorkerForm({ ...workerForm, medicalObservations: e.target.value })}
-                                            placeholder="Ex: Apto com restrição para trabalhos em altura superior a 2 metros..."
-                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary resize-none"
-                                        />
-                                    </InputGroup>
-
-                                    {/* EPI Checklist */}
+                        {/* TAB 4: DOCUMENTOS */}
+                        {workerModalTab === 'documents' && (
+                            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[var(--bg-input)]/30 border border-[var(--border)]">
                                     <div>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="text-[11px] font-semibold text-[var(--text)] uppercase tracking-wider">
-                                                EPIs Obrigatórios Entregues (DL 273/2003)
-                                            </span>
-                                            <span className="text-[10px] text-[var(--text-muted)]">Clique para selecionar</span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {ALL_EPIS.map(epi => {
-                                                const selected = workerForm.epiDeliveryList.includes(epi);
-                                                return (
-                                                    <button
-                                                        key={epi}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const current = workerForm.epiDeliveryList || [];
-                                                            const updated = selected
-                                                                ? current.filter(e => e !== epi)
-                                                                : [...current, epi];
-                                                            setWorkerForm({ ...workerForm, epiDeliveryList: updated });
-                                                        }}
-                                                        className={cn(
-                                                            "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5",
-                                                            selected
-                                                                ? "bg-primary text-white border-primary shadow-sm"
-                                                                : "bg-[var(--bg-input)] text-[var(--text-muted)] border-[var(--border)] hover:border-primary/40"
-                                                        )}
-                                                    >
-                                                        {selected ? <Check size={12} /> : null}
-                                                        {epi}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
+                                        <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                            Dossier Documental do Colaborador
+                                        </h4>
+                                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                            Todos os documentos, versões e certificados arquivados deste colaborador.
+                                        </p>
                                     </div>
+                                    <DocumentUpload
+                                        entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        category="general"
+                                        layout="button"
+                                        label="Carregar Documento"
+                                    />
                                 </div>
 
-                                {/* Form Action Buttons */}
-                                <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
-                                    <SecondaryButton
-                                        type="button"
-                                        onClick={() => {
-                                            if (editingWorkerId && selectedWorker) {
-                                                setWorkerModalMode('view');
-                                            } else {
-                                                setIsWorkerModalOpen(false);
-                                            }
-                                        }}
-                                    >
-                                        Cancelar
-                                    </SecondaryButton>
-                                    <PrimaryButton type="submit" className="px-4 py-2 text-xs font-bold">
-                                        <Save size={14} className="mr-1.5 inline" />
-                                        {editingWorkerId ? "Guardar Alterações" : "Adicionar Colaborador à Empresa"}
-                                    </PrimaryButton>
-                                </div>
-                            </form>
+                                <DocumentList
+                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
+                                    projectId={masterCompany?.id || 'comp_master'}
+                                    isEditing={workerModalMode === 'edit'}
+                                />
+                            </div>
                         )}
                     </Modal>
 
@@ -3823,467 +3833,548 @@ export default function MyCompanyPage() {
                             )
                         }
                     >
-                        {companyModalMode === 'view' ? (
-                            <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
-                                {/* Top overview card */}
-                                <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div className="flex items-center gap-3.5">
-                                        <div className="w-12 h-12 rounded-2xl bg-primary text-white flex items-center justify-center font-extrabold text-base shadow-sm shrink-0">
-                                            {getInitials(companyForm.name)}
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <h3 className="text-base font-bold text-[var(--text)]">{companyForm.name || 'A Minha Empresa'}</h3>
-                                                <span className={cn(
-                                                    "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase",
-                                                    companyForm.status === 'inactive' ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                                )}>
-                                                    {companyForm.status === 'inactive' ? 'Inativa' : 'Ativa'}
-                                                </span>
+                        {/* Tab Switcher */}
+                        <div className="flex items-center gap-1 p-1 bg-[var(--bg-input)] rounded-xl border border-[var(--border)] mb-5">
+                            <button
+                                type="button"
+                                onClick={() => setCompanyModalTab('identification')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    companyModalTab === 'identification'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <Building2 size={14} />
+                                <span>Identificação</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCompanyModalTab('legal')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    companyModalTab === 'legal'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <Shield size={14} />
+                                <span>Requisitos Legais (DL 273/2003)</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCompanyModalTab('documents')}
+                                className={cn(
+                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
+                                    companyModalTab === 'documents'
+                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <Folder size={14} />
+                                <span>Documentos</span>
+                            </button>
+                        </div>
+                        {/* TAB 1: IDENTIFICAÇÃO */}
+                        {companyModalTab === 'identification' && (
+                            companyModalMode === 'view' ? (
+                                <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-1">
+                                    {/* Top overview card */}
+                                    <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3.5">
+                                            <div className="w-12 h-12 rounded-2xl bg-primary text-white flex items-center justify-center font-extrabold text-base shadow-sm shrink-0">
+                                                {getInitials(companyForm.name)}
                                             </div>
-                                            <p className="text-xs text-[var(--text-muted)] font-mono">
-                                                NIF: {companyForm.nif || 'Não definido'} • Natureza: {companyForm.legalForm?.toUpperCase() || 'LDA'}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setIsCompanyModalOpen(false);
-                                                setExportEntityType('company');
-                                                setExportTargetProjectId(userProjects[0]?.id || '');
-                                                setIsExportModalOpen(true);
-                                            }}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
-                                            title="Sincronizar com uma das suas obras"
-                                        >
-                                            <Share2 size={13} /> Sincronizar com Obra
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Section 1: Identificação */}
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
-                                        <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Nome Oficial</div>
-                                            <div className="text-xs font-bold text-[var(--text)] mt-0.5">{companyForm.name || '—'}</div>
-                                        </div>
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">NIF / NIPC</div>
-                                            <div className="text-xs font-mono font-bold text-[var(--text)] mt-0.5">{companyForm.nif || '—'}</div>
-                                        </div>
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Tipo de Empresa</div>
-                                            <div className="text-xs font-bold text-[var(--text)] mt-0.5">
-                                                {getCompanyRoleLabel(companyForm.companyRole)}
-                                                {companyForm.companyRole === 'outro' && companyForm.companyRoleCustom ? ` (${companyForm.companyRoleCustom})` : ''}
-                                            </div>
-                                        </div>
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Natureza Jurídica</div>
-                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">
-                                                {companyForm.legalForm === 'lda' ? 'Lda. (Sociedade por Quotas)' :
-                                                 companyForm.legalForm === 'sa' ? 'S.A. (Sociedade Anónima)' :
-                                                 companyForm.legalForm === 'unipessoal' ? 'Unipessoal Lda.' :
-                                                 companyForm.legalForm === 'eni' ? 'ENI (Empresário em Nome Individual)' :
-                                                 companyForm.legalForm === 'ace' ? 'ACE' : 'Outra'}
-                                            </div>
-                                        </div>
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Código CAE</div>
-                                            <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.caeCode || '—'}</div>
-                                        </div>
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Alvará / Título IMPIC</div>
-                                            <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.impic || '—'}</div>
-                                        </div>
-                                        <div className="sm:col-span-2 md:col-span-3 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Atividade Principal</div>
-                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.activity || '—'}</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Section 2: Contactos & Sede */}
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
-                                        <MapPin size={14} className="text-primary" /> Contactos e Localização
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Email Geral</div>
-                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.email || '—'}</div>
-                                        </div>
-                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Telefone Geral</div>
-                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.phone || '—'}</div>
-                                        </div>
-                                        <div className="sm:col-span-2 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Sede / Morada Oficial</div>
-                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.address || '—'}</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Section 3: Seguros e Certidões Legais DL 273/2003 */}
-                                <div className="space-y-3">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
-                                        <Shield size={14} className="text-primary" /> Seguros Obrigatórios & Certidões Não Dívida (DL 273/2003)
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[11px] font-bold text-[var(--text)]">Seguro Acidentes de Trabalho</span>
-                                                {companyForm.insuranceWorkAccDate ? (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
-                                                        Válido
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="text-base font-bold text-[var(--text)]">{companyForm.name || 'A Minha Empresa'}</h3>
+                                                    <span className={cn(
+                                                        "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase",
+                                                        companyForm.status === 'inactive' ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                    )}>
+                                                        {companyForm.status === 'inactive' ? 'Inativa' : 'Ativa'}
                                                     </span>
-                                                ) : (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
-                                                        Pendente
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[11px] text-[var(--text-muted)]">
-                                                Apólice: <span className="font-mono text-[var(--text)]">{companyForm.insuranceWorkAccPolicy || 'Não indicada'}</span>
-                                            </div>
-                                            <div className="text-[11px] text-[var(--text-muted)]">
-                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.insuranceWorkAccDate ? new Date(companyForm.insuranceWorkAccDate).toLocaleDateString() : '—'}</span>
+                                                </div>
+                                                <p className="text-xs text-[var(--text-muted)] font-mono">
+                                                    NIF: {companyForm.nif || 'Não definido'} • Natureza: {companyForm.legalForm?.toUpperCase() || 'LDA'}
+                                                </p>
                                             </div>
                                         </div>
 
-                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[11px] font-bold text-[var(--text)]">Seguro Responsabilidade Civil</span>
-                                                {companyForm.insuranceCivilDate ? (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
-                                                        Válido
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
-                                                        Pendente
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[11px] text-[var(--text-muted)]">
-                                                Apólice: <span className="font-mono text-[var(--text)]">{companyForm.insuranceCivilPolicy || 'Não indicada'}</span>
-                                            </div>
-                                            <div className="text-[11px] text-[var(--text-muted)]">
-                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.insuranceCivilDate ? new Date(companyForm.insuranceCivilDate).toLocaleDateString() : '—'}</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[11px] font-bold text-[var(--text)]">Certidão Seg. Social</span>
-                                                {companyForm.cleanSSDate ? (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
-                                                        Válida
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
-                                                        Pendente
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[11px] text-[var(--text-muted)]">
-                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.cleanSSDate ? new Date(companyForm.cleanSSDate).toLocaleDateString() : 'Não registada'}</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[11px] font-bold text-[var(--text)]">Certidão Finanças</span>
-                                                {companyForm.cleanFinDate ? (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
-                                                        Válida
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
-                                                        Pendente
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-[11px] text-[var(--text-muted)]">
-                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.cleanFinDate ? new Date(companyForm.cleanFinDate).toLocaleDateString() : 'Não registada'}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
-                                    <SecondaryButton type="button" onClick={() => setIsCompanyModalOpen(false)}>
-                                        Fechar
-                                    </SecondaryButton>
-                                </div>
-                            </div>
-                        ) : (
-                            <form onSubmit={(e) => { handleSaveCompany(e); setCompanyModalMode('view'); }} className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
-                                <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
-                                    <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
-                                        <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                        <InputGroup label="Nome Oficial da Empresa *">
-                                            <input
-                                                type="text"
-                                                required
-                                                value={companyForm.name}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, name: e.target.value });
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsCompanyModalOpen(false);
+                                                    setExportEntityType('company');
+                                                    setExportTargetProjectId(userProjects[0]?.id || '');
+                                                    setIsExportModalOpen(true);
                                                 }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="NIF / NIPC *">
-                                            <input
-                                                type="text"
-                                                required
-                                                value={companyForm.nif}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, nif: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                placeholder="500000000"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Tipo de Empresa *">
-                                            <select
-                                                value={companyForm.companyRole}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, companyRole: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                                title="Sincronizar com uma das suas obras"
                                             >
-                                                {COMPANY_ROLE_GROUPS.map(group => (
-                                                    <optgroup key={group} label={group}>
-                                                        {COMPANY_ROLE_OPTIONS.filter(o => o.group === group).map(o => (
-                                                            <option key={o.value} value={o.value}>
-                                                                {o.label}
-                                                            </option>
-                                                        ))}
-                                                    </optgroup>
-                                                ))}
-                                            </select>
-                                        </InputGroup>
-                                        {companyForm.companyRole === 'outro' && (
-                                            <InputGroup label="Especificar Tipo de Empresa">
+                                                <Share2 size={13} /> Sincronizar com Obra
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Section 1: Identificação */}
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+                                            <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Nome Oficial</div>
+                                                <div className="text-xs font-bold text-[var(--text)] mt-0.5">{companyForm.name || '—'}</div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">NIF / NIPC</div>
+                                                <div className="text-xs font-mono font-bold text-[var(--text)] mt-0.5">{companyForm.nif || '—'}</div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Tipo de Empresa</div>
+                                                <div className="text-xs font-bold text-[var(--text)] mt-0.5">
+                                                    {getCompanyRoleLabel(companyForm.companyRole)}
+                                                    {companyForm.companyRole === 'outro' && companyForm.companyRoleCustom ? ` (${companyForm.companyRoleCustom})` : ''}
+                                                </div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Natureza Jurídica</div>
+                                                <div className="text-xs font-medium text-[var(--text)] mt-0.5">
+                                                    {companyForm.legalForm === 'lda' ? 'Lda. (Sociedade por Quotas)' :
+                                                     companyForm.legalForm === 'sa' ? 'S.A. (Sociedade Anónima)' :
+                                                     companyForm.legalForm === 'unipessoal' ? 'Unipessoal Lda.' :
+                                                     companyForm.legalForm === 'eni' ? 'ENI (Empresário em Nome Individual)' :
+                                                     companyForm.legalForm === 'ace' ? 'ACE' : 'Outra'}
+                                                </div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Código CAE</div>
+                                                <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.caeCode || '—'}</div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Alvará / Título IMPIC</div>
+                                                <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.impic || '—'}</div>
+                                            </div>
+                                            <div className="sm:col-span-2 md:col-span-3 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Atividade Principal</div>
+                                                <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.activity || '—'}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Section 2: Contactos & Sede */}
+                                    <div className="space-y-3">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+                                            <MapPin size={14} className="text-primary" /> Contactos e Localização
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Email Geral</div>
+                                                <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.email || '—'}</div>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Telefone Geral</div>
+                                                <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.phone || '—'}</div>
+                                            </div>
+                                            <div className="sm:col-span-2 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                                <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Sede / Morada Oficial</div>
+                                                <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.address || '—'}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
+                                        <SecondaryButton type="button" onClick={() => setIsCompanyModalOpen(false)}>
+                                            Fechar
+                                        </SecondaryButton>
+                                    </div>
+                                </div>
+                            ) : (
+                                <form onSubmit={(e) => { handleSaveCompany(e); setCompanyModalMode('view'); }} className="space-y-5 max-h-[70vh] overflow-y-auto pr-1">
+                                    <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
+                                        <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
+                                            <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                            <InputGroup label="Nome Oficial da Empresa *">
                                                 <input
                                                     type="text"
-                                                    value={companyForm.companyRoleCustom}
+                                                    required
+                                                    value={companyForm.name}
                                                     onChange={e => {
                                                         isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, companyRoleCustom: e.target.value });
+                                                        setCompanyForm({ ...companyForm, name: e.target.value });
                                                     }}
-                                                    placeholder="Ex: Empresa de Sinalização Rodoviária"
                                                     className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                                 />
                                             </InputGroup>
+                                            <InputGroup label="NIF / NIPC *">
+                                                <input
+                                                    type="text"
+                                                    required
+                                                    value={companyForm.nif}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, nif: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                    placeholder="500000000"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Tipo de Empresa *">
+                                                <select
+                                                    value={companyForm.companyRole}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, companyRole: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    {COMPANY_ROLE_OPTIONS.map(opt => (
+                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                    ))}
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="Natureza Jurídica">
+                                                <select
+                                                    value={companyForm.legalForm}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                >
+                                                    <option value="lda">Lda. (Sociedade por Quotas)</option>
+                                                    <option value="sa">S.A. (Sociedade Anónima)</option>
+                                                    <option value="unipessoal">Unipessoal Lda.</option>
+                                                    <option value="eni">ENI (Empresário em Nome Individual)</option>
+                                                    <option value="ace">ACE</option>
+                                                    <option value="outra">Outra</option>
+                                                </select>
+                                            </InputGroup>
+                                            <InputGroup label="Código CAE Principal">
+                                                <input
+                                                    type="text"
+                                                    value={companyForm.caeCode}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, caeCode: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                    placeholder="ex: 41200"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Alvará / Título IMPIC">
+                                                <input
+                                                    type="text"
+                                                    value={companyForm.impic}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, impic: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    placeholder="ex: IMPIC 12345"
+                                                />
+                                            </InputGroup>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
+                                        <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
+                                            <MapPin size={14} className="text-primary" /> Contactos e Sede
+                                        </h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <InputGroup label="Email Geral">
+                                                <input
+                                                    type="email"
+                                                    value={companyForm.email}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, email: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                            <InputGroup label="Telefone Geral">
+                                                <input
+                                                    type="text"
+                                                    value={companyForm.phone}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, phone: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                            <div className="sm:col-span-2">
+                                                <InputGroup label="Sede / Morada">
+                                                    <input
+                                                        type="text"
+                                                        value={companyForm.address}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, address: e.target.value });
+                                                        }}
+                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-2 pt-2">
+                                        <SecondaryButton type="button" onClick={() => setCompanyModalMode('view')}>
+                                            Cancelar / Voltar à Visualização
+                                        </SecondaryButton>
+                                        <PrimaryButton type="submit" className="py-2 px-5 text-xs font-bold">
+                                            Guardar Alterações
+                                        </PrimaryButton>
+                                    </div>
+                                </form>
+                            )
+                        )}
+
+                        {/* TAB 2: REQUISITOS LEGAIS (DL 273/2003) */}
+                        {companyModalTab === 'legal' && (
+                            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                                <div className="p-3.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-xs text-[var(--text)] flex items-start gap-2.5">
+                                    <Shield size={18} className="text-primary shrink-0 mt-0.5" />
+                                    <div>
+                                        <span className="font-bold block">Conformidade Legal & Documentação Obrigatória (DL 273/2003)</span>
+                                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                            Os documentos são anexados diretamente em cada requisito, com controlo de versões, datas de validade e arquivo nas pastas da empresa.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                    {/* Seguro Acidentes Trabalho */}
+                                    <RequirementCard
+                                        label="Seguro de Acidentes de Trabalho (Apólice e Recibo)"
+                                        category="insurance_work_accident"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        expiryDate={companyForm.insuranceWorkAccDate}
+                                        policyNumber={companyForm.insuranceWorkAccPolicy}
+                                        isEditing={companyModalMode === 'edit'}
+                                    >
+                                        {companyModalMode === 'edit' && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                                                <InputGroup label="N.º de Apólice">
+                                                    <input
+                                                        type="text"
+                                                        value={companyForm.insuranceWorkAccPolicy}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
+                                                        }}
+                                                        placeholder="ex: AP-123456"
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                    />
+                                                </InputGroup>
+                                                <InputGroup label="Data de Validade">
+                                                    <input
+                                                        type="date"
+                                                        value={companyForm.insuranceWorkAccDate}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
+                                                        }}
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            </div>
                                         )}
-                                        <InputGroup label="Natureza Jurídica">
-                                            <select
-                                                value={companyForm.legalForm}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="lda">Lda. (Sociedade por Quotas)</option>
-                                                <option value="unipessoal">Unipessoal Lda.</option>
-                                                <option value="sa">S.A. (Sociedade Anónima)</option>
-                                                <option value="eni">ENI (Empresário em Nome Individual)</option>
-                                                <option value="ace">ACE (Agrupamento Complementar de Empresas)</option>
-                                                <option value="other">Outra</option>
-                                            </select>
-                                        </InputGroup>
-                                        <InputGroup label="Estado Operacional">
-                                            <select
-                                                value={companyForm.status}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, status: e.target.value as any });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            >
-                                                <option value="active">Ativa / Em Laboração</option>
-                                                <option value="inactive">Inativa / Suspensa</option>
-                                            </select>
-                                        </InputGroup>
-                                        <InputGroup label="Código CAE Principal">
-                                            <input
-                                                type="text"
-                                                value={companyForm.caeCode}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, caeCode: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                placeholder="ex: 41200"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Atividade Principal">
-                                            <input
-                                                type="text"
-                                                value={companyForm.activity}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, activity: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: Construção Civil e Obras Públicas"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Alvará / Título IMPIC">
-                                            <input
-                                                type="text"
-                                                value={companyForm.impic}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, impic: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                placeholder="ex: IMPIC 12345"
-                                            />
-                                        </InputGroup>
-                                    </div>
+                                    </RequirementCard>
+
+                                    {/* Seguro Responsabilidade Civil */}
+                                    <RequirementCard
+                                        label="Seguro de Responsabilidade Civil"
+                                        category="insurance_civil_liability"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        expiryDate={companyForm.insuranceCivilDate}
+                                        policyNumber={companyForm.insuranceCivilPolicy}
+                                        isEditing={companyModalMode === 'edit'}
+                                    >
+                                        {companyModalMode === 'edit' && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                                                <InputGroup label="N.º de Apólice">
+                                                    <input
+                                                        type="text"
+                                                        value={companyForm.insuranceCivilPolicy}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
+                                                        }}
+                                                        placeholder="ex: RC-789012"
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                    />
+                                                </InputGroup>
+                                                <InputGroup label="Data de Validade">
+                                                    <input
+                                                        type="date"
+                                                        value={companyForm.insuranceCivilDate}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
+                                                        }}
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            </div>
+                                        )}
+                                    </RequirementCard>
+
+                                    {/* Certidão Não Dívida Finanças */}
+                                    <RequirementCard
+                                        label="Certidão de Não Dívida da Autoridade Tributária (Finanças)"
+                                        category="non_debt_tax"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        expiryDate={companyForm.cleanFinDate}
+                                        isEditing={companyModalMode === 'edit'}
+                                    >
+                                        {companyModalMode === 'edit' && (
+                                            <div className="pt-2">
+                                                <InputGroup label="Data de Validade da Certidão">
+                                                    <input
+                                                        type="date"
+                                                        value={companyForm.cleanFinDate}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
+                                                        }}
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            </div>
+                                        )}
+                                    </RequirementCard>
+
+                                    {/* Certidão Não Dívida Segurança Social */}
+                                    <RequirementCard
+                                        label="Certidão de Não Dívida da Segurança Social"
+                                        category="non_debt_ss"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        expiryDate={companyForm.cleanSSDate}
+                                        isEditing={companyModalMode === 'edit'}
+                                    >
+                                        {companyModalMode === 'edit' && (
+                                            <div className="pt-2">
+                                                <InputGroup label="Data de Validade da Certidão">
+                                                    <input
+                                                        type="date"
+                                                        value={companyForm.cleanSSDate}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
+                                                        }}
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            </div>
+                                        )}
+                                    </RequirementCard>
+
+                                    {/* Alvará IMPIC */}
+                                    <RequirementCard
+                                        label="Alvará de Construção / Título de Registo IMPIC"
+                                        category="alvara_impic"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        policyNumber={companyForm.impic}
+                                        isEditing={companyModalMode === 'edit'}
+                                    >
+                                        {companyModalMode === 'edit' && (
+                                            <div className="pt-2">
+                                                <InputGroup label="N.º Alvará / Título IMPIC">
+                                                    <input
+                                                        type="text"
+                                                        value={companyForm.impic}
+                                                        onChange={e => {
+                                                            isFormEditedRef.current = true;
+                                                            setCompanyForm({ ...companyForm, impic: e.target.value });
+                                                        }}
+                                                        placeholder="ex: Alvará n.º 12345-PUB"
+                                                        className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                </InputGroup>
+                                            </div>
+                                        )}
+                                    </RequirementCard>
+
+                                    {/* Certidão Comercial / Permanente */}
+                                    <RequirementCard
+                                        label="Certidão Comercial / Código Certidão Permanente"
+                                        category="certidao_comercial"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        isEditing={companyModalMode === 'edit'}
+                                    />
+
+                                    {/* Medicina no Trabalho */}
+                                    <RequirementCard
+                                        label="Medicina no Trabalho (Contrato ou Comprovativo de Prestador SST)"
+                                        category="medicina_trabalho"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        isEditing={companyModalMode === 'edit'}
+                                    />
+
+                                    {/* Folhas de Remuneração */}
+                                    <RequirementCard
+                                        label="Folhas de Remunerações / Declaração DRI (Segurança Social)"
+                                        category="folhas_remuneracao"
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        isEditing={companyModalMode === 'edit'}
+                                    />
                                 </div>
 
-                                <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
-                                    <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
-                                        <MapPin size={14} className="text-primary" /> Contactos e Sede
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <InputGroup label="Email Geral">
-                                            <input
-                                                type="email"
-                                                value={companyForm.email}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, email: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Telefone Geral">
-                                            <input
-                                                type="text"
-                                                value={companyForm.phone}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, phone: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <div className="sm:col-span-2">
-                                            <InputGroup label="Sede / Morada">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.address}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, address: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                        </div>
+                                {companyModalMode === 'edit' && (
+                                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
+                                        <SecondaryButton type="button" onClick={() => setCompanyModalMode('view')}>
+                                            Voltar à Ficha
+                                        </SecondaryButton>
+                                        <PrimaryButton type="button" onClick={() => { handleSaveCompany(); setCompanyModalMode('view'); }} className="py-2 px-5 text-xs font-bold">
+                                            Guardar Alterações Legais
+                                        </PrimaryButton>
                                     </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* TAB 3: DOCUMENTOS */}
+                        {companyModalTab === 'documents' && (
+                            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[var(--bg-input)]/30 border border-[var(--border)]">
+                                    <div>
+                                        <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                            Dossier Documental da Organização
+                                        </h4>
+                                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                            Consulte o histórico de versões e todos os documentos anexados a esta organização.
+                                        </p>
+                                    </div>
+                                    <DocumentUpload
+                                        entityId={masterCompany?.id || 'comp_master'}
+                                        projectId={masterCompany?.id || 'comp_master'}
+                                        category="general"
+                                        layout="button"
+                                        label="Carregar Documento"
+                                    />
                                 </div>
 
-                                <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
-                                    <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
-                                        <Shield size={14} className="text-primary" /> Seguros Obrigatórios & Certidões Legais
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        <InputGroup label="Apólice Seguro Acidentes Trabalho">
-                                            <input
-                                                type="text"
-                                                value={companyForm.insuranceWorkAccPolicy}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Validade Seguro Acidentes Trabalho">
-                                            <input
-                                                type="date"
-                                                value={companyForm.insuranceWorkAccDate}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Apólice Seguro Resp. Civil">
-                                            <input
-                                                type="text"
-                                                value={companyForm.insuranceCivilPolicy}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Validade Seguro Resp. Civil">
-                                            <input
-                                                type="date"
-                                                value={companyForm.insuranceCivilDate}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Validade Certidão Não Dívida Seg. Social">
-                                            <input
-                                                type="date"
-                                                value={companyForm.cleanSSDate}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                        <InputGroup label="Validade Certidão Não Dívida Finanças">
-                                            <input
-                                                type="date"
-                                                value={companyForm.cleanFinDate}
-                                                onChange={e => {
-                                                    isFormEditedRef.current = true;
-                                                    setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
-                                                }}
-                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                            />
-                                        </InputGroup>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-end gap-2 pt-2">
-                                    <SecondaryButton type="button" onClick={() => setCompanyModalMode('view')}>
-                                        Cancelar / Voltar à Visualização
-                                    </SecondaryButton>
-                                    <PrimaryButton type="submit" className="py-2 px-5 text-xs font-bold">
-                                        Guardar Alterações
-                                    </PrimaryButton>
-                                </div>
-                            </form>
+                                <DocumentList
+                                    entityId={masterCompany?.id || 'comp_master'}
+                                    projectId={masterCompany?.id || 'comp_master'}
+                                    isEditing={companyModalMode === 'edit'}
+                                />
+                            </div>
                         )}
                     </Modal>
 

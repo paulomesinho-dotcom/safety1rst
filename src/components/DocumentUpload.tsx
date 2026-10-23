@@ -65,10 +65,16 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                     console.log('DocumentUpload: Connected?', project?.cdeConfig?.connected);
 
                     // Check CDE Connection
-                    if (project?.cdeConfig?.connected) {
+                    const storeState = useStore.getState();
+                    const companyForCde = storeState.companies.find(c => c.id === entityId || c.id === projectId || (!c.projectId && c.accountId === storeState.currentUser?.accountId));
+                    const effectiveCdeConfig = project?.cdeConfig || (companyForCde as any)?.cdeConfig;
+
+                    if (effectiveCdeConfig?.connected) {
                         // Find Entity details to get Name/Identifier
-                        const storeState = useStore.getState();
-                        const company = storeState.companies.find(c => c.id === entityId);
+                        let company = storeState.companies.find(c => c.id === entityId);
+                        if (!company && (entityId === 'comp_master' || entityId?.startsWith('comp_'))) {
+                            company = companyForCde;
+                        }
                         const worker = storeState.workers.find(w => w.id === entityId);
                         const equipment = storeState.equipment.find(e => e.id === entityId);
 
@@ -126,7 +132,7 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                             }
 
                             const uploadRes = await uploadToEntityFolder(
-                                project.cdeConfig,
+                                effectiveCdeConfig,
                                 entityType,
                                 entityName,
                                 entityIdentifier,
