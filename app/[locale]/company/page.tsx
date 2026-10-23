@@ -11,7 +11,7 @@ import {
     ArrowLeft, Plus, Search, Trash2, Edit2, Check, 
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
-    LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle
+    LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye
 } from 'lucide-react';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
@@ -26,7 +26,7 @@ import {
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
-import type { Worker, Equipment, Company } from '@/types';
+import type { Worker, Equipment, Company, Project } from '@/types';
 
 type CompanyTab = 'organization' | 'workers' | 'equipment' | 'training' | 'documents';
 
@@ -136,7 +136,12 @@ export default function MyCompanyPage() {
 
     const [savedNotice, setSavedNotice] = useState(false);
 
-    // Export / Import Modal State
+    // Company Details Modal (View vs Edit mode)
+    const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
+    const [companyModalMode, setCompanyModalMode] = useState<'view' | 'edit'>('view');
+    const [companySearchTerm, setCompanySearchTerm] = useState('');
+
+    // Export / Sincronizar Modal State
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [exportEntityType, setExportEntityType] = useState<'company' | 'worker' | 'equipment'>('company');
     const [exportTargetProjectId, setExportTargetProjectId] = useState<string>('');
@@ -144,16 +149,36 @@ export default function MyCompanyPage() {
     const [selectedWorkerForExport, setSelectedWorkerForExport] = useState<Worker | null>(null);
     const [selectedEquipForExport, setSelectedEquipForExport] = useState<Equipment | null>(null);
 
-    // Active projects for export selection
-    const activeProjects = useMemo(() => {
-        return (projects || []).filter(p => p.status === 'active');
-    }, [projects]);
+    // Only projects that the user has on the Workplace "Os Meus Projetos" page
+    const userProjects = useMemo(() => {
+        if (!currentUser) return [];
+        return (projects || []).filter((p: Project) => {
+            if (currentUser.role === 'superadmin') return true;
+            if (p.creatorId && p.creatorId === currentUser.id) return true;
+            if (userAccount && p.accountId === userAccount.id) return true;
+            return currentUser.projectAccess?.some(pa => pa.projectId === p.id);
+        });
+    }, [projects, currentUser, userAccount]);
 
     useEffect(() => {
-        if (isExportModalOpen && !exportTargetProjectId && activeProjects.length > 0) {
-            setExportTargetProjectId(activeProjects[0].id);
+        if (isExportModalOpen && !exportTargetProjectId && userProjects.length > 0) {
+            setExportTargetProjectId(userProjects[0].id);
         }
-    }, [isExportModalOpen, exportTargetProjectId, activeProjects]);
+    }, [isExportModalOpen, exportTargetProjectId, userProjects]);
+
+    // Companies displayed in Organization tab listing
+    const displayedCompanies = useMemo(() => {
+        const base = masterCompany ? [{
+            ...masterCompany,
+            ...companyForm,
+        }] : [{
+            id: 'master_company',
+            ...companyForm,
+        }];
+        if (!companySearchTerm.trim()) return base;
+        const q = companySearchTerm.toLowerCase();
+        return base.filter(c => (c.name || '').toLowerCase().includes(q) || (c.nif || '').toLowerCase().includes(q));
+    }, [masterCompany, companyForm, companySearchTerm]);
 
     const handlePerformExport = (e: React.FormEvent) => {
         e.preventDefault();
@@ -181,6 +206,7 @@ export default function MyCompanyPage() {
             const imported = importCompanyToProject(compId, exportTargetProjectId, exportProjectRole);
             if (imported) {
                 setIsExportModalOpen(false);
+                addNotification('success', 'Empresa sincronizada com sucesso na obra!');
             }
         } else if (exportEntityType === 'worker') {
             if (!selectedWorkerForExport) return;
@@ -192,6 +218,7 @@ export default function MyCompanyPage() {
                 const imported = importWorkerToProject(selectedWorkerForExport.id, exportTargetProjectId, targetProjCompany.id);
                 if (imported) {
                     setIsExportModalOpen(false);
+                    addNotification('success', 'Colaborador sincronizado com sucesso na obra!');
                 }
             }
         } else if (exportEntityType === 'equipment') {
@@ -204,6 +231,7 @@ export default function MyCompanyPage() {
                 const imported = importEquipmentToProject(selectedEquipForExport.id, exportTargetProjectId, targetProjCompany.id);
                 if (imported) {
                     setIsExportModalOpen(false);
+                    addNotification('success', 'Equipamento sincronizado com sucesso na obra!');
                 }
             }
         }
@@ -248,8 +276,8 @@ export default function MyCompanyPage() {
     });
 
     // Save Master Company details
-    const handleSaveCompany = (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSaveCompany = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         const trimmedName = companyForm.name.trim();
         const trimmedNif = companyForm.nif.trim();
         const ifcActorRole = getIfcRoleFromCompanyRole(companyForm.companyRole || '');
@@ -540,19 +568,22 @@ export default function MyCompanyPage() {
                                                 type="button"
                                                 onClick={() => {
                                                     setExportEntityType('company');
-                                                    setExportTargetProjectId(activeProjects[0]?.id || '');
+                                                    setExportTargetProjectId(userProjects[0]?.id || '');
                                                     setIsExportModalOpen(true);
                                                 }}
                                                 className="px-3.5 py-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border border-[var(--border)]"
-                                                title="Associar ou importar dados desta empresa para uma das suas obras"
+                                                title="Sincronizar dados desta empresa com uma das suas obras"
                                             >
-                                                <Share2 size={14} className="text-primary" /> Importar para Obra
+                                                <Share2 size={14} className="text-primary" /> Sincronizar com Obra
                                             </button>
                                             <button
-                                                onClick={handleSaveCompany}
+                                                onClick={() => {
+                                                    setCompanyModalMode('edit');
+                                                    setIsCompanyModalOpen(true);
+                                                }}
                                                 className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
                                             >
-                                                <Save size={14} /> Guardar Alterações
+                                                <Edit2 size={14} /> Editar Empresa
                                             </button>
                                         </>
                                     )}
@@ -593,267 +624,158 @@ export default function MyCompanyPage() {
                                 </div>
                             )}
 
-                            {/* ════════ TAB: ORGANIZAÇÃO ════════ */}
+                            {/* ════════ TAB: ORGANIZAÇÃO (Listagem) ════════ */}
                             {activeTab === 'organization' && (
-                                <form onSubmit={handleSaveCompany} className="space-y-6">
-                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 shadow-sm space-y-5">
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border)]">
-                                            <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2">
-                                                <Building2 size={16} className="text-primary" /> Identificação e Dados Fiscais (Sem Hierarquias)
-                                            </h3>
+                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                    <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
+                                        <div className="relative flex-1 max-w-sm">
+                                            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                            <input
+                                                type="text"
+                                                placeholder="Pesquisar organização por nome ou NIF..."
+                                                className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
+                                                value={companySearchTerm}
+                                                onChange={e => setCompanySearchTerm(e.target.value)}
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs text-[var(--text-muted)] font-medium">
+                                                {displayedCompanies.length} organização(ões) registada(s)
+                                            </span>
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    setExportEntityType('company');
-                                                    setExportTargetProjectId(activeProjects[0]?.id || '');
-                                                    setIsExportModalOpen(true);
+                                                    setCompanyModalMode('edit');
+                                                    setIsCompanyModalOpen(true);
                                                 }}
-                                                className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
                                             >
-                                                <Share2 size={13} /> Compatibilizar com Obra
+                                                <Edit2 size={13} /> Editar Empresa
                                             </button>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                            <InputGroup label="Nome Oficial da Empresa *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={companyForm.name}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, name: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="NIF / NIPC *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={companyForm.nif}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, nif: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                    placeholder="500000000"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Tipo de Empresa *">
-                                                <select
-                                                    value={companyForm.companyRole}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, companyRole: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    {COMPANY_ROLE_GROUPS.map(group => (
-                                                        <optgroup key={group} label={group}>
-                                                            {COMPANY_ROLE_OPTIONS.filter(o => o.group === group).map(o => (
-                                                                <option key={o.value} value={o.value}>
-                                                                    {o.label}
-                                                                </option>
-                                                            ))}
-                                                        </optgroup>
-                                                    ))}
-                                                </select>
-                                            </InputGroup>
-                                            {companyForm.companyRole === 'outro' && (
-                                                <InputGroup label="Especificar Tipo de Empresa">
-                                                    <input
-                                                        type="text"
-                                                        value={companyForm.companyRoleCustom}
-                                                        onChange={e => {
-                                                            isFormEditedRef.current = true;
-                                                            setCompanyForm({ ...companyForm, companyRoleCustom: e.target.value });
-                                                        }}
-                                                        placeholder="Ex: Empresa de Sinalização Rodoviária"
-                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    />
-                                                </InputGroup>
-                                            )}
-                                            <InputGroup label="Natureza Jurídica">
-                                                <select
-                                                    value={companyForm.legalForm}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    <option value="lda">Lda. (Sociedade por Quotas)</option>
-                                                    <option value="unipessoal">Unipessoal Lda.</option>
-                                                    <option value="sa">S.A. (Sociedade Anónima)</option>
-                                                    <option value="eni">ENI (Empresário em Nome Individual)</option>
-                                                    <option value="ace">ACE (Agrupamento Complementar de Empresas)</option>
-                                                    <option value="other">Outra</option>
-                                                </select>
-                                            </InputGroup>
-                                            <InputGroup label="Estado Operacional">
-                                                <select
-                                                    value={companyForm.status}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, status: e.target.value as any });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    <option value="active">Ativa / Em Laboração</option>
-                                                    <option value="inactive">Inativa / Suspensa</option>
-                                                </select>
-                                            </InputGroup>
-                                            <InputGroup label="Código CAE Principal">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.caeCode}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, caeCode: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                    placeholder="ex: 41200"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Atividade Principal">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.activity}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, activity: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: Construção Civil e Obras Públicas"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Alvará / Título IMPIC">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.impic}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, impic: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: IMPIC 12345"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Email de Contacto">
-                                                <input
-                                                    type="email"
-                                                    value={companyForm.email}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, email: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Telefone Geral">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.phone}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, phone: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <div className="sm:col-span-2 md:col-span-3">
-                                                <InputGroup label="Sede / Morada">
-                                                    <input
-                                                        type="text"
-                                                        value={companyForm.address}
-                                                        onChange={e => {
-                                                            isFormEditedRef.current = true;
-                                                            setCompanyForm({ ...companyForm, address: e.target.value });
-                                                        }}
-                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    />
-                                                </InputGroup>
-                                            </div>
                                         </div>
                                     </div>
 
-                                    {/* Seguros e Certidões Legais */}
-                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 shadow-sm space-y-5">
-                                        <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2 pb-3 border-b border-[var(--border)]">
-                                            <Shield size={16} className="text-primary" /> Seguros Obrigatórios & Certidões Não Dívida
-                                        </h3>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <InputGroup label="Apólice Seguro Acidentes Trabalho">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.insuranceWorkAccPolicy}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="N.º da Apólice"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Validade Seguro Acidentes Trabalho">
-                                                <input
-                                                    type="date"
-                                                    value={companyForm.insuranceWorkAccDate}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Apólice Seguro Resp. Civil">
-                                                <input
-                                                    type="text"
-                                                    value={companyForm.insuranceCivilPolicy}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="N.º da Apólice"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Validade Seguro Resp. Civil">
-                                                <input
-                                                    type="date"
-                                                    value={companyForm.insuranceCivilDate}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Validade Certidão Não Dívida Seg. Social">
-                                                <input
-                                                    type="date"
-                                                    value={companyForm.cleanSSDate}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Validade Certidão Não Dívida Finanças">
-                                                <input
-                                                    type="date"
-                                                    value={companyForm.cleanFinDate}
-                                                    onChange={e => {
-                                                        isFormEditedRef.current = true;
-                                                        setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                        </div>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-xs text-left min-w-[700px]">
+                                            <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
+                                                <tr>
+                                                    <th className="px-5 py-3.5">Organização</th>
+                                                    <th className="px-5 py-3.5">Tipo / Função</th>
+                                                    <th className="px-5 py-3.5">Contacto</th>
+                                                    <th className="px-5 py-3.5">Seguros & Conformidade</th>
+                                                    <th className="px-5 py-3.5 text-right">Ação</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-[var(--border)]">
+                                                {displayedCompanies.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={5} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                            Nenhuma organização registada nesta conta.
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    displayedCompanies.map(comp => (
+                                                        <tr 
+                                                            key={comp.id || 'master'} 
+                                                            onClick={() => {
+                                                                setCompanyModalMode('view');
+                                                                setIsCompanyModalOpen(true);
+                                                            }}
+                                                            className="hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group"
+                                                        >
+                                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                                        <Building2 size={16} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
+                                                                            {comp.name}
+                                                                            <span className={cn(
+                                                                                "text-[10px] px-1.5 py-0.5 rounded-md font-semibold",
+                                                                                comp.status === 'inactive' ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                                                            )}>
+                                                                                {comp.status === 'inactive' ? 'Inativa' : 'Ativa'}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="text-[10px] font-mono text-[var(--text-muted)]">
+                                                                            NIF: {comp.nif || 'Não indicado'} {comp.caeCode ? `• CAE ${comp.caeCode}` : ''}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
+                                                                <span className="font-medium">{getCompanyRoleLabel(comp.companyRole || 'empresa_construcao')}</span>
+                                                                {comp.activity && (
+                                                                    <div className="text-[10px] text-[var(--text-muted)] truncate max-w-[200px]">
+                                                                        {comp.activity}
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-5 py-3.5 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
+                                                                <div>{comp.email || userAccount?.contactEmail || '—'}</div>
+                                                                <div className="text-[10px]">{comp.phone || userAccount?.contactPhone || ''}</div>
+                                                            </td>
+                                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    {comp.insuranceWorkAccDate ? (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro AT válido até ${new Date(comp.insuranceWorkAccDate).toLocaleDateString()}`}>
+                                                                            <Check size={10} /> AT Válido
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                            AT Pendente
+                                                                        </span>
+                                                                    )}
+                                                                    {comp.insuranceCivilDate ? (
+                                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro RC válido até ${new Date(comp.insuranceCivilDate).toLocaleDateString()}`}>
+                                                                            <Check size={10} /> RC Válido
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                                                                <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setExportEntityType('company');
+                                                                            setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                            setIsExportModalOpen(true);
+                                                                        }}
+                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                        title="Sincronizar com Obra"
+                                                                    >
+                                                                        <Share2 size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setCompanyModalMode('view');
+                                                                            setIsCompanyModalOpen(true);
+                                                                        }}
+                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                        title="Ver Informações"
+                                                                    >
+                                                                        <Eye size={14} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setCompanyModalMode('edit');
+                                                                            setIsCompanyModalOpen(true);
+                                                                        }}
+                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                        title="Editar Dados"
+                                                                    >
+                                                                        <Edit2 size={14} />
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
                                     </div>
-                                </form>
+                                </div>
                             )}
 
                             {/* ════════ TAB: PESSOAS ════════ */}
@@ -1280,20 +1202,529 @@ export default function MyCompanyPage() {
                         </form>
                     </Modal>
 
-                    {/* Modal Compatibilizar / Exportar para Obra */}
+                    {/* Modal Informação / Edição da Empresa */}
                     <Modal
                         title={
-                            exportEntityType === 'company' ? "Compatibilizar Empresa com Obra" :
-                            exportEntityType === 'worker' ? "Associar Colaborador a Obra" :
-                            "Associar Equipamento a Obra"
+                            <div className="flex items-center gap-2">
+                                <Building2 size={18} className="text-primary" />
+                                <span>{companyModalMode === 'view' ? "Ficha da Organização" : "Editar Dados da Organização"}</span>
+                            </div>
+                        }
+                        isOpen={isCompanyModalOpen}
+                        onClose={() => setIsCompanyModalOpen(false)}
+                        maxWidth="max-w-4xl"
+                        headerAction={
+                            companyModalMode === 'view' ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setCompanyModalMode('edit')}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
+                                >
+                                    <Edit2 size={13} /> Mudar para Modo de Edição
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={() => setCompanyModalMode('view')}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-[var(--text)] bg-[var(--bg-input)] hover:bg-[var(--border)] transition-all cursor-pointer border border-[var(--border)]"
+                                >
+                                    <Eye size={13} /> Voltar à Visualização
+                                </button>
+                            )
+                        }
+                    >
+                        {companyModalMode === 'view' ? (
+                            <div className="space-y-6 max-h-[75vh] overflow-y-auto pr-1">
+                                {/* Top overview card */}
+                                <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3.5">
+                                        <div className="w-12 h-12 rounded-2xl bg-primary text-white flex items-center justify-center font-extrabold text-base shadow-sm shrink-0">
+                                            {getInitials(companyForm.name)}
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="text-base font-bold text-[var(--text)]">{companyForm.name || 'A Minha Empresa'}</h3>
+                                                <span className={cn(
+                                                    "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase",
+                                                    companyForm.status === 'inactive' ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                )}>
+                                                    {companyForm.status === 'inactive' ? 'Inativa' : 'Ativa'}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-[var(--text-muted)] font-mono">
+                                                NIF: {companyForm.nif || 'Não definido'} • Natureza: {companyForm.legalForm?.toUpperCase() || 'LDA'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setIsCompanyModalOpen(false);
+                                                setExportEntityType('company');
+                                                setExportTargetProjectId(userProjects[0]?.id || '');
+                                                setIsExportModalOpen(true);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                            title="Sincronizar com uma das suas obras"
+                                        >
+                                            <Share2 size={13} /> Sincronizar com Obra
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCompanyModalMode('edit')}
+                                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-primary text-white hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
+                                        >
+                                            <Edit2 size={13} /> Editar Dados
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Section 1: Identificação */}
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+                                        <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Nome Oficial</div>
+                                            <div className="text-xs font-bold text-[var(--text)] mt-0.5">{companyForm.name || '—'}</div>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">NIF / NIPC</div>
+                                            <div className="text-xs font-mono font-bold text-[var(--text)] mt-0.5">{companyForm.nif || '—'}</div>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Tipo de Empresa</div>
+                                            <div className="text-xs font-bold text-[var(--text)] mt-0.5">
+                                                {getCompanyRoleLabel(companyForm.companyRole)}
+                                                {companyForm.companyRole === 'outro' && companyForm.companyRoleCustom ? ` (${companyForm.companyRoleCustom})` : ''}
+                                            </div>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Natureza Jurídica</div>
+                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">
+                                                {companyForm.legalForm === 'lda' ? 'Lda. (Sociedade por Quotas)' :
+                                                 companyForm.legalForm === 'sa' ? 'S.A. (Sociedade Anónima)' :
+                                                 companyForm.legalForm === 'unipessoal' ? 'Unipessoal Lda.' :
+                                                 companyForm.legalForm === 'eni' ? 'ENI (Empresário em Nome Individual)' :
+                                                 companyForm.legalForm === 'ace' ? 'ACE' : 'Outra'}
+                                            </div>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Código CAE</div>
+                                            <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.caeCode || '—'}</div>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Alvará / Título IMPIC</div>
+                                            <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.impic || '—'}</div>
+                                        </div>
+                                        <div className="sm:col-span-2 md:col-span-3 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Atividade Principal</div>
+                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.activity || '—'}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section 2: Contactos & Sede */}
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+                                        <MapPin size={14} className="text-primary" /> Contactos e Localização
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Email Geral</div>
+                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.email || '—'}</div>
+                                        </div>
+                                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Telefone Geral</div>
+                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.phone || '—'}</div>
+                                        </div>
+                                        <div className="sm:col-span-2 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                                            <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Sede / Morada Oficial</div>
+                                            <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.address || '—'}</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section 3: Seguros e Certidões Legais DL 273/2003 */}
+                                <div className="space-y-3">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+                                        <Shield size={14} className="text-primary" /> Seguros Obrigatórios & Certidões Não Dívida (DL 273/2003)
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-bold text-[var(--text)]">Seguro Acidentes de Trabalho</span>
+                                                {companyForm.insuranceWorkAccDate ? (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                        Válido
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
+                                                        Pendente
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] text-[var(--text-muted)]">
+                                                Apólice: <span className="font-mono text-[var(--text)]">{companyForm.insuranceWorkAccPolicy || 'Não indicada'}</span>
+                                            </div>
+                                            <div className="text-[11px] text-[var(--text-muted)]">
+                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.insuranceWorkAccDate ? new Date(companyForm.insuranceWorkAccDate).toLocaleDateString() : '—'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-bold text-[var(--text)]">Seguro Responsabilidade Civil</span>
+                                                {companyForm.insuranceCivilDate ? (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                        Válido
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
+                                                        Pendente
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] text-[var(--text-muted)]">
+                                                Apólice: <span className="font-mono text-[var(--text)]">{companyForm.insuranceCivilPolicy || 'Não indicada'}</span>
+                                            </div>
+                                            <div className="text-[11px] text-[var(--text-muted)]">
+                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.insuranceCivilDate ? new Date(companyForm.insuranceCivilDate).toLocaleDateString() : '—'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-bold text-[var(--text)]">Certidão Seg. Social</span>
+                                                {companyForm.cleanSSDate ? (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                        Válida
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
+                                                        Pendente
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] text-[var(--text-muted)]">
+                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.cleanSSDate ? new Date(companyForm.cleanSSDate).toLocaleDateString() : 'Não registada'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-1">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-bold text-[var(--text)]">Certidão Finanças</span>
+                                                {companyForm.cleanFinDate ? (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                        Válida
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200">
+                                                        Pendente
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] text-[var(--text-muted)]">
+                                                Validade: <span className="font-medium text-[var(--text)]">{companyForm.cleanFinDate ? new Date(companyForm.cleanFinDate).toLocaleDateString() : 'Não registada'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--border)]">
+                                    <SecondaryButton type="button" onClick={() => setIsCompanyModalOpen(false)}>
+                                        Fechar
+                                    </SecondaryButton>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCompanyModalMode('edit')}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-primary hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
+                                    >
+                                        <Edit2 size={14} /> Mudar para Modo de Edição
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <form onSubmit={(e) => { handleSaveCompany(e); setCompanyModalMode('view'); }} className="space-y-5 max-h-[75vh] overflow-y-auto pr-1">
+                                <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
+                                    <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
+                                        <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                                        <InputGroup label="Nome Oficial da Empresa *">
+                                            <input
+                                                type="text"
+                                                required
+                                                value={companyForm.name}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, name: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="NIF / NIPC *">
+                                            <input
+                                                type="text"
+                                                required
+                                                value={companyForm.nif}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, nif: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                placeholder="500000000"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Tipo de Empresa *">
+                                            <select
+                                                value={companyForm.companyRole}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, companyRole: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                {COMPANY_ROLE_GROUPS.map(group => (
+                                                    <optgroup key={group} label={group}>
+                                                        {COMPANY_ROLE_OPTIONS.filter(o => o.group === group).map(o => (
+                                                            <option key={o.value} value={o.value}>
+                                                                {o.label}
+                                                            </option>
+                                                        ))}
+                                                    </optgroup>
+                                                ))}
+                                            </select>
+                                        </InputGroup>
+                                        {companyForm.companyRole === 'outro' && (
+                                            <InputGroup label="Especificar Tipo de Empresa">
+                                                <input
+                                                    type="text"
+                                                    value={companyForm.companyRoleCustom}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, companyRoleCustom: e.target.value });
+                                                    }}
+                                                    placeholder="Ex: Empresa de Sinalização Rodoviária"
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                        )}
+                                        <InputGroup label="Natureza Jurídica">
+                                            <select
+                                                value={companyForm.legalForm}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="lda">Lda. (Sociedade por Quotas)</option>
+                                                <option value="unipessoal">Unipessoal Lda.</option>
+                                                <option value="sa">S.A. (Sociedade Anónima)</option>
+                                                <option value="eni">ENI (Empresário em Nome Individual)</option>
+                                                <option value="ace">ACE (Agrupamento Complementar de Empresas)</option>
+                                                <option value="other">Outra</option>
+                                            </select>
+                                        </InputGroup>
+                                        <InputGroup label="Estado Operacional">
+                                            <select
+                                                value={companyForm.status}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, status: e.target.value as any });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            >
+                                                <option value="active">Ativa / Em Laboração</option>
+                                                <option value="inactive">Inativa / Suspensa</option>
+                                            </select>
+                                        </InputGroup>
+                                        <InputGroup label="Código CAE Principal">
+                                            <input
+                                                type="text"
+                                                value={companyForm.caeCode}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, caeCode: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
+                                                placeholder="ex: 41200"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Atividade Principal">
+                                            <input
+                                                type="text"
+                                                value={companyForm.activity}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, activity: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: Construção Civil e Obras Públicas"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Alvará / Título IMPIC">
+                                            <input
+                                                type="text"
+                                                value={companyForm.impic}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, impic: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                placeholder="ex: IMPIC 12345"
+                                            />
+                                        </InputGroup>
+                                    </div>
+                                </div>
+
+                                <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
+                                    <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
+                                        <MapPin size={14} className="text-primary" /> Contactos e Sede
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <InputGroup label="Email Geral">
+                                            <input
+                                                type="email"
+                                                value={companyForm.email}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, email: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Telefone Geral">
+                                            <input
+                                                type="text"
+                                                value={companyForm.phone}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, phone: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <div className="sm:col-span-2">
+                                            <InputGroup label="Sede / Morada">
+                                                <input
+                                                    type="text"
+                                                    value={companyForm.address}
+                                                    onChange={e => {
+                                                        isFormEditedRef.current = true;
+                                                        setCompanyForm({ ...companyForm, address: e.target.value });
+                                                    }}
+                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                                />
+                                            </InputGroup>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
+                                    <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
+                                        <Shield size={14} className="text-primary" /> Seguros Obrigatórios & Certidões Legais
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <InputGroup label="Apólice Seguro Acidentes Trabalho">
+                                            <input
+                                                type="text"
+                                                value={companyForm.insuranceWorkAccPolicy}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Validade Seguro Acidentes Trabalho">
+                                            <input
+                                                type="date"
+                                                value={companyForm.insuranceWorkAccDate}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Apólice Seguro Resp. Civil">
+                                            <input
+                                                type="text"
+                                                value={companyForm.insuranceCivilPolicy}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Validade Seguro Resp. Civil">
+                                            <input
+                                                type="date"
+                                                value={companyForm.insuranceCivilDate}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Validade Certidão Não Dívida Seg. Social">
+                                            <input
+                                                type="date"
+                                                value={companyForm.cleanSSDate}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                        <InputGroup label="Validade Certidão Não Dívida Finanças">
+                                            <input
+                                                type="date"
+                                                value={companyForm.cleanFinDate}
+                                                onChange={e => {
+                                                    isFormEditedRef.current = true;
+                                                    setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
+                                                }}
+                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
+                                            />
+                                        </InputGroup>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2 pt-2">
+                                    <SecondaryButton type="button" onClick={() => setCompanyModalMode('view')}>
+                                        Cancelar / Voltar à Visualização
+                                    </SecondaryButton>
+                                    <PrimaryButton type="submit" className="py-2 px-5 text-xs font-bold">
+                                        Guardar Alterações
+                                    </PrimaryButton>
+                                </div>
+                            </form>
+                        )}
+                    </Modal>
+
+                    {/* Modal Sincronizar com Obra */}
+                    <Modal
+                        title={
+                            exportEntityType === 'company' ? "Sincronizar Empresa com Obra" :
+                            exportEntityType === 'worker' ? "Sincronizar Colaborador com Obra" :
+                            "Sincronizar Equipamento com Obra"
                         }
                         isOpen={isExportModalOpen}
                         onClose={() => setIsExportModalOpen(false)}
                     >
                         <form onSubmit={handlePerformExport} className="space-y-4">
-                            {activeProjects.length === 0 ? (
+                            {userProjects.length === 0 ? (
                                 <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-700 dark:text-amber-400 text-xs">
-                                    Não existem obras ativas registadas. Crie ou ative um projeto no Workplace para poder efetuar a compatibilização.
+                                    Não tem obras associadas na página "Os Meus Projetos". Crie ou junte-se a uma obra no Workplace para poder efetuar a sincronização.
                                 </div>
                             ) : (
                                 <>
@@ -1304,7 +1735,7 @@ export default function MyCompanyPage() {
                                             required
                                             className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
                                         >
-                                            {activeProjects.map(p => (
+                                            {userProjects.map(p => (
                                                 <option key={p.id} value={p.id}>
                                                     {p.name} {p.code ? `(${p.code})` : ''}
                                                 </option>
@@ -1410,7 +1841,7 @@ export default function MyCompanyPage() {
                                     <div className="text-[11px] text-[var(--text-muted)] flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
                                         <CheckCircle2 size={15} className="text-primary shrink-0 mt-0.5" />
                                         <span>
-                                            Os dados e perfis documentais serão inseridos no CDE da obra. Sempre que um documento for aprovado ou atualizado na obra, a sincronização é sugerida na conta corporativa.
+                                            Os dados e perfis documentais serão sincronizados com o CDE da obra. Sempre que um documento for aprovado ou atualizado na obra, a sincronização é sugerida na conta corporativa.
                                         </span>
                                     </div>
 
@@ -1419,7 +1850,7 @@ export default function MyCompanyPage() {
                                             Cancelar
                                         </SecondaryButton>
                                         <PrimaryButton type="submit" className="py-2 px-4 text-xs font-bold">
-                                            {exportEntityType === 'company' ? "Compatibilizar com Obra" : "Importar para Obra"}
+                                            Sincronizar com Obra
                                         </PrimaryButton>
                                     </div>
                                 </>
