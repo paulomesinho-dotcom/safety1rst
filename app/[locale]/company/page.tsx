@@ -13,9 +13,16 @@ import {
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
     LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
-    User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter
+    User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter,
+    FolderPlus, FolderCheck, FileSpreadsheet, HardDrive, RotateCw, History, Paperclip, ChevronDown
 } from 'lucide-react';
 import { CDESettingsModal } from '@/components/CDESettingsModal';
+import { 
+    initializeCompanyStructure, 
+    uploadToCDEFolder, 
+    COMPANY_STANDARD_FOLDERS, 
+    COMPANY_SPECIAL_SUBFOLDERS 
+} from '@/lib/cde-manager';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
     FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon 
@@ -34,7 +41,7 @@ import {
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
-import type { Worker, Equipment, Company, Project } from '@/types';
+import type { Worker, Equipment, Company, Project, Document } from '@/types';
 
 type CompanyTab = 'organization' | 'workers' | 'equipment' | 'training' | 'documents';
 
@@ -149,7 +156,12 @@ export default function MyCompanyPage() {
         addNotification,
         importCompanyToProject,
         importWorkerToProject,
-        importEquipmentToProject
+        importEquipmentToProject,
+        documents,
+        addDocument,
+        updateDocument,
+        deleteDocument,
+        unarchiveDocument
     } = useStore();
 
     const handleLogout = () => {
@@ -440,6 +452,587 @@ export default function MyCompanyPage() {
             return false;
         });
     }, [equipment, userAccount?.id, masterCompany?.id]);
+
+    // ════════ GESTÃO DOCUMENTAL & CDE CORPORATIVO ════════
+    const [companyCdeConfig, setCompanyCdeConfig] = useState<any>(null);
+    const [isLoadingCdeConfig, setIsLoadingCdeConfig] = useState(false);
+
+    const fetchCompanyCde = async () => {
+        const compId = masterCompany?.id || 'comp_master';
+        setIsLoadingCdeConfig(true);
+        try {
+            const res = await fetch(`/api/projects/${compId}/cde`);
+            if (res.ok) {
+                const data = await res.json();
+                setCompanyCdeConfig(data.cdeConfig || null);
+            }
+        } catch (e) {
+            console.error('Failed to fetch corporate CDE config:', e);
+        } finally {
+            setIsLoadingCdeConfig(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchCompanyCde();
+    }, [masterCompany?.id]);
+
+    // Folders & Document Navigation State
+    const [selectedFolderPath, setSelectedFolderPath] = useState<string>('01-Empresa');
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([
+        '01-Empresa', 
+        '02-Trabalhadores', 
+        '03-Equipamentos', 
+        '04-Formação e Qualificações', 
+        '05-Segurança e Saúde (SST)',
+        '06-Modelos e Minutas'
+    ]));
+    const [customFolders, setCustomFolders] = useState<string[]>([]);
+    const [folderSearchTerm, setFolderSearchTerm] = useState('');
+
+    const toggleFolderExpand = (folderPath: string) => {
+        setExpandedFolders(prev => {
+            const next = new Set(prev);
+            if (next.has(folderPath)) next.delete(folderPath);
+            else next.add(folderPath);
+            return next;
+        });
+    };
+
+    // Document Filters & Search
+    const [docSearchTerm, setDocSearchTerm] = useState('');
+    const [docStatusFilter, setDocStatusFilter] = useState<'all' | 'valid' | 'expiring' | 'expired' | 'permanent' | 'archived'>('all');
+
+    // Folder Initialization State & Result Modal
+    const [isInitializingFolders, setIsInitializingFolders] = useState(false);
+    const [initResultLogs, setInitResultLogs] = useState<string[]>([]);
+    const [isInitResultModalOpen, setIsInitResultModalOpen] = useState(false);
+
+    // New Folder Modal State
+    const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [newFolderParent, setNewFolderParent] = useState('01-Empresa');
+
+    // Upload / Place Document State
+    const [isUploadDocModalOpen, setIsUploadDocModalOpen] = useState(false);
+    const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+    const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
+    const [uploadDocForm, setUploadDocForm] = useState({
+        name: '',
+        entityType: 'company' as 'company' | 'worker' | 'equipment',
+        entityId: masterCompany?.id || 'comp_master',
+        category: 'insurance_work_accident',
+        folderPath: '01-Empresa/02-Seguros',
+        issueDate: '',
+        expiryDate: '',
+        hasNoExpiry: false,
+        documentCode: '',
+        isConfidential: false
+    });
+
+    const COMPANY_DOC_CATEGORIES = [
+        { value: 'insurance_work_accident', label: 'Seguro de Acidentes de Trabalho (Apólice e Recibo)', folder: '01-Empresa/02-Seguros' },
+        { value: 'insurance_civil_liability', label: 'Seguro de Responsabilidade Civil', folder: '01-Empresa/02-Seguros' },
+        { value: 'certidao_comercial', label: 'Certidão Comercial / Permanente', folder: '01-Empresa/01-Certidão Comercial' },
+        { value: 'non_debt_tax', label: 'Certidão Não Dívida AT (Finanças)', folder: '01-Empresa/03-Certidões Não Dívida (AT e SS)' },
+        { value: 'non_debt_ss', label: 'Certidão Não Dívida Segurança Social', folder: '01-Empresa/03-Certidões Não Dívida (AT e SS)' },
+        { value: 'alvara_impic', label: 'Alvará ou Título de Registo IMPIC', folder: '01-Empresa/04-Alvará e Título Registo' },
+        { value: 'medicina_trabalho', label: 'Relatório / Contrato Medicina no Trabalho', folder: '01-Empresa/05-Medicina no Trabalho' },
+        { value: 'folhas_remuneracao', label: 'Declaração Remunerações / DRI', folder: '01-Empresa/06-Folhas de Remunerações' },
+        { value: 'outros_empresa', label: 'Outro Documento Geral da Empresa', folder: '01-Empresa' },
+    ];
+
+    const WORKER_DOC_CATEGORIES = [
+        { value: 'medical_fitness', label: 'Ficha de Aptidão Médica (FAT)' },
+        { value: 'training_cert', label: 'Certificado de Formação / Qualificação' },
+        { value: 'identification', label: 'Documento Identificação (CC / Passaporte)' },
+        { value: 'work_contract', label: 'Contrato de Trabalho / Vínculo' },
+        { value: 'ppe_receipt', label: 'Ficha de Entrega de EPI Assinada' },
+        { value: 'outros_trabalhador', label: 'Outro Documento do Colaborador' },
+    ];
+
+    const EQUIP_DOC_CATEGORIES = [
+        { value: 'ce_declaration', label: 'Declaração de Conformidade CE' },
+        { value: 'inspection', label: 'Relatório de Inspeção Periódica / Termo Verificação' },
+        { value: 'instruction_manual', label: 'Manual de Instruções e Segurança' },
+        { value: 'maintenance', label: 'Ficha de Manutenção Preventiva/Corretiva' },
+        { value: 'equipment_insurance', label: 'Seguro de Máquinas / Equipamentos' },
+        { value: 'outros_equipamento', label: 'Outro Documento do Equipamento' },
+    ];
+
+    const companyWorkerIds = useMemo(() => companyWorkers.map(w => w.id), [companyWorkers]);
+    const companyEquipmentIds = useMemo(() => companyEquipment.map(e => e.id), [companyEquipment]);
+    const corporateCompanyId = masterCompany?.id;
+
+    // Filter documents relevant to corporate company, its workers, and its equipment
+    const corporateDocuments = useMemo(() => {
+        return documents.filter(doc => {
+            const belongsToAccount = Boolean(userAccount?.id && doc.accountId === userAccount.id);
+            const isOurCompany = doc.entityType === 'company' && (
+                !doc.entityId || 
+                doc.entityId === corporateCompanyId || 
+                doc.entityId === 'comp_master' ||
+                doc.entityId.startsWith('comp_')
+            );
+            const isOurWorker = doc.entityType === 'worker' && companyWorkerIds.includes(doc.entityId);
+            const isOurEquipment = doc.entityType === 'equipment' && companyEquipmentIds.includes(doc.entityId);
+
+            return belongsToAccount || isOurCompany || isOurWorker || isOurEquipment;
+        });
+    }, [documents, userAccount?.id, corporateCompanyId, companyWorkerIds, companyEquipmentIds]);
+
+    // Document compliance status calculation
+    const getDocumentStatusInfo = (doc: Document) => {
+        if (doc.archived) {
+            return {
+                status: 'archived' as const,
+                label: 'Arquivado',
+                badgeClass: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700',
+                daysRemaining: null
+            };
+        }
+        if (!doc.expiryDate) {
+            return {
+                status: 'permanent' as const,
+                label: 'Permanente',
+                badgeClass: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+                daysRemaining: null
+            };
+        }
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const exp = new Date(doc.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+            return {
+                status: 'expired' as const,
+                label: `Expirado (${Math.abs(diffDays)}d)`,
+                badgeClass: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300 border-red-200 dark:border-red-800',
+                daysRemaining: diffDays
+            };
+        }
+        if (diffDays <= 30) {
+            return {
+                status: 'expiring' as const,
+                label: `Expira em ${diffDays}d`,
+                badgeClass: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+                daysRemaining: diffDays
+            };
+        }
+        return {
+            status: 'valid' as const,
+            label: `Válido (${diffDays}d)`,
+            badgeClass: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+            daysRemaining: diffDays
+        };
+    };
+
+    // KPI Metrics calculation
+    const docKpiStats = useMemo(() => {
+        let total = 0;
+        let valid = 0;
+        let expiring = 0;
+        let expired = 0;
+        let permanent = 0;
+        let archived = 0;
+
+        corporateDocuments.forEach(doc => {
+            if (doc.archived) {
+                archived++;
+                return;
+            }
+            total++;
+            const status = getDocumentStatusInfo(doc).status;
+            if (status === 'valid') valid++;
+            else if (status === 'expiring') expiring++;
+            else if (status === 'expired') expired++;
+            else if (status === 'permanent') permanent++;
+        });
+
+        return { total, valid, expiring, expired, permanent, archived };
+    }, [corporateDocuments]);
+
+    // Build complete folder hierarchy for the corporate space
+    const allCompanyFolders = useMemo(() => {
+        const folders: { path: string; name: string; parent: string | null }[] = [];
+
+        // Standard Top Level Folders
+        COMPANY_STANDARD_FOLDERS.forEach(top => {
+            folders.push({ path: top, name: top, parent: null });
+
+            // Special Subfolders
+            if (COMPANY_SPECIAL_SUBFOLDERS[top]) {
+                COMPANY_SPECIAL_SUBFOLDERS[top].forEach(sub => {
+                    folders.push({ path: `${top}/${sub}`, name: sub, parent: top });
+                });
+            }
+        });
+
+        // Individual Worker Folders
+        companyWorkers.forEach(w => {
+            const idTag = w.idCardNumber || w.nif || w.id.slice(0, 8);
+            const folderName = `${idTag}-${w.name.trim()}`;
+            const fullPath = `02-Trabalhadores/${folderName}`;
+            folders.push({ path: fullPath, name: folderName, parent: '02-Trabalhadores' });
+            folders.push({ path: `${fullPath}/Arquivo`, name: 'Arquivo', parent: fullPath });
+        });
+
+        // Individual Equipment Folders
+        companyEquipment.forEach(eq => {
+            const idTag = (eq as any).licensePlate || eq.serialNumber || eq.id.slice(0, 8);
+            const folderName = `${idTag}-${eq.name.trim()}`;
+            const fullPath = `03-Equipamentos/${folderName}`;
+            folders.push({ path: fullPath, name: folderName, parent: '03-Equipamentos' });
+            folders.push({ path: `${fullPath}/Arquivo`, name: 'Arquivo', parent: fullPath });
+        });
+
+        // Custom Folders added by user
+        customFolders.forEach(cf => {
+            const parts = cf.split('/');
+            const name = parts[parts.length - 1];
+            const parent = parts.length > 1 ? parts.slice(0, -1).join('/') : null;
+            if (!folders.some(f => f.path === cf)) {
+                folders.push({ path: cf, name, parent });
+            }
+        });
+
+        return folders;
+    }, [companyWorkers, companyEquipment, customFolders]);
+
+    // Filter documents by selected folder, status, and search query
+    const filteredDocuments = useMemo(() => {
+        return corporateDocuments.filter(doc => {
+            // Status filter
+            const info = getDocumentStatusInfo(doc);
+            if (docStatusFilter === 'archived') {
+                if (!doc.archived) return false;
+            } else {
+                if (doc.archived) return false;
+                if (docStatusFilter !== 'all' && info.status !== docStatusFilter) return false;
+            }
+
+            // Folder path filter
+            if (selectedFolderPath && selectedFolderPath !== 'all') {
+                const docFolder = doc.folderPath || '';
+                const matchesFolder = docFolder === selectedFolderPath || docFolder.startsWith(`${selectedFolderPath}/`);
+                if (!matchesFolder) return false;
+            }
+
+            // Search filter
+            if (docSearchTerm.trim()) {
+                const q = docSearchTerm.toLowerCase();
+                const matchesName = (doc.name || '').toLowerCase().includes(q);
+                const matchesCode = (doc.documentCode || '').toLowerCase().includes(q);
+                const matchesCat = (doc.category || '').toLowerCase().includes(q);
+                if (!matchesName && !matchesCode && !matchesCat) return false;
+            }
+
+            return true;
+        });
+    }, [corporateDocuments, docStatusFilter, selectedFolderPath, docSearchTerm]);
+
+    // Document counts per folder for tree badges
+    const folderDocCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        corporateDocuments.forEach(doc => {
+            if (doc.archived) return;
+            const fp = doc.folderPath || '01-Empresa';
+            counts[fp] = (counts[fp] || 0) + 1;
+            // Also count in parent folder
+            const parts = fp.split('/');
+            if (parts.length > 1) {
+                const top = parts[0];
+                counts[top] = (counts[top] || 0) + 1;
+            }
+        });
+        return counts;
+    }, [corporateDocuments]);
+
+    // Auto-update folder path when entity or category changes in modal
+    const handleUploadEntityTypeChange = (type: 'company' | 'worker' | 'equipment') => {
+        let defaultId = '';
+        let defaultFolder = '01-Empresa/02-Seguros';
+        let defaultCat = 'insurance_work_accident';
+
+        if (type === 'company') {
+            defaultId = masterCompany?.id || 'comp_master';
+            defaultFolder = '01-Empresa/02-Seguros';
+            defaultCat = 'insurance_work_accident';
+        } else if (type === 'worker') {
+            defaultId = companyWorkers[0]?.id || '';
+            const w = companyWorkers[0];
+            const idTag = w ? (w.idCardNumber || w.nif || w.id.slice(0, 8)) : '';
+            defaultFolder = w ? `02-Trabalhadores/${idTag}-${w.name.trim()}` : '02-Trabalhadores';
+            defaultCat = 'medical_fitness';
+        } else if (type === 'equipment') {
+            defaultId = companyEquipment[0]?.id || '';
+            const eq = companyEquipment[0];
+            const idTag = eq ? ((eq as any).licensePlate || eq.serialNumber || eq.id.slice(0, 8)) : '';
+            defaultFolder = eq ? `03-Equipamentos/${idTag}-${eq.name.trim()}` : '03-Equipamentos';
+            defaultCat = 'ce_declaration';
+        }
+
+        setUploadDocForm(prev => ({
+            ...prev,
+            entityType: type,
+            entityId: defaultId,
+            category: defaultCat,
+            folderPath: defaultFolder
+        }));
+    };
+
+    const handleUploadWorkerChange = (workerId: string) => {
+        const w = companyWorkers.find(x => x.id === workerId);
+        if (w) {
+            const idTag = w.idCardNumber || w.nif || w.id.slice(0, 8);
+            const folder = `02-Trabalhadores/${idTag}-${w.name.trim()}`;
+            setUploadDocForm(prev => ({ ...prev, entityId: workerId, folderPath: folder }));
+        } else {
+            setUploadDocForm(prev => ({ ...prev, entityId: workerId }));
+        }
+    };
+
+    const handleUploadEquipChange = (equipId: string) => {
+        const eq = companyEquipment.find(x => x.id === equipId);
+        if (eq) {
+            const idTag = (eq as any).licensePlate || eq.serialNumber || eq.id.slice(0, 8);
+            const folder = `03-Equipamentos/${idTag}-${eq.name.trim()}`;
+            setUploadDocForm(prev => ({ ...prev, entityId: equipId, folderPath: folder }));
+        } else {
+            setUploadDocForm(prev => ({ ...prev, entityId: equipId }));
+        }
+    };
+
+    const handleUploadCategoryChange = (category: string) => {
+        let suggestedFolder = uploadDocForm.folderPath;
+        if (uploadDocForm.entityType === 'company') {
+            if (category === 'certidao_comercial') suggestedFolder = '01-Empresa/01-Certidão Comercial';
+            else if (category === 'insurance_work_accident' || category === 'insurance_civil_liability') suggestedFolder = '01-Empresa/02-Seguros';
+            else if (category === 'non_debt_tax' || category === 'non_debt_ss') suggestedFolder = '01-Empresa/03-Certidões Não Dívida (AT e SS)';
+            else if (category === 'alvara_impic') suggestedFolder = '01-Empresa/04-Alvará e Título Registo';
+            else if (category === 'medicina_trabalho') suggestedFolder = '01-Empresa/05-Medicina no Trabalho';
+            else if (category === 'folhas_remuneracao') suggestedFolder = '01-Empresa/06-Folhas de Remunerações';
+            else suggestedFolder = '01-Empresa';
+        }
+        setUploadDocForm(prev => ({ ...prev, category, folderPath: suggestedFolder }));
+    };
+
+    // Create Company Standard Folder Structure
+    const handleInitializeCompanyFolders = async () => {
+        setIsInitializingFolders(true);
+        try {
+            const config = companyCdeConfig || {
+                provider: 'local',
+                connected: false,
+                folderPath: 'SafeSite_Empresa'
+            };
+
+            const companyInfo = {
+                name: companyForm.name || 'Empresa',
+                nif: companyForm.nif
+            };
+
+            if (config.connected) {
+                const logs = await initializeCompanyStructure(
+                    config,
+                    companyInfo,
+                    companyWorkers.map(w => ({ id: w.id, name: w.name, nif: w.nif, idNumber: w.idCardNumber })),
+                    companyEquipment.map(e => ({ id: e.id, name: e.name, licensePlate: (e as any).licensePlate, serialNumber: e.serialNumber })),
+                    () => {}
+                );
+                setInitResultLogs(logs);
+            } else {
+                const mockLogs: string[] = [];
+                mockLogs.push('Estrutura Documental Local Normalizada criada com sucesso:');
+                COMPANY_STANDARD_FOLDERS.forEach(top => {
+                    mockLogs.push(`Criada pasta: ${top}`);
+                    if (COMPANY_SPECIAL_SUBFOLDERS[top]) {
+                        COMPANY_SPECIAL_SUBFOLDERS[top].forEach(sub => mockLogs.push(`  └─ ${sub}`));
+                    }
+                });
+                mockLogs.push(`Colaboradores da Empresa: ${companyWorkers.length} pastas individuais registadas`);
+                mockLogs.push(`Equipamentos da Empresa: ${companyEquipment.length} pastas individuais registadas`);
+                mockLogs.push('Nota: Para sincronização automática com a Cloud (Google Drive, Dropbox, SharePoint), configure o CDE no botão "Definições CDE".');
+                setInitResultLogs(mockLogs);
+            }
+
+            setIsInitResultModalOpen(true);
+            addNotification('success', 'Estrutura documental normalizada da empresa criada com sucesso!');
+        } catch (err: any) {
+            console.error('Erro ao inicializar pastas da empresa:', err);
+            addNotification('error', `Falha ao criar pastas: ${err.message || 'Erro desconhecido'}`);
+        } finally {
+            setIsInitializingFolders(false);
+        }
+    };
+
+    // Upload / Place Document Handler
+    const handleUploadDocumentSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!uploadDocFile && !uploadDocForm.name) {
+            addNotification('error', 'Por favor selecione um ficheiro ou indique o nome do documento.');
+            return;
+        }
+
+        setIsUploadingDoc(true);
+        try {
+            const finalDocName = uploadDocForm.name.trim() || (uploadDocFile ? uploadDocFile.name : 'Documento');
+            let cdeFileId: string | undefined;
+            let cdeUrl: string | undefined;
+
+            // Upload to Cloud CDE if connected and file is selected
+            if (uploadDocFile && companyCdeConfig?.connected && companyCdeConfig.accessToken) {
+                try {
+                    const uploadRes = await uploadToCDEFolder(
+                        companyCdeConfig,
+                        uploadDocForm.folderPath,
+                        uploadDocFile
+                    );
+                    cdeFileId = uploadRes.id;
+                    cdeUrl = uploadRes.webViewLink;
+                } catch (uploadErr: any) {
+                    console.warn('Aviso: Falha ao enviar para o CDE Cloud, armazenando localmente:', uploadErr);
+                    addNotification('warning', `Upload Cloud pendente: ${uploadErr.message}. O documento foi registado localmente.`);
+                }
+            }
+
+            const entityId = uploadDocForm.entityType === 'company' 
+                ? (masterCompany?.id || 'comp_master')
+                : uploadDocForm.entityId;
+
+            if (!entityId) {
+                addNotification('error', 'Entidade de destino não selecionada.');
+                setIsUploadingDoc(false);
+                return;
+            }
+
+            // Add Document in Store
+            addDocument({
+                name: finalDocName,
+                size: uploadDocFile ? uploadDocFile.size : 0,
+                type: uploadDocFile ? uploadDocFile.type : 'application/pdf',
+                url: cdeUrl,
+                cdeFileId: cdeFileId,
+                entityId: entityId,
+                entityType: uploadDocForm.entityType,
+                documentCode: uploadDocForm.documentCode.trim() || undefined,
+                folderPath: uploadDocForm.folderPath,
+                issueDate: uploadDocForm.issueDate || undefined,
+                expiryDate: uploadDocForm.hasNoExpiry ? undefined : (uploadDocForm.expiryDate || undefined),
+                isConfidential: uploadDocForm.isConfidential,
+                category: uploadDocForm.category,
+                provider: companyCdeConfig?.connected ? (companyCdeConfig.provider || 'local') : 'local',
+                status: cdeFileId ? 'synced' : 'pending',
+                approvalStatus: 'published',
+                accountId: userAccount?.id || 'default'
+            } as any);
+
+            // Synchronize with Entity Profile dates
+            const expiry = uploadDocForm.hasNoExpiry ? undefined : uploadDocForm.expiryDate;
+            const code = uploadDocForm.documentCode.trim();
+
+            if (uploadDocForm.entityType === 'company') {
+                const compUpdates: Partial<Company> = {};
+                if (uploadDocForm.category === 'insurance_work_accident') {
+                    if (expiry) compUpdates.insuranceWorkAccDate = expiry;
+                    if (code) compUpdates.insuranceWorkAccPolicy = code;
+                    setCompanyForm(prev => ({
+                        ...prev,
+                        insuranceWorkAccDate: expiry || prev.insuranceWorkAccDate,
+                        insuranceWorkAccPolicy: code || prev.insuranceWorkAccPolicy
+                    }));
+                } else if (uploadDocForm.category === 'insurance_civil_liability') {
+                    if (expiry) compUpdates.insuranceCivilDate = expiry;
+                    if (code) compUpdates.insuranceCivilPolicy = code;
+                    setCompanyForm(prev => ({
+                        ...prev,
+                        insuranceCivilDate: expiry || prev.insuranceCivilDate,
+                        insuranceCivilPolicy: code || prev.insuranceCivilPolicy
+                    }));
+                } else if (uploadDocForm.category === 'non_debt_tax') {
+                    if (expiry) compUpdates.cleanFinDate = expiry;
+                    setCompanyForm(prev => ({ ...prev, cleanFinDate: expiry || prev.cleanFinDate }));
+                } else if (uploadDocForm.category === 'non_debt_ss') {
+                    if (expiry) compUpdates.cleanSSDate = expiry;
+                    setCompanyForm(prev => ({ ...prev, cleanSSDate: expiry || prev.cleanSSDate }));
+                } else if (uploadDocForm.category === 'alvara_impic') {
+                    if (code) compUpdates.impic = code;
+                    setCompanyForm(prev => ({ ...prev, impic: code || prev.impic }));
+                }
+
+                if (masterCompany?.id && Object.keys(compUpdates).length > 0) {
+                    updateCompany(masterCompany.id, compUpdates);
+                }
+            } else if (uploadDocForm.entityType === 'worker') {
+                const wId = uploadDocForm.entityId;
+                const workerUpdates: Partial<Worker> = {};
+                if (uploadDocForm.category === 'medical_fitness') {
+                    if (expiry) workerUpdates.medicalExpiry = expiry;
+                    workerUpdates.medicalFitness = 'apto';
+                } else if (uploadDocForm.category === 'work_contract') {
+                    if (expiry) workerUpdates.contractExpiry = expiry;
+                } else if (uploadDocForm.category === 'identification') {
+                    if (expiry) workerUpdates.idCardExpiry = expiry;
+                } else if (uploadDocForm.category === 'ppe_receipt') {
+                    if (uploadDocForm.issueDate) workerUpdates.epiDate = uploadDocForm.issueDate;
+                }
+
+                if (Object.keys(workerUpdates).length > 0) {
+                    updateWorker(wId, workerUpdates);
+                }
+            } else if (uploadDocForm.entityType === 'equipment') {
+                const eqId = uploadDocForm.entityId;
+                const eqUpdates: Partial<Equipment> = {};
+                if (uploadDocForm.category === 'ce_declaration') {
+                    eqUpdates.ceMarking = true;
+                } else if (uploadDocForm.category === 'inspection') {
+                    if (expiry) eqUpdates.inspectionDueDate = expiry;
+                }
+
+                if (Object.keys(eqUpdates).length > 0) {
+                    updateEquipment(eqId, eqUpdates);
+                }
+            }
+
+            addNotification('success', `Documento "${finalDocName}" adicionado com sucesso e perfil atualizado!`);
+            setIsUploadDocModalOpen(false);
+            setUploadDocFile(null);
+            setUploadDocForm(prev => ({
+                ...prev,
+                name: '',
+                documentCode: '',
+                issueDate: '',
+                expiryDate: '',
+                hasNoExpiry: false
+            }));
+        } catch (err: any) {
+            console.error('Erro ao colocar documento:', err);
+            addNotification('error', `Falha ao registar documento: ${err.message || 'Erro inesperado'}`);
+        } finally {
+            setIsUploadingDoc(false);
+        }
+    };
+
+    // Create New Custom Subfolder
+    const handleCreateNewFolder = (e: React.FormEvent) => {
+        e.preventDefault();
+        const cleanName = newFolderName.trim();
+        if (!cleanName) return;
+
+        const fullPath = newFolderParent ? `${newFolderParent}/${cleanName}` : cleanName;
+        if (customFolders.includes(fullPath) || allCompanyFolders.some(f => f.path === fullPath)) {
+            addNotification('warning', 'Esta pasta já existe.');
+            return;
+        }
+
+        setCustomFolders(prev => [...prev, fullPath]);
+        setSelectedFolderPath(fullPath);
+        setIsNewFolderModalOpen(false);
+        setNewFolderName('');
+        addNotification('success', `Pasta "${cleanName}" criada com sucesso.`);
+    };
 
     // Search & Filter
     const [searchTerm, setSearchTerm] = useState('');
@@ -874,7 +1467,7 @@ export default function MyCompanyPage() {
                                     { id: 'workers', label: 'Pessoas', icon: FlatWorkersIcon, badge: companyWorkers.length },
                                     { id: 'equipment', label: 'Equipamentos', icon: FlatEquipmentIcon, badge: companyEquipment.length },
                                     { id: 'training', label: 'Formação', icon: FlatTrainingIcon },
-                                    { id: 'documents', label: 'Documentos', icon: FlatDocumentsIcon },
+                                    { id: 'documents', label: 'Documentos', icon: FlatDocumentsIcon, badge: corporateDocuments.length },
                                 ].map((item) => {
                                     const IconComponent = item.icon;
                                     const isActive = activeTab === item.id;
@@ -1722,23 +2315,599 @@ export default function MyCompanyPage() {
 
                             {/* ════════ TAB: DOCUMENTOS ════════ */}
                             {activeTab === 'documents' && (
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 shadow-sm space-y-4">
-                                    <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
-                                        <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2">
-                                            <Folder size={16} className="text-primary" /> Repositório e Ficheiros da Empresa
-                                        </h3>
-                                    </div>
-                                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                                        Consulte e mantenha atualizados os documentos gerais da sua empresa (Certidão Comercial, Apólices de Seguros, Fichas de Aptidão e Declarações).
-                                    </p>
-                                    <div className="p-8 border border-dashed border-[var(--border)] rounded-2xl text-center space-y-3">
-                                        <div className="w-12 h-12 mx-auto rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                                            <Folder size={24} />
+                                <div className="space-y-6">
+                                    {/* Top Control Bar */}
+                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                        <div>
+                                            <h2 className="text-base font-bold text-[var(--text)] flex items-center gap-2">
+                                                <Folder className="text-primary" size={20} />
+                                                Gestão Documental & Repositório da Empresa
+                                            </h2>
+                                            <p className="text-xs text-[var(--text-muted)] mt-1">
+                                                Estrutura normalizada de pastas, controlo de validades legais (Seguros, FAT, Não Dívida, CE) e arquivo digital ISO 19650.
+                                            </p>
                                         </div>
-                                        <div className="text-xs font-bold text-[var(--text)]">Documentos da Conta Prontos para Sincronização</div>
-                                        <p className="text-[11px] text-[var(--text-muted)] max-w-sm mx-auto">
-                                            Os documentos registados neste espaço da empresa ficam disponíveis para envio e compatibilização direta em qualquer obra em que a sua empresa ingresse.
-                                        </p>
+
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            {/* Button: Criar Pastas Tipo */}
+                                            <button
+                                                type="button"
+                                                onClick={handleInitializeCompanyFolders}
+                                                disabled={isInitializingFolders}
+                                                className="py-2 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all cursor-pointer disabled:opacity-60"
+                                                title="Criar estrutura normalizada de pastas para a Empresa, Trabalhadores e Equipamentos"
+                                            >
+                                                {isInitializingFolders ? (
+                                                    <RotateCw size={14} className="animate-spin" />
+                                                ) : (
+                                                    <FolderCheck size={15} />
+                                                )}
+                                                <span>Criar Pastas Tipo da Empresa</span>
+                                            </button>
+
+                                            {/* Button: Colocar Documento */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    handleUploadEntityTypeChange('company');
+                                                    setIsUploadDocModalOpen(true);
+                                                }}
+                                                className="py-2 px-3.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                                            >
+                                                <Plus size={15} />
+                                                <span>Colocar Documento</span>
+                                            </button>
+
+                                            {/* Button: Nova Pasta */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setNewFolderParent(selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath);
+                                                    setIsNewFolderModalOpen(true);
+                                                }}
+                                                className="py-2 px-3 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/50 hover:bg-[var(--bg-input)] text-xs font-medium text-[var(--text)] flex items-center gap-1.5 transition-all cursor-pointer"
+                                                title="Criar nova subpasta"
+                                            >
+                                                <FolderPlus size={14} />
+                                                <span>Nova Pasta</span>
+                                            </button>
+
+                                            {/* Button: Definições CDE */}
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCdeModalOpen(true)}
+                                                className="py-2 px-3 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/50 hover:bg-[var(--bg-input)] text-xs font-medium text-[var(--text)] flex items-center gap-1.5 transition-all cursor-pointer"
+                                                title="Configurar ligação ao Google Drive, Dropbox, SharePoint ou Servidor Próprio"
+                                            >
+                                                <Cloud size={14} className={companyCdeConfig?.connected ? "text-emerald-500" : "text-amber-500"} />
+                                                <span>CDE: {companyCdeConfig?.connected ? (companyCdeConfig.provider?.toUpperCase() || 'Cloud') : 'Local'}</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* KPI Summary Row */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                                        <div 
+                                            onClick={() => setDocStatusFilter('all')}
+                                            className={cn(
+                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-primary/50 shadow-sm",
+                                                docStatusFilter === 'all' ? "border-primary ring-1 ring-primary/20" : "border-[var(--border)]"
+                                            )}
+                                        >
+                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
+                                                <span>Total Documentos</span>
+                                                <FileText size={14} className="text-primary" />
+                                            </div>
+                                            <div className="text-xl font-black text-[var(--text)] mt-1">{docKpiStats.total}</div>
+                                            <div className="text-[10px] text-[var(--text-muted)] mt-0.5">Catálogo corporativo</div>
+                                        </div>
+
+                                        <div 
+                                            onClick={() => setDocStatusFilter('valid')}
+                                            className={cn(
+                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-emerald-500/50 shadow-sm",
+                                                docStatusFilter === 'valid' ? "border-emerald-500 ring-1 ring-emerald-500/20" : "border-[var(--border)]"
+                                            )}
+                                        >
+                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
+                                                <span>Válidos</span>
+                                                <CheckCircle2 size={14} className="text-emerald-500" />
+                                            </div>
+                                            <div className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{docKpiStats.valid}</div>
+                                            <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Conformidade assegurada</div>
+                                        </div>
+
+                                        <div 
+                                            onClick={() => setDocStatusFilter('expiring')}
+                                            className={cn(
+                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-amber-500/50 shadow-sm",
+                                                docStatusFilter === 'expiring' ? "border-amber-500 ring-1 ring-amber-500/20" : "border-[var(--border)]"
+                                            )}
+                                        >
+                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
+                                                <span>A Expirar (&le; 30d)</span>
+                                                <Clock size={14} className="text-amber-500" />
+                                            </div>
+                                            <div className="text-xl font-black text-amber-600 dark:text-amber-400 mt-1">{docKpiStats.expiring}</div>
+                                            <div className="text-[10px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">Renovação necessária</div>
+                                        </div>
+
+                                        <div 
+                                            onClick={() => setDocStatusFilter('expired')}
+                                            className={cn(
+                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-red-500/50 shadow-sm",
+                                                docStatusFilter === 'expired' ? "border-red-500 ring-1 ring-red-500/20" : "border-[var(--border)]"
+                                            )}
+                                        >
+                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
+                                                <span>Expirados</span>
+                                                <AlertTriangle size={14} className="text-red-500" />
+                                            </div>
+                                            <div className="text-xl font-black text-red-600 dark:text-red-400 mt-1">{docKpiStats.expired}</div>
+                                            <div className="text-[10px] text-red-600/80 dark:text-red-400/80 mt-0.5">Não conformes</div>
+                                        </div>
+
+                                        <div 
+                                            onClick={() => setDocStatusFilter('permanent')}
+                                            className={cn(
+                                                "p-3.5 rounded-xl border bg-[var(--bg-card)] transition-all cursor-pointer hover:border-blue-500/50 shadow-sm",
+                                                docStatusFilter === 'permanent' ? "border-blue-500 ring-1 ring-blue-500/20" : "border-[var(--border)]"
+                                            )}
+                                        >
+                                            <div className="text-[11px] font-medium text-[var(--text-muted)] flex items-center justify-between">
+                                                <span>Permanentes</span>
+                                                <Shield size={14} className="text-blue-500" />
+                                            </div>
+                                            <div className="text-xl font-black text-blue-600 dark:text-blue-400 mt-1">{docKpiStats.permanent}</div>
+                                            <div className="text-[10px] text-blue-600/80 dark:text-blue-400/80 mt-0.5">Sem termo de validade</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Main Two-Pane Split Layout */}
+                                    <div className="flex flex-col lg:flex-row gap-5 items-start">
+                                        {/* ═══ LEFT PANE: Folder Tree ═══ */}
+                                        <div className="w-full lg:w-72 xl:w-80 shrink-0 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-4 shadow-sm space-y-3">
+                                            <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
+                                                <div className="flex items-center gap-2">
+                                                    <Folder size={16} className="text-primary" />
+                                                    <span className="font-bold text-xs text-[var(--text)]">Estrutura de Pastas</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedFolderPath('all')}
+                                                    className={cn(
+                                                        "text-[10px] font-semibold px-2 py-0.5 rounded transition-all cursor-pointer",
+                                                        selectedFolderPath === 'all' 
+                                                            ? "bg-primary text-white" 
+                                                            : "text-[var(--text-muted)] hover:text-[var(--text)] bg-[var(--bg-input)]"
+                                                    )}
+                                                >
+                                                    Ver Todas ({corporateDocuments.length})
+                                                </button>
+                                            </div>
+
+                                            {/* Folder search input */}
+                                            <div className="relative">
+                                                <Search size={13} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
+                                                <input
+                                                    type="text"
+                                                    value={folderSearchTerm}
+                                                    onChange={e => setFolderSearchTerm(e.target.value)}
+                                                    placeholder="Filtrar pastas..."
+                                                    className="w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary"
+                                                />
+                                            </div>
+
+                                            {/* Tree listing */}
+                                            <div className="space-y-1 max-h-[580px] overflow-y-auto pr-1">
+                                                {COMPANY_STANDARD_FOLDERS.map(topFolder => {
+                                                    const subfolders = allCompanyFolders.filter(f => f.parent === topFolder);
+                                                    const isExpanded = expandedFolders.has(topFolder);
+                                                    const isSelected = selectedFolderPath === topFolder;
+                                                    const docCount = folderDocCounts[topFolder] || 0;
+
+                                                    // Filter matches
+                                                    if (folderSearchTerm.trim()) {
+                                                        const q = folderSearchTerm.toLowerCase();
+                                                        const matchesTop = topFolder.toLowerCase().includes(q);
+                                                        const matchesSub = subfolders.some(s => s.name.toLowerCase().includes(q));
+                                                        if (!matchesTop && !matchesSub) return null;
+                                                    }
+
+                                                    return (
+                                                        <div key={topFolder} className="space-y-0.5">
+                                                            {/* Top Level Item */}
+                                                            <div 
+                                                                className={cn(
+                                                                    "flex items-center justify-between py-1.5 px-2 rounded-lg text-xs cursor-pointer transition-colors group",
+                                                                    isSelected 
+                                                                        ? "bg-primary/10 text-primary font-bold border border-primary/20" 
+                                                                        : "hover:bg-[var(--bg-input)] text-[var(--text)]"
+                                                                )}
+                                                            >
+                                                                <div 
+                                                                    className="flex items-center gap-1.5 min-w-0 flex-1"
+                                                                    onClick={() => setSelectedFolderPath(topFolder)}
+                                                                >
+                                                                    <Folder size={14} className={isSelected ? "text-primary" : "text-[var(--text-muted)]"} />
+                                                                    <span className="truncate">{topFolder}</span>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    {docCount > 0 && (
+                                                                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] font-mono">
+                                                                            {docCount}
+                                                                        </span>
+                                                                    )}
+                                                                    {subfolders.length > 0 && (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                toggleFolderExpand(topFolder);
+                                                                            }}
+                                                                            className="p-1 hover:bg-[var(--border)] rounded text-[var(--text-muted)] cursor-pointer"
+                                                                        >
+                                                                            <ChevronDown 
+                                                                                size={12} 
+                                                                                className={cn("transition-transform duration-200", !isExpanded && "-rotate-90")} 
+                                                                            />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Subfolders */}
+                                                            {isExpanded && subfolders.length > 0 && (
+                                                                <div className="pl-4 border-l border-[var(--border)]/70 ml-2 space-y-0.5">
+                                                                    {subfolders.map(sub => {
+                                                                        if (folderSearchTerm.trim()) {
+                                                                            const q = folderSearchTerm.toLowerCase();
+                                                                            if (!sub.name.toLowerCase().includes(q)) return null;
+                                                                        }
+                                                                        const isSubSelected = selectedFolderPath === sub.path;
+                                                                        const subCount = folderDocCounts[sub.path] || 0;
+
+                                                                        return (
+                                                                            <div
+                                                                                key={sub.path}
+                                                                                onClick={() => setSelectedFolderPath(sub.path)}
+                                                                                className={cn(
+                                                                                    "flex items-center justify-between py-1 px-2 rounded-md text-[11px] cursor-pointer transition-colors",
+                                                                                    isSubSelected 
+                                                                                        ? "bg-primary text-white font-semibold" 
+                                                                                        : "hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                                                )}
+                                                                            >
+                                                                                <div className="flex items-center gap-1.5 truncate">
+                                                                                    <span className="text-[9px]">📁</span>
+                                                                                    <span className="truncate">{sub.name}</span>
+                                                                                </div>
+                                                                                {subCount > 0 && (
+                                                                                    <span className={cn(
+                                                                                        "text-[9px] px-1.5 py-0.2 rounded-full font-mono",
+                                                                                        isSubSelected ? "bg-white/20 text-white" : "bg-[var(--bg-input)] text-[var(--text-muted)]"
+                                                                                    )}>
+                                                                                        {subCount}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+
+                                                {/* Custom User Folders */}
+                                                {customFolders.length > 0 && (
+                                                    <div className="pt-2 border-t border-[var(--border)]">
+                                                        <div className="text-[10px] font-bold text-[var(--text-muted)] px-2 mb-1 uppercase tracking-wider">
+                                                            Pastas Personalizadas
+                                                        </div>
+                                                        {customFolders.map(cf => (
+                                                            <div
+                                                                key={cf}
+                                                                onClick={() => setSelectedFolderPath(cf)}
+                                                                className={cn(
+                                                                    "flex items-center justify-between py-1 px-2 rounded-md text-[11px] cursor-pointer transition-colors",
+                                                                    selectedFolderPath === cf ? "bg-primary text-white font-semibold" : "hover:bg-[var(--bg-input)] text-[var(--text-muted)]"
+                                                                )}
+                                                            >
+                                                                <span className="truncate">📁 {cf}</span>
+                                                                {(folderDocCounts[cf] || 0) > 0 && (
+                                                                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-[var(--bg-input)]">
+                                                                        {folderDocCounts[cf]}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setNewFolderParent(selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath);
+                                                    setIsNewFolderModalOpen(true);
+                                                }}
+                                                className="w-full py-1.5 rounded-lg border border-dashed border-[var(--border)] hover:border-primary/50 text-[11px] text-[var(--text-muted)] hover:text-primary flex items-center justify-center gap-1 transition-all cursor-pointer"
+                                            >
+                                                <Plus size={12} />
+                                                <span>Nova Subpasta</span>
+                                            </button>
+                                        </div>
+
+                                        {/* ═══ RIGHT PANE: Documents Compliance & Files ═══ */}
+                                        <div className="flex-1 min-w-0 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-4">
+                                            {/* Folder header & breadcrumb */}
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border)]">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <span className="text-base font-bold text-[var(--text)] flex items-center gap-1.5 truncate">
+                                                        <Folder size={17} className="text-primary shrink-0" />
+                                                        {selectedFolderPath === 'all' ? 'Todos os Documentos' : selectedFolderPath}
+                                                    </span>
+                                                    <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-input)] text-[var(--text-muted)] font-mono shrink-0">
+                                                        {filteredDocuments.length} ficheiro(s)
+                                                    </span>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        handleUploadEntityTypeChange(
+                                                            selectedFolderPath.startsWith('02-Trabalhadores') ? 'worker' :
+                                                            selectedFolderPath.startsWith('03-Equipamentos') ? 'equipment' : 'company'
+                                                        );
+                                                        setUploadDocForm(prev => ({
+                                                            ...prev,
+                                                            folderPath: selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath
+                                                        }));
+                                                        setIsUploadDocModalOpen(true);
+                                                    }}
+                                                    className="py-1.5 px-3 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start sm:self-auto shrink-0"
+                                                >
+                                                    <Plus size={14} />
+                                                    <span>Colocar Ficheiro nesta Pasta</span>
+                                                </button>
+                                            </div>
+
+                                            {/* Search & Status Filters */}
+                                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                                                <div className="relative flex-1">
+                                                    <Search size={14} className="absolute left-3 top-3 text-[var(--text-muted)]" />
+                                                    <input
+                                                        type="text"
+                                                        value={docSearchTerm}
+                                                        onChange={e => setDocSearchTerm(e.target.value)}
+                                                        placeholder="Pesquisar por nome, código de apólice ou categoria..."
+                                                        className="w-full text-xs pl-9 pr-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary"
+                                                    />
+                                                </div>
+
+                                                <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                                                    {[
+                                                        { key: 'all', label: 'Todos' },
+                                                        { key: 'valid', label: 'Válidos' },
+                                                        { key: 'expiring', label: 'A Expirar' },
+                                                        { key: 'expired', label: 'Expirados' },
+                                                        { key: 'permanent', label: 'Permanentes' },
+                                                        { key: 'archived', label: 'Arquivados' },
+                                                    ].map(filter => (
+                                                        <button
+                                                            key={filter.key}
+                                                            type="button"
+                                                            onClick={() => setDocStatusFilter(filter.key as any)}
+                                                            className={cn(
+                                                                "text-[11px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer",
+                                                                docStatusFilter === filter.key
+                                                                    ? "bg-primary text-white shadow-sm"
+                                                                    : "bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                            )}
+                                                        >
+                                                            {filter.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Document Cards / List */}
+                                            {filteredDocuments.length === 0 ? (
+                                                <div className="p-10 border border-dashed border-[var(--border)] rounded-2xl text-center space-y-3">
+                                                    <div className="w-12 h-12 mx-auto rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                                                        <FileText size={22} />
+                                                    </div>
+                                                    <div className="text-xs font-bold text-[var(--text)]">
+                                                        Nenhum documento encontrado
+                                                    </div>
+                                                    <p className="text-[11px] text-[var(--text-muted)] max-w-sm mx-auto">
+                                                        {docSearchTerm.trim() || docStatusFilter !== 'all'
+                                                            ? 'Nenhum documento corresponde aos filtros selecionados. Tente limpar os critérios.'
+                                                            : 'Ainda não foram colocados documentos nesta pasta. Clique em "Colocar Ficheiro" para adicionar certidões, apólices ou fichas de aptidão.'}
+                                                    </p>
+                                                    <div className="pt-2 flex items-center justify-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                handleUploadEntityTypeChange(
+                                                                    selectedFolderPath.startsWith('02-Trabalhadores') ? 'worker' :
+                                                                    selectedFolderPath.startsWith('03-Equipamentos') ? 'equipment' : 'company'
+                                                                );
+                                                                setUploadDocForm(prev => ({
+                                                                    ...prev,
+                                                                    folderPath: selectedFolderPath === 'all' ? '01-Empresa' : selectedFolderPath
+                                                                }));
+                                                                setIsUploadDocModalOpen(true);
+                                                            }}
+                                                            className="py-1.5 px-3 rounded-xl bg-primary text-white text-xs font-bold flex items-center gap-1.5 shadow-sm hover:bg-primary-hover transition-colors cursor-pointer"
+                                                        >
+                                                            <Plus size={14} />
+                                                            <span>Colocar Documento Agora</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    {filteredDocuments.map(doc => {
+                                                        const statusInfo = getDocumentStatusInfo(doc);
+                                                        const sizeFormatted = doc.size 
+                                                            ? (doc.size > 1048576 
+                                                                ? `${(doc.size / 1048576).toFixed(1)} MB` 
+                                                                : `${Math.round(doc.size / 1024)} KB`)
+                                                            : '—';
+
+                                                        // Resolve entity label
+                                                        let entityLabel = companyForm.name || 'Empresa';
+                                                        let EntityIcon = Building2;
+                                                        if (doc.entityType === 'worker') {
+                                                            const w = companyWorkers.find(x => x.id === doc.entityId);
+                                                            entityLabel = w ? w.name : 'Colaborador';
+                                                            EntityIcon = User;
+                                                        } else if (doc.entityType === 'equipment') {
+                                                            const eq = companyEquipment.find(x => x.id === doc.entityId);
+                                                            entityLabel = eq ? eq.name : 'Equipamento';
+                                                            EntityIcon = Wrench;
+                                                        }
+
+                                                        return (
+                                                            <div 
+                                                                key={doc.id}
+                                                                className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/30 hover:border-primary/40 hover:bg-[var(--bg-input)]/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3"
+                                                            >
+                                                                <div className="flex items-start gap-3 min-w-0 flex-1">
+                                                                    <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+                                                                        <FileText size={18} />
+                                                                    </div>
+
+                                                                    <div className="min-w-0 flex-1 space-y-1">
+                                                                        <div className="flex flex-wrap items-center gap-2">
+                                                                            <span className="font-bold text-xs text-[var(--text)] truncate">
+                                                                                {doc.name}
+                                                                            </span>
+
+                                                                            {doc.documentCode && (
+                                                                                <span className="font-mono text-[10px] px-1.5 py-0.2 rounded bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border)]" title="Código / N.º Apólice">
+                                                                                    {doc.documentCode}
+                                                                                </span>
+                                                                            )}
+
+                                                                            {doc.version && (
+                                                                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-primary/10 text-primary font-mono">
+                                                                                    v{doc.version}
+                                                                                </span>
+                                                                            )}
+
+                                                                            <span className={cn(
+                                                                                "text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1",
+                                                                                statusInfo.badgeClass
+                                                                            )}>
+                                                                                {statusInfo.status === 'valid' && <CheckCircle size={10} />}
+                                                                                {statusInfo.status === 'expiring' && <Clock size={10} />}
+                                                                                {statusInfo.status === 'expired' && <AlertTriangle size={10} />}
+                                                                                {statusInfo.status === 'permanent' && <Shield size={10} />}
+                                                                                <span>{statusInfo.label}</span>
+                                                                            </span>
+
+                                                                            {doc.isConfidential && (
+                                                                                <span className="text-[10px] font-medium px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                                                    RGPD Confidencial
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-muted)]">
+                                                                            <span className="flex items-center gap-1">
+                                                                                <EntityIcon size={12} className="text-primary shrink-0" />
+                                                                                <span className="truncate max-w-[160px]">{entityLabel}</span>
+                                                                            </span>
+
+                                                                            <span className="flex items-center gap-1">
+                                                                                <Folder size={12} className="shrink-0" />
+                                                                                <span className="truncate max-w-[200px]">{doc.folderPath || '01-Empresa'}</span>
+                                                                            </span>
+
+                                                                            {doc.expiryDate ? (
+                                                                                <span className="flex items-center gap-1">
+                                                                                    <Calendar size={12} className="shrink-0" />
+                                                                                    <span>Validade: {new Date(doc.expiryDate).toLocaleDateString()}</span>
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span>Validade: Permanente</span>
+                                                                            )}
+
+                                                                            <span className="font-mono">{sizeFormatted}</span>
+
+                                                                            {doc.cdeFileId && (
+                                                                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-[10px]">
+                                                                                    <Cloud size={11} /> Sincronizado Cloud
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Document Row Actions */}
+                                                                <div className="flex items-center gap-1.5 self-end md:self-center shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-[var(--border)] w-full md:w-auto justify-end">
+                                                                    {doc.url && (
+                                                                        <a
+                                                                            href={doc.url}
+                                                                            target="_blank"
+                                                                            rel="noreferrer"
+                                                                            className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-card)] text-primary hover:text-primary-hover transition-colors"
+                                                                            title="Abrir no Visualizador CDE"
+                                                                        >
+                                                                            <ExternalLink size={14} />
+                                                                        </a>
+                                                                    )}
+
+                                                                    {doc.archived ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                unarchiveDocument(doc.id);
+                                                                                addNotification('success', 'Documento restaurado do arquivo!');
+                                                                            }}
+                                                                            className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-emerald-50 text-emerald-600 transition-colors cursor-pointer"
+                                                                            title="Restaurar Documento"
+                                                                        >
+                                                                            <History size={14} />
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                updateDocument(doc.id, { archived: true });
+                                                                                addNotification('info', 'Documento movido para o arquivo.');
+                                                                            }}
+                                                                            className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-amber-600 transition-colors cursor-pointer"
+                                                                            title="Arquivar Versão"
+                                                                        >
+                                                                            <Folder size={14} />
+                                                                        </button>
+                                                                    )}
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            if (confirm(`Pretende eliminar o documento "${doc.name}"?`)) {
+                                                                                deleteDocument(doc.id);
+                                                                                addNotification('success', 'Documento removido.');
+                                                                            }
+                                                                        }}
+                                                                        className="p-1.5 rounded-lg border border-[var(--border)] hover:bg-red-50 text-[var(--text-muted)] hover:text-red-600 transition-colors cursor-pointer"
+                                                                        title="Eliminar Documento"
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -3309,10 +4478,420 @@ export default function MyCompanyPage() {
                         </form>
                     </Modal>
 
+                    {/* ════════ MODAL: COLOCAR DOCUMENTO NA EMPRESA ════════ */}
+                    <Modal
+                        maxWidth="max-w-2xl"
+                        title={
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                    <FileText size={16} />
+                                </div>
+                                <div>
+                                    <div className="font-bold text-sm text-[var(--text)]">Colocar Documento no Repositório</div>
+                                    <div className="text-[11px] text-[var(--text-muted)] font-normal">
+                                        Associe ficheiros à empresa, colaboradores ou equipamentos com validação de conformidade legal.
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        isOpen={isUploadDocModalOpen}
+                        onClose={() => {
+                            if (!isUploadingDoc) setIsUploadDocModalOpen(false);
+                        }}
+                    >
+                        <form onSubmit={handleUploadDocumentSubmit} className="space-y-4">
+                            {/* File Upload Zone */}
+                            <div className="p-4 border-2 border-dashed border-[var(--border)] rounded-xl bg-[var(--bg-input)]/20 hover:border-primary/50 transition-colors text-center relative cursor-pointer">
+                                <input
+                                    type="file"
+                                    id="company-doc-file-input"
+                                    onChange={e => {
+                                        const f = e.target.files?.[0];
+                                        if (f) {
+                                            setUploadDocFile(f);
+                                            if (!uploadDocForm.name) {
+                                                const baseName = f.name.includes('.') ? f.name.substring(0, f.name.lastIndexOf('.')) : f.name;
+                                                setUploadDocForm(prev => ({ ...prev, name: baseName }));
+                                            }
+                                        }
+                                    }}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                />
+                                <div className="space-y-1.5 pointer-events-none">
+                                    <div className="w-10 h-10 mx-auto rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                                        <UploadCloud size={20} />
+                                    </div>
+                                    {uploadDocFile ? (
+                                        <div>
+                                            <div className="text-xs font-bold text-primary">{uploadDocFile.name}</div>
+                                            <div className="text-[10px] text-[var(--text-muted)]">
+                                                {(uploadDocFile.size / 1024).toFixed(1)} KB &bull; Pronto para guardar
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div>
+                                            <div className="text-xs font-bold text-[var(--text)]">Clique ou arraste um ficheiro aqui</div>
+                                            <div className="text-[10px] text-[var(--text-muted)]">PDF, Imagens, Documentos Office (até 50 MB)</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Document Title */}
+                            <div>
+                                <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                    Título / Designação do Documento <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={uploadDocForm.name}
+                                    onChange={e => setUploadDocForm(prev => ({ ...prev, name: e.target.value }))}
+                                    placeholder="Ex: Apólice Seguro Acidentes Trabalho 2026, Ficha Aptidão Médica..."
+                                    className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                />
+                            </div>
+
+                            {/* Destination Entity Type Pills */}
+                            <div>
+                                <label className="block text-xs font-bold text-[var(--text)] mb-1.5">
+                                    Âmbito / Entidade de Destino
+                                </label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { type: 'company', label: 'Empresa', icon: Building2 },
+                                        { type: 'worker', label: 'Colaborador', icon: User },
+                                        { type: 'equipment', label: 'Equipamento', icon: Wrench },
+                                    ].map(item => {
+                                        const ItemIcon = item.icon;
+                                        const isSelected = uploadDocForm.entityType === item.type;
+                                        return (
+                                            <button
+                                                key={item.type}
+                                                type="button"
+                                                onClick={() => handleUploadEntityTypeChange(item.type as any)}
+                                                className={cn(
+                                                    "py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                                                    isSelected
+                                                        ? "border-primary bg-primary/10 text-primary shadow-sm"
+                                                        : "border-[var(--border)] bg-[var(--bg-input)]/40 text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                )}
+                                            >
+                                                <ItemIcon size={14} />
+                                                <span>{item.label}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Entity Dropdown (if Worker or Equipment) */}
+                            {uploadDocForm.entityType === 'worker' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                        Selecionar Colaborador <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        required
+                                        value={uploadDocForm.entityId}
+                                        onChange={e => handleUploadWorkerChange(e.target.value)}
+                                        className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                    >
+                                        <option value="">Selecione o colaborador...</option>
+                                        {companyWorkers.map(w => (
+                                            <option key={w.id} value={w.id}>
+                                                {w.name} {w.nif ? `(NIF: ${w.nif})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {uploadDocForm.entityType === 'equipment' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                        Selecionar Equipamento <span className="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        required
+                                        value={uploadDocForm.entityId}
+                                        onChange={e => handleUploadEquipChange(e.target.value)}
+                                        className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                    >
+                                        <option value="">Selecione o equipamento...</option>
+                                        {companyEquipment.map(eq => (
+                                            <option key={eq.id} value={eq.id}>
+                                                {eq.name} {eq.serialNumber ? `(S/N: ${eq.serialNumber})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+
+                            {/* Category & Folder Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                        Categoria Documental
+                                    </label>
+                                    <select
+                                        value={uploadDocForm.category}
+                                        onChange={e => handleUploadCategoryChange(e.target.value)}
+                                        className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                    >
+                                        {uploadDocForm.entityType === 'company' && (
+                                            COMPANY_DOC_CATEGORIES.map(c => (
+                                                <option key={c.value} value={c.value}>{c.label}</option>
+                                            ))
+                                        )}
+                                        {uploadDocForm.entityType === 'worker' && (
+                                            WORKER_DOC_CATEGORIES.map(c => (
+                                                <option key={c.value} value={c.value}>{c.label}</option>
+                                            ))
+                                        )}
+                                        {uploadDocForm.entityType === 'equipment' && (
+                                            EQUIP_DOC_CATEGORIES.map(c => (
+                                                <option key={c.value} value={c.value}>{c.label}</option>
+                                            ))
+                                        )}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                        Pasta de Destino no Repositório
+                                    </label>
+                                    <select
+                                        value={uploadDocForm.folderPath}
+                                        onChange={e => setUploadDocForm(prev => ({ ...prev, folderPath: e.target.value }))}
+                                        className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                    >
+                                        {allCompanyFolders.map(f => (
+                                            <option key={f.path} value={f.path}>
+                                                📁 {f.path}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Document Reference / Code */}
+                            <div>
+                                <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                    N.º de Apólice / Código de Validação / Referência (Opcional)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={uploadDocForm.documentCode}
+                                    onChange={e => setUploadDocForm(prev => ({ ...prev, documentCode: e.target.value }))}
+                                    placeholder="Ex: 009848488/AT, Certidão Nº 9988-7766..."
+                                    className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                />
+                            </div>
+
+                            {/* Emission & Expiry Dates */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                        Data de Emissão (Opcional)
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={uploadDocForm.issueDate}
+                                        onChange={e => setUploadDocForm(prev => ({ ...prev, issueDate: e.target.value }))}
+                                        className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                        Data de Validade Legal
+                                    </label>
+                                    <input
+                                        type="date"
+                                        disabled={uploadDocForm.hasNoExpiry}
+                                        value={uploadDocForm.expiryDate}
+                                        onChange={e => setUploadDocForm(prev => ({ ...prev, expiryDate: e.target.value }))}
+                                        className={cn(
+                                            "w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary",
+                                            uploadDocForm.hasNoExpiry && "opacity-50 cursor-not-allowed"
+                                        )}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Checkboxes: No Expiry & RGPD */}
+                            <div className="space-y-2 pt-1">
+                                <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text)]">
+                                    <input
+                                        type="checkbox"
+                                        checked={uploadDocForm.hasNoExpiry}
+                                        onChange={e => setUploadDocForm(prev => ({ 
+                                            ...prev, 
+                                            hasNoExpiry: e.target.checked,
+                                            expiryDate: e.target.checked ? '' : prev.expiryDate
+                                        }))}
+                                        className="rounded border-[var(--border)] text-primary focus:ring-0"
+                                    />
+                                    <span>Documento sem termo de validade / Vitalício (Permanente)</span>
+                                </label>
+
+                                <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text)]">
+                                    <input
+                                        type="checkbox"
+                                        checked={uploadDocForm.isConfidential}
+                                        onChange={e => setUploadDocForm(prev => ({ ...prev, isConfidential: e.target.checked }))}
+                                        className="rounded border-[var(--border)] text-primary focus:ring-0"
+                                    />
+                                    <span>Documento Confidencial / Dados Pessoais Protegidos (RGPD)</span>
+                                </label>
+                            </div>
+
+                            {/* Notice about CDE & profile sync */}
+                            <div className="text-[11px] text-[var(--text-muted)] flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
+                                <CheckCircle2 size={15} className="text-primary shrink-0 mt-0.5" />
+                                <span>
+                                    Ao colocar o documento, o SafeSite sincroniza automaticamente as datas correspondentes no perfil da entidade (apólices de seguros, data da FAT médica ou inspeção) e versiona o ficheiro de acordo com a ISO 19650.
+                                </span>
+                            </div>
+
+                            {/* Modal Actions */}
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border)]">
+                                <SecondaryButton 
+                                    type="button" 
+                                    disabled={isUploadingDoc}
+                                    onClick={() => setIsUploadDocModalOpen(false)}
+                                >
+                                    Cancelar
+                                </SecondaryButton>
+                                <PrimaryButton 
+                                    type="submit" 
+                                    disabled={isUploadingDoc}
+                                    className="py-2 px-4 text-xs font-bold flex items-center gap-2"
+                                >
+                                    {isUploadingDoc ? (
+                                        <>
+                                            <RotateCw size={14} className="animate-spin" />
+                                            <span>A Guardar e Sincronizar...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Check size={14} />
+                                            <span>Colocar Documento</span>
+                                        </>
+                                    )}
+                                </PrimaryButton>
+                            </div>
+                        </form>
+                    </Modal>
+
+                    {/* ════════ MODAL: NOVA SUBPASTA ════════ */}
+                    <Modal
+                        maxWidth="max-w-md"
+                        title={
+                            <div className="flex items-center gap-2">
+                                <FolderPlus size={18} className="text-primary" />
+                                <span className="font-bold text-sm text-[var(--text)]">Criar Nova Pasta</span>
+                            </div>
+                        }
+                        isOpen={isNewFolderModalOpen}
+                        onClose={() => setIsNewFolderModalOpen(false)}
+                    >
+                        <form onSubmit={handleCreateNewFolder} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                    Pasta Superior (Localização)
+                                </label>
+                                <select
+                                    value={newFolderParent}
+                                    onChange={e => setNewFolderParent(e.target.value)}
+                                    className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                >
+                                    {COMPANY_STANDARD_FOLDERS.map(top => (
+                                        <option key={top} value={top}>📁 {top}</option>
+                                    ))}
+                                    {customFolders.map(cf => (
+                                        <option key={cf} value={cf}>📁 {cf}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                                    Nome da Nova Pasta <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={newFolderName}
+                                    onChange={e => setNewFolderName(e.target.value)}
+                                    placeholder="Ex: Auditorias 2026, Declarações Clientes..."
+                                    className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border)]">
+                                <SecondaryButton type="button" onClick={() => setIsNewFolderModalOpen(false)}>
+                                    Cancelar
+                                </SecondaryButton>
+                                <PrimaryButton type="submit" className="py-2 px-4 text-xs font-bold">
+                                    Criar Pasta
+                                </PrimaryButton>
+                            </div>
+                        </form>
+                    </Modal>
+
+                    {/* ════════ MODAL: RESULTADO DA CRIAÇÃO DE PASTAS ════════ */}
+                    <Modal
+                        maxWidth="max-w-lg"
+                        title={
+                            <div className="flex items-center gap-2">
+                                <FolderCheck size={18} className="text-emerald-500" />
+                                <span className="font-bold text-sm text-[var(--text)]">Estrutura de Pastas Normalizada</span>
+                            </div>
+                        }
+                        isOpen={isInitResultModalOpen}
+                        onClose={() => setIsInitResultModalOpen(false)}
+                    >
+                        <div className="space-y-4">
+                            <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
+                                <div className="font-bold flex items-center gap-1.5">
+                                    <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
+                                    <span>Estrutura Corporativa Criada com Sucesso</span>
+                                </div>
+                                <p className="text-[11px] leading-relaxed">
+                                    As pastas tipo foram geradas e normalizadas segundo os requisitos legais da construção civil e arquivo ISO 19650.
+                                </p>
+                            </div>
+
+                            <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 p-3 max-h-60 overflow-y-auto space-y-1 font-mono text-[11px] text-[var(--text-muted)]">
+                                {initResultLogs.map((log, idx) => (
+                                    <div key={idx} className="flex items-center gap-1.5">
+                                        <span className="text-primary font-bold">&rsaquo;</span>
+                                        <span>{log}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex items-center justify-end pt-2 border-t border-[var(--border)]">
+                                <PrimaryButton 
+                                    type="button" 
+                                    onClick={() => setIsInitResultModalOpen(false)}
+                                    className="py-2 px-4 text-xs font-bold"
+                                >
+                                    Concluir
+                                </PrimaryButton>
+                            </div>
+                        </div>
+                    </Modal>
+
                     {/* Modal CDE da Empresa */}
                     <CDESettingsModal
                         isOpen={isCdeModalOpen}
-                        onClose={() => setIsCdeModalOpen(false)}
+                        onClose={() => {
+                            setIsCdeModalOpen(false);
+                            fetchCompanyCde();
+                        }}
                         projectId={masterCompany?.id || 'comp_master'}
                         title="Ambiente Comum de Dados (CDE) da Empresa"
                     />

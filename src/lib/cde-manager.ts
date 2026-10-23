@@ -15,6 +15,39 @@ export const SPECIAL_SUBFOLDERS: Record<string, string[]> = {
     '01-Empresas': ['00-Reports']
 };
 
+export const COMPANY_STANDARD_FOLDERS = [
+    '01-Empresa',
+    '02-Trabalhadores',
+    '03-Equipamentos',
+    '04-Formação e Qualificações',
+    '05-Segurança e Saúde (SST)',
+    '06-Modelos e Minutas'
+];
+
+export const COMPANY_SPECIAL_SUBFOLDERS: Record<string, string[]> = {
+    '01-Empresa': [
+        '01-Certidão Comercial',
+        '02-Seguros',
+        '03-Certidões Não Dívida (AT e SS)',
+        '04-Alvará e Título Registo',
+        '05-Medicina no Trabalho',
+        '06-Folhas de Remunerações',
+        'Arquivo'
+    ],
+    '04-Formação e Qualificações': [
+        'Planos de Formação',
+        'Manuais de Acolhimento',
+        'Certificados',
+        'Arquivo'
+    ],
+    '05-Segurança e Saúde (SST)': [
+        'Avaliações de Risco',
+        'Procedimentos de Trabalho Seguro',
+        'Registos de Acidentes',
+        'Arquivo'
+    ]
+};
+
 interface CreateFolderResult {
     id: string; // ID or Path depending on provider
     name: string;
@@ -302,6 +335,135 @@ export async function initializeProjectStructure(
 
         throw e;
     }
+}
+
+/**
+ * Inicializa a estrutura documental tipo para o ambiente corporativo da empresa.
+ * Cria pastas normalizadas para a Empresa, Trabalhadores e Equipamentos.
+ */
+export async function initializeCompanyStructure(
+    config: CDEConfig,
+    company: { name: string; nif?: string },
+    workers: Array<{ id: string; name: string; nif?: string; idNumber?: string }> = [],
+    equipment: Array<{ id: string; name: string; licensePlate?: string; serialNumber?: string }> = [],
+    onTokenRefresh?: (token: string, expiresAt: number) => void
+): Promise<string[]> {
+    if (!config.connected) throw new Error('CDE não está conectado. Ligue o CDE para criar a estrutura na Cloud.');
+
+    const rootId = (config.provider === 'gdrive' ? config.folderId :
+        config.provider === 'dropbox' ? (config.folderPath || '') :
+            'root');
+
+    if (!rootId && rootId !== '') throw new Error('Pasta raiz do CDE não definida.');
+
+    const logs: string[] = [];
+
+    const createFolder = async (parentId: string, folderName: string): Promise<CreateFolderResult | null> => {
+        if (config.provider === 'gdrive') {
+            return await createGoogleDriveFolder(config.accessToken!, parentId, folderName);
+        } else if (config.provider === 'dropbox') {
+            return await createDropboxFolder(config.accessToken!, parentId, folderName);
+        }
+        return { id: `${parentId}/${folderName}`, name: folderName, exists: false };
+    };
+
+    try {
+        const createdFolders: Record<string, string> = {};
+
+        // 1. Criar Pastas Principais da Empresa
+        for (const folderName of COMPANY_STANDARD_FOLDERS) {
+            try {
+                const result = await createFolder(rootId, folderName);
+                if (result) {
+                    createdFolders[folderName] = result.id;
+                    if (result.exists) logs.push(`Existente: ${folderName}`);
+                    else logs.push(`Criada: ${folderName}`);
+
+                    // 2. Criar Subpastas de Gestão Documental
+                    if (COMPANY_SPECIAL_SUBFOLDERS[folderName]) {
+                        for (const sub of COMPANY_SPECIAL_SUBFOLDERS[folderName]) {
+                            await createFolder(result.id, sub);
+                        }
+                    }
+                }
+            } catch (err: any) {
+                logs.push(`Erro em ${folderName}: ${err.message}`);
+            }
+        }
+
+        // 3. Criar Pastas Individuais dos Trabalhadores da Empresa
+        const workersParentId = createdFolders['02-Trabalhadores'];
+        if (workersParentId && workers.length > 0) {
+            for (const worker of workers) {
+                try {
+                    const idTag = worker.idNumber || worker.nif || worker.id.slice(0, 8);
+                    const workerFolderName = `${idTag}-${worker.name.trim()}`;
+                    const res = await createFolder(workersParentId, workerFolderName);
+                    if (res) {
+                        await createFolder(res.id, 'Arquivo');
+                        logs.push(`Criada pasta colaborador: ${worker.name}`);
+                    }
+                } catch (e: any) {
+                    console.error('Erro ao criar pasta do trabalhador:', e);
+                }
+            }
+        }
+
+        // 4. Criar Pastas Individuais dos Equipamentos da Empresa
+        const equipParentId = createdFolders['03-Equipamentos'];
+        if (equipParentId && equipment.length > 0) {
+            for (const eq of equipment) {
+                try {
+                    const idTag = eq.licensePlate || eq.serialNumber || eq.id.slice(0, 8);
+                    const equipFolderName = `${idTag}-${eq.name.trim()}`;
+                    const res = await createFolder(equipParentId, equipFolderName);
+                    if (res) {
+                        await createFolder(res.id, 'Arquivo');
+                        logs.push(`Criada pasta equipamento: ${eq.name}`);
+                    }
+                } catch (e: any) {
+                    console.error('Erro ao criar pasta do equipamento:', e);
+                }
+            }
+        }
+
+        return logs;
+    } catch (e: any) {
+        throw e;
+    }
+}
+
+/**
+ * Upload de ficheiro para uma pasta específica do CDE (GDrive ou Dropbox).
+ */
+export async function uploadToCDEFolder(
+    config: CDEConfig,
+    targetFolderIdOrPath: string,
+    file: File
+): Promise<{ id: string; webViewLink?: string; size: number; name: string }> {
+    if (!config.connected || !config.accessToken) {
+        throw new Error('CDE não conectado');
+    }
+
+    if (config.provider === 'gdrive') {
+        const uploaded = await uploadToGoogleDrive(config.accessToken, targetFolderIdOrPath, file);
+        return {
+            id: uploaded.id,
+            webViewLink: uploaded.webViewLink,
+            size: file.size,
+            name: file.name
+        };
+    } else if (config.provider === 'dropbox') {
+        const uploaded = await uploadToDropbox(config.accessToken, targetFolderIdOrPath, file);
+        return {
+            id: uploaded.id,
+            webViewLink: uploaded.webViewLink,
+            size: file.size,
+            name: file.name
+        };
+    }
+
+    throw new Error(`Upload para fornecedor ${config.provider} não suportado diretamente.`);
 }
 
 export async function createEntityFolder(

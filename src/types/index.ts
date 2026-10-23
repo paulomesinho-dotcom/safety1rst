@@ -817,6 +817,9 @@ export interface Document {
     retentionUntil?: string; // Data limite para eliminação por RGPD
 
     category?: string; // e.g. 'insurance', 'financial'
+    folderPath?: string; // CDE / Repositório folder path (ex: 01-Empresa/02-Seguros)
+    accountId?: string;
+    projectId?: string;
     provider: 'onedrive' | 'gdrive' | 'dropbox' | 'local';
     status: 'synced' | 'pending' | 'error';
     aiData?: any;
