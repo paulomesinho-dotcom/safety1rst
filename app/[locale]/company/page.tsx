@@ -1,19 +1,21 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { useRouter } from '@/navigation';
+import { useRouter, Link } from '@/navigation';
 import { useStore } from '@/store/useStore';
 import AuthGuard from '@/components/AuthGuard';
 import { useTheme } from '@/providers/ThemeProvider';
+import Header from '@/components/Header';
 import { 
     Building2, Users, Wrench, GraduationCap, Folder, 
     ArrowLeft, Plus, Search, Trash2, Edit2, Check, 
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
-    Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft
+    Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
+    LogOut
 } from 'lucide-react';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
-    FlatTrainingIcon, FlatDocumentsIcon 
+    FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon 
 } from '@/components/FlatIcons';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
@@ -22,11 +24,20 @@ import type { Worker, Equipment } from '@/types';
 
 type CompanyTab = 'organization' | 'workers' | 'equipment' | 'training' | 'documents';
 
+function getInitials(name?: string) {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ').filter(Boolean);
+    if (parts.length === 0) return 'U';
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export default function MyCompanyPage() {
     const router = useRouter();
     const { isDark } = useTheme();
     const { 
         currentUser, 
+        setCurrentUser,
         account, 
         accounts,
         companies, 
@@ -42,6 +53,11 @@ export default function MyCompanyPage() {
         updateEquipment,
         addNotification
     } = useStore();
+
+    const handleLogout = () => {
+        setCurrentUser(null);
+        router.push('/login');
+    };
 
     const [activeTab, setActiveTab] = useState<CompanyTab>('organization');
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -232,12 +248,12 @@ export default function MyCompanyPage() {
                 </div>
             ) : (
                 <div className="flex h-screen w-full bg-[var(--bg)] text-[var(--text)] overflow-hidden">
-                    {/* ── Sidebar FundacaoJM Style ── */}
+                    {/* FundacaoJM Style Sidebar */}
                     <aside className={cn(
                         "sidebar-container relative h-full flex flex-col transition-all duration-300 ease-in-out shrink-0 select-none",
                         isCollapsed ? "w-[60px] py-5 px-2.5 collapsed" : "w-[270px] p-5"
                     )}>
-                        {/* Toggle Button */}
+                        {/* Floating Sidebar Toggle Button (FundacaoJM style) */}
                         <button
                             onClick={() => setIsCollapsed(!isCollapsed)}
                             className="sidebar-toggle-btn"
@@ -250,139 +266,176 @@ export default function MyCompanyPage() {
                         <div className={cn("flex items-center gap-3 mb-4 pb-4 border-b border-[var(--border)]", isCollapsed ? "justify-center" : "px-1")}>
                             <img src="/safetyfirst-logo.png" alt="Safety1irst" className="w-8 h-8 object-contain shrink-0" />
                             {!isCollapsed && (
-                                <div className="leading-tight truncate">
-                                    <span className="text-[17px] font-bold tracking-tight text-[var(--text)] block truncate">
-                                        {companyForm.name || 'A Minha Empresa'}
-                                    </span>
-                                    <span className="text-[10px] uppercase tracking-wider font-extrabold text-primary">
-                                        Espaço Corporativo
-                                    </span>
-                                </div>
+                                <span className="text-[20px] font-medium tracking-[-0.5px] text-[var(--text)] whitespace-nowrap">
+                                    Safety<span style={{ color: '#4285F4', fontWeight: 700 }}>1irst</span>
+                                </span>
                             )}
                         </div>
 
-                        {/* Return to Workplace */}
-                        <div className="mb-4">
-                            <button
-                                onClick={() => router.push('/')}
+                        {/* Return to Workplace Button */}
+                        <div className="mb-3">
+                            <Link
+                                href="/"
                                 className={cn(
-                                    "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] border border-[var(--border)] transition-all cursor-pointer",
-                                    isCollapsed ? "justify-center px-0" : ""
+                                    "fjm-nav-item",
+                                    isCollapsed && "justify-center px-0"
                                 )}
                                 title="Voltar ao Workplace"
                             >
-                                <ArrowLeft size={14} className="shrink-0 text-primary" />
-                                {!isCollapsed && <span>Voltar ao Workplace</span>}
-                            </button>
+                                <FlatFolderIcon size={18} className="shrink-0" />
+                                {!isCollapsed && <span className="truncate">Voltar ao Workplace</span>}
+                            </Link>
                         </div>
 
-                        {/* Navigation Items (Sem hierarquias) */}
-                        <nav className="flex-1 space-y-1">
-                            {[
-                                { id: 'organization', label: 'Organização', icon: FlatCompaniesIcon },
-                                { id: 'workers', label: 'Pessoas', icon: FlatWorkersIcon, badge: companyWorkers.length },
-                                { id: 'equipment', label: 'Equipamentos', icon: FlatEquipmentIcon, badge: companyEquipment.length },
-                                { id: 'training', label: 'Formação', icon: FlatTrainingIcon },
-                                { id: 'documents', label: 'Documentos', icon: FlatDocumentsIcon },
-                            ].map(item => {
-                                const Icon = item.icon;
-                                const isActive = activeTab === item.id;
-                                return (
-                                    <button
-                                        key={item.id}
-                                        onClick={() => setActiveTab(item.id as CompanyTab)}
-                                        className={cn(
-                                            "w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer group",
-                                            isActive
-                                                ? "bg-primary text-white shadow-sm"
-                                                : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]"
-                                        )}
-                                        title={item.label}
-                                    >
-                                        <div className="flex items-center gap-2.5 truncate">
-                                            <Icon size={17} className={cn("shrink-0", isActive ? "text-white" : "text-primary")} />
-                                            {!isCollapsed && <span className="truncate">{item.label}</span>}
-                                        </div>
-                                        {!isCollapsed && item.badge !== undefined && item.badge > 0 && (
-                                            <span className={cn(
-                                                "px-1.5 py-0.5 rounded-full text-[10px] font-extrabold",
-                                                isActive ? "bg-white/20 text-white" : "bg-[var(--bg-input)] text-[var(--text-muted)]"
-                                            )}>
-                                                {item.badge}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
+                        {/* Nav Items List */}
+                        <nav className="flex-1 overflow-y-auto pr-1">
+                            {!isCollapsed && (
+                                <div className="fjm-nav-label">Menu</div>
+                            )}
+                            <ul className="space-y-0.5">
+                                {[
+                                    { id: 'organization', label: 'Organizações', icon: FlatCompaniesIcon },
+                                    { id: 'workers', label: 'Pessoas', icon: FlatWorkersIcon, badge: companyWorkers.length },
+                                    { id: 'equipment', label: 'Equipamentos', icon: FlatEquipmentIcon, badge: companyEquipment.length },
+                                    { id: 'training', label: 'Formação', icon: FlatTrainingIcon },
+                                    { id: 'documents', label: 'Documentos', icon: FlatDocumentsIcon },
+                                ].map((item) => {
+                                    const IconComponent = item.icon;
+                                    const isActive = activeTab === item.id;
+                                    return (
+                                        <li key={item.id}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveTab(item.id as CompanyTab)}
+                                                className={cn(
+                                                    "fjm-nav-item w-full text-left bg-transparent border-0 outline-none",
+                                                    isActive && "active",
+                                                    isCollapsed && "justify-center px-0"
+                                                )}
+                                                title={isCollapsed ? item.label : undefined}
+                                            >
+                                                <IconComponent size={18} className="shrink-0" />
+                                                {!isCollapsed && <span className="truncate">{item.label}</span>}
+                                                {!isCollapsed && item.badge !== undefined && item.badge > 0 && (
+                                                    <span className={cn(
+                                                        "ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-extrabold",
+                                                        isActive ? "bg-[#4285F4]/30 text-white" : "bg-[var(--bg-input)] text-[var(--text-muted)]"
+                                                    )}>
+                                                        {item.badge}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
                         </nav>
 
-                        {/* Footer Info */}
-                        {!isCollapsed && (
-                            <div className="pt-3 border-t border-[var(--border)] text-[10px] text-[var(--text-muted)] flex items-center justify-between">
-                                <span>Plano {currentPlan.toUpperCase()}</span>
-                                <span className="text-emerald-500 font-bold flex items-center gap-1">
-                                    <CheckCircle2 size={11} /> Ativo
-                                </span>
+                        {/* Sidebar Footer: User Card (FundacaoJM style) */}
+                        <div className="fjm-sidebar-footer">
+                            {/* User Card with Logout */}
+                            <div className={cn("fjm-user-card", isCollapsed && "justify-center p-1.5")}>
+                                <div className="fjm-user-avatar" title={currentUser?.name}>
+                                    {getInitials(currentUser?.name)}
+                                </div>
+                                {!isCollapsed && (
+                                    <div className="flex-1 min-w-0">
+                                        <div className="fjm-user-name" title={currentUser?.name}>
+                                            {currentUser?.name || 'Utilizador'}
+                                        </div>
+                                        <div className="fjm-user-role capitalize" title={companyForm.name || currentUser?.role}>
+                                            {companyForm.name || currentUser?.role || 'Utilizador'}
+                                        </div>
+                                    </div>
+                                )}
+                                {!isCollapsed && (
+                                    <button
+                                        onClick={handleLogout}
+                                        title="Terminar Sessão"
+                                        className="p-1.5 rounded-full hover:bg-[var(--bg-input)] hover:text-red-500 text-[var(--text-muted)] transition-colors shrink-0 cursor-pointer"
+                                    >
+                                        <LogOut size={16} />
+                                    </button>
+                                )}
                             </div>
-                        )}
+
+                            {/* Collapsed Mode Logout Button */}
+                            {isCollapsed && (
+                                <button
+                                    onClick={handleLogout}
+                                    title="Terminar Sessão"
+                                    className="mt-2 p-1.5 rounded-full hover:bg-[var(--bg-input)] hover:text-red-500 text-[var(--text-muted)] transition-colors flex items-center justify-center w-full cursor-pointer"
+                                >
+                                    <LogOut size={16} />
+                                </button>
+                            )}
+                        </div>
                     </aside>
 
-                    {/* ── Main Workspace Body ── */}
-                    <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-                        <header className="p-5 border-b border-[var(--border)] bg-[var(--bg-card)]/50 backdrop-blur-sm sticky top-0 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div>
-                                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-1">
-                                    <span className="font-semibold text-primary">A Minha Empresa</span>
-                                    <span>•</span>
-                                    <span className="capitalize">{activeTab === 'organization' ? 'Ficha da Organização' : activeTab}</span>
+                    {/* ── Main Content Area ── */}
+                    <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+                        <Header 
+                            title={companyForm.name || 'A Minha Empresa'} 
+                            subtitle={`Espaço Corporativo • Plano ${currentPlan.toUpperCase()}`} 
+                        />
+                        <main className="flex-1 bg-[var(--bg-card)] ml-3 mt-3 mr-4 mb-4 rounded-lg shadow-sm border border-[var(--border)] overflow-hidden relative flex flex-col">
+                            {/* Header Action Bar */}
+                            <header className="p-5 border-b border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-sm sticky top-0 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+                                <div>
+                                    <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-1">
+                                        <span className="font-semibold text-primary">A Minha Empresa</span>
+                                        <span>•</span>
+                                        <span className="capitalize">{activeTab === 'organization' ? 'Organizações' : activeTab}</span>
+                                    </div>
+                                    <h1 className="text-xl font-extrabold text-[var(--text)]">
+                                        {activeTab === 'organization' && 'Dados e Documentos da Organização'}
+                                        {activeTab === 'workers' && `Colaboradores da Empresa (${companyWorkers.length})`}
+                                        {activeTab === 'equipment' && `Equipamentos e Máquinas (${companyEquipment.length})`}
+                                        {activeTab === 'training' && 'Matriz e Cursos de Formação'}
+                                        {activeTab === 'documents' && 'Repositório Documental Corporativo'}
+                                    </h1>
                                 </div>
-                                <h1 className="text-xl font-extrabold text-[var(--text)]">
-                                    {activeTab === 'organization' && 'Dados e Documentos da Organização'}
-                                    {activeTab === 'workers' && `Colaboradores da Empresa (${companyWorkers.length})`}
-                                    {activeTab === 'equipment' && `Equipamentos e Máquinas (${companyEquipment.length})`}
-                                    {activeTab === 'training' && 'Matriz e Cursos de Formação'}
-                                    {activeTab === 'documents' && 'Repositório Documental Corporativo'}
-                                </h1>
-                            </div>
 
-                            {/* Action Buttons based on Tab */}
-                            <div className="flex items-center gap-2 self-start sm:self-auto">
-                                {activeTab === 'organization' && (
-                                    <button
-                                        onClick={handleSaveCompany}
-                                        className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                                    >
-                                        <Save size={14} /> Guardar Alterações
-                                    </button>
-                                )}
-                                {activeTab === 'workers' && (
-                                    <button
-                                        onClick={() => {
-                                            setEditingWorkerId(null);
-                                            setWorkerForm({ name: '', role: '', nif: '', email: '', phone: '', medicalAptitudeDate: '', epiDelivered: false });
-                                            setIsWorkerModalOpen(true);
-                                        }}
-                                        className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                                    >
-                                        <Plus size={14} /> Adicionar Colaborador
-                                    </button>
-                                )}
-                                {activeTab === 'equipment' && (
-                                    <button
-                                        onClick={() => {
-                                            setEditingEquipId(null);
-                                            setEquipForm({ name: '', type: 'vehicle', serialNumber: '', brand: '', model: '', inspectionDate: '', ceCertified: true });
-                                            setIsEquipModalOpen(true);
-                                        }}
-                                        className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                                    >
-                                        <Plus size={14} /> Adicionar Equipamento
-                                    </button>
-                                )}
-                            </div>
-                        </header>
+                                {/* Action Buttons based on Tab */}
+                                <div className="flex items-center gap-2 self-start sm:self-auto">
+                                    {activeTab === 'organization' && (
+                                        <button
+                                            onClick={handleSaveCompany}
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                                        >
+                                            <Save size={14} /> Guardar Alterações
+                                        </button>
+                                    )}
+                                    {activeTab === 'workers' && (
+                                        <button
+                                            onClick={() => {
+                                                setEditingWorkerId(null);
+                                                setWorkerForm({ name: '', role: '', nif: '', email: '', phone: '', medicalAptitudeDate: '', epiDelivered: false });
+                                                setIsWorkerModalOpen(true);
+                                            }}
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                                        >
+                                            <Plus size={14} /> Adicionar Colaborador
+                                        </button>
+                                    )}
+                                    {activeTab === 'equipment' && (
+                                        <button
+                                            onClick={() => {
+                                                setEditingEquipId(null);
+                                                setEquipForm({ name: '', type: 'vehicle', serialNumber: '', brand: '', model: '', inspectionDate: '', ceCertified: true });
+                                                setIsEquipModalOpen(true);
+                                            }}
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                                        >
+                                            <Plus size={14} /> Adicionar Equipamento
+                                        </button>
+                                    )}
+                                </div>
+                            </header>
 
-                        <div className="p-6 max-w-6xl w-full mx-auto space-y-6">
+                            {/* Scrollable Body Content */}
+                            <div className="flex-1 overflow-y-auto p-6">
+                                <div className="max-w-6xl w-full mx-auto space-y-6">
                             {/* Notice Banner */}
                             {savedNotice && (
                                 <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
@@ -775,8 +828,10 @@ export default function MyCompanyPage() {
                                     </div>
                                 </div>
                             )}
-                        </div>
-                    </main>
+                                </div>
+                            </div>
+                        </main>
+                    </div>
 
                     {/* ════════ MODALS ════════ */}
                     {/* Modal Colaborador */}
