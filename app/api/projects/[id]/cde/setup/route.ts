@@ -42,7 +42,7 @@ export async function POST(
         const body = await req.json();
         const { provider } = body;
 
-        if (!provider || !['onedrive', 'dropbox', 'gdrive', 'local'].includes(provider)) {
+        if (!provider || !['onedrive', 'dropbox', 'gdrive', 'local', 'webdav', 'self_hosted'].includes(provider)) {
             return NextResponse.json({ error: 'Fornecedor de CDE inválido.' }, { status: 400 });
         }
 

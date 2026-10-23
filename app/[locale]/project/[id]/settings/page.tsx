@@ -7,7 +7,7 @@ import {
     Check, Search, Copy, Lock, UserPlus, Trash2, Mail, Plus, X, 
     LayoutGrid, List, Cloud, ExternalLink, ChevronDown, ChevronRight, 
     Save, RefreshCw, Settings as SettingsIcon, Building2, Users, HardHat, 
-    Shield, Clock, FileCheck, CheckCircle2, AlertCircle, ArrowLeft 
+    Shield, ShieldCheck, Server, Clock, FileCheck, CheckCircle2, AlertCircle, ArrowLeft 
 } from 'lucide-react';
 import { Modal, PrimaryButton } from '@/components/Modal';
 import { ConfirmationModal } from '@/components/ConfirmationModal';
@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import type { ProjectRole } from '@/types';
 import { GoogleDriveIcon } from '@/components/GoogleDriveIcons';
 import { ProfileManagerModal } from '@/components/ProfileManagerModal';
+import { CDESettingsModal } from '@/components/CDESettingsModal';
 import { 
     FlatWorkersIcon, 
     FlatSettingsIcon, 
@@ -94,192 +95,8 @@ const ProjectSettings = () => {
         }
     }, [project]);
 
-    // --- CDE Tab State & Functions ---
-    const [provider, setProvider] = useState<'onedrive' | 'gdrive' | 'dropbox' | null>(null);
-    const [credentials, setCredentials] = useState({
-        folderUrl: '', serviceAccountJson: '', tenantId: '', clientId: '', clientSecret: '', siteUrl: '', appKey: '', appSecret: ''
-    });
-    const [isAuthenticating, setIsAuthenticating] = useState(false);
-    const [authError, setAuthError] = useState('');
-    const [isManualOpen, setIsManualOpen] = useState(false);
-
-    useEffect(() => {
-        if (project?.cdeConfig) {
-            setProvider(project.cdeConfig.provider as any);
-            setCredentials({
-                folderUrl: project.cdeConfig.folderPath || project.cdeConfig.folderUrl || '',
-                serviceAccountJson: project.cdeConfig.serviceAccountKey || '',
-                tenantId: project.cdeConfig.tenantId || '',
-                clientId: project.cdeConfig.clientId || '',
-                clientSecret: project.cdeConfig.clientSecret || '',
-                siteUrl: project.cdeConfig.siteUrl || '',
-                appKey: project.cdeConfig.appKey || '',
-                appSecret: project.cdeConfig.appSecret || ''
-            });
-        } else {
-            setProvider(null);
-            setCredentials({ folderUrl: '', serviceAccountJson: '', tenantId: '', clientId: '', clientSecret: '', siteUrl: '', appKey: '', appSecret: '' });
-        }
-    }, [project?.cdeConfig, activeTab]);
-
-    useEffect(() => {
-        const handleMessage = async (event: MessageEvent) => {
-            if (activeTab !== 'integrations') return;
-
-            if (event.data?.type === 'SAFE_SITE_OAUTH_SUCCESS') {
-                const accessToken = event.data.accessToken;
-                if ((window as any).google_oauth_popup) (window as any).google_oauth_popup.close();
-
-                if (!accessToken) {
-                    setAuthError('Nenhum token de acesso recebido.');
-                    return;
-                }
-
-                try {
-                    let folderId = 'root';
-                    if (credentials.folderUrl) {
-                        const match = credentials.folderUrl.match(/folders\/([-a-zA-Z0-9_]+)/) || credentials.folderUrl.match(/id=([-a-zA-Z0-9_]+)/);
-                        if (match) folderId = match[1];
-                    }
-
-                    updateProjectCDE(projectId, {
-                        ...project?.cdeConfig,
-                        provider: 'gdrive',
-                        connected: true,
-                        lastSync: new Date().toISOString(),
-                        clientId: credentials.clientId,
-                        accessToken: accessToken,
-                        folderId: folderId,
-                        folderUrl: credentials.folderUrl
-                    } as any);
-
-                    setAuthError('');
-                    alert('Google Drive Conectado com Sucesso!');
-                } catch (e) {
-                    setAuthError('Falha ao guardar configuração: ' + e);
-                }
-            } else if (event.data?.type === 'SAFE_SITE_DROPBOX_CODE') {
-                const code = event.data.code;
-                try {
-                    const res = await fetch('/api/integration/dropbox', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            action: 'exchange',
-                            code: code,
-                            appKey: credentials.appKey,
-                            appSecret: credentials.appSecret,
-                            redirectUri: window.location.origin + '/auth/callback'
-                        })
-                    });
-
-                    if (!res.ok) throw new Error('Falha na troca de código Dropbox');
-                    const data = await res.json();
-
-                    updateProjectCDE(projectId, {
-                        ...project?.cdeConfig,
-                        provider: 'dropbox',
-                        connected: true,
-                        lastSync: new Date().toISOString(),
-                        appKey: credentials.appKey,
-                        appSecret: credentials.appSecret,
-                        accessToken: data.access_token,
-                        refreshToken: data.refresh_token,
-                        folderPath: credentials.folderUrl
-                    } as any);
-
-                    setAuthError('');
-                    alert('Dropbox Conectado com Sucesso!');
-
-                } catch (e: any) {
-                    setAuthError('Autenticação Dropbox falhou: ' + e.message);
-                }
-            }
-        };
-        window.addEventListener('message', handleMessage);
-        return () => window.removeEventListener('message', handleMessage);
-    }, [credentials, projectId, project, activeTab, updateProjectCDE]);
-
-    const handleConnectCDE = async () => {
-        setAuthError('');
-        setIsAuthenticating(true);
-
-        try {
-            if (provider === 'gdrive') {
-                if (!credentials.clientId) throw new Error('Google Client ID é obrigatório.');
-                const authUrl = `https://accounts.google.com/o/oauth2/v2/auth` +
-                    `?client_id=${encodeURIComponent(credentials.clientId)}` +
-                    `&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}` +
-                    `&response_type=token` +
-                    `&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive')}` +
-                    `&prompt=consent` +
-                    `&include_granted_scopes=true`;
-
-                window.open(authUrl, 'google_oauth_popup', 'width=600,height=600');
-            } else if (provider === 'dropbox') {
-                if (!credentials.appKey) throw new Error('App Key do Dropbox é obrigatória.');
-                const authUrl = `https://www.dropbox.com/oauth2/authorize` +
-                    `?client_id=${encodeURIComponent(credentials.appKey)}` +
-                    `&redirect_uri=${encodeURIComponent(window.location.origin + '/auth/callback')}` +
-                    `&response_type=code` +
-                    `&token_access_type=offline`;
-
-                localStorage.setItem('safesite_oauth_pending', JSON.stringify({
-                    provider: 'dropbox',
-                    appKey: credentials.appKey,
-                    appSecret: credentials.appSecret,
-                    folderPath: credentials.folderUrl,
-                    projectId,
-                    cdeConfig: project?.cdeConfig,
-                    returnUrl: window.location.href
-                }));
-
-                window.location.href = authUrl;
-            } else if (provider === 'onedrive') {
-                const link = credentials.folderUrl;
-                let siteUrl = credentials.siteUrl || link;
-                let folderPath = '';
-
-                try {
-                    const url = new URL(link);
-                    if (url.pathname.toLowerCase().startsWith('/sites/')) {
-                        const parts = url.pathname.split('/').filter(Boolean);
-                        if (parts.length >= 2) {
-                            siteUrl = `${url.origin}/sites/${parts[1]}`;
-                            if (parts.length > 2) {
-                                const rawPath = url.pathname;
-                                const sitePrefix = `/sites/${parts[1]}`;
-                                folderPath = rawPath.substring(rawPath.toLowerCase().indexOf(sitePrefix.toLowerCase()) + sitePrefix.length);
-                            }
-                        }
-                    }
-                } catch (e) { }
-
-                updateProjectCDE(projectId, {
-                    provider: 'onedrive',
-                    connected: true,
-                    lastSync: new Date().toISOString(),
-                    clientId: credentials.clientId,
-                    clientSecret: credentials.clientSecret,
-                    tenantId: credentials.tenantId,
-                    siteUrl: siteUrl,
-                    folderPath: folderPath
-                });
-                alert('Configuração OneDrive/SharePoint guardada com sucesso!');
-            }
-        } catch (e: any) {
-            setAuthError(e.message);
-        } finally {
-            setIsAuthenticating(false);
-        }
-    };
-
-    const handleDisconnectCDE = () => {
-        if (confirm('Tem a certeza de que deseja desconectar o CDE?')) {
-            updateProjectCDE(projectId, undefined);
-            setProvider(null);
-        }
-    };
+    // --- CDE Settings Modal State ---
+    const [isCdeModalOpen, setIsCdeModalOpen] = useState(false);
 
     // --- Config Save Handlers ---
     const handleSaveApprovalWorkflow = () => {
@@ -1215,299 +1032,205 @@ const ProjectSettings = () => {
             {/* ══════════════════════════════════════════════════════════════ */}
             {activeTab === 'integrations' && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    {/* Main CDE Dashboard Card */}
                     <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-primary flex items-center justify-center shrink-0 border border-blue-500/20">
-                                    <Cloud size={20} />
+                        <div className="p-6 border-b border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-blue-50/40 via-transparent to-transparent dark:from-blue-950/20">
+                            <div className="flex items-start gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20 shadow-sm">
+                                    <Cloud size={26} />
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-bold text-[var(--text)]">
-                                        Ambiente Comum de Dados (CDE)
-                                    </h3>
-                                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                                        Sincronização bidirecional de documentação técnica, atas e evidências de segurança com o seu armazenamento na cloud.
+                                    <div className="flex items-center gap-2.5">
+                                        <h3 className="text-lg font-bold text-[var(--text)]">
+                                            Ambiente Comum de Dados (CDE) da Obra
+                                        </h3>
+                                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hidden sm:inline-block">
+                                            ISO 19650 &amp; DL 273/2003
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-[var(--text-muted)] mt-1 max-w-2xl leading-relaxed">
+                                        Repositório único para sincronização bidirecional de documentação técnica, fichas de procedimentos de segurança (PSS), atas de coordenação e evidências de obra.
                                     </p>
                                 </div>
                             </div>
 
-                            <span className={cn(
-                                "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border self-start sm:self-auto",
-                                project?.cdeConfig?.connected
-                                    ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-                                    : "bg-gray-500/10 text-[var(--text-muted)] border-[var(--border)]"
-                            )}>
-                                <span className={cn("w-2 h-2 rounded-full", project?.cdeConfig?.connected ? "bg-emerald-500" : "bg-gray-400")} />
-                                {project?.cdeConfig?.connected ? `Conectado (${project.cdeConfig.provider?.toUpperCase()})` : 'Desconectado'}
-                            </span>
+                            <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                                <span className={cn(
+                                    "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border self-start sm:self-auto shadow-sm",
+                                    project?.cdeConfig?.connected
+                                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                        : "bg-gray-500/10 text-[var(--text-muted)] border-[var(--border)]"
+                                )}>
+                                    <span className={cn("w-2 h-2 rounded-full", project?.cdeConfig?.connected ? "bg-emerald-500 animate-pulse" : "bg-gray-400")} />
+                                    {project?.cdeConfig?.connected ? `Conectado (${project.cdeConfig.provider?.toUpperCase()})` : 'Desconectado'}
+                                </span>
+                            </div>
                         </div>
 
                         <div className="p-6 space-y-6">
-                            {/* Provider Selection Cards */}
-                            <div>
-                                <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                                    Selecione o Provedor Cloud
-                                </label>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => setProvider('onedrive')}
-                                        className={cn(
-                                            "p-4 rounded-xl border flex flex-col items-center gap-2.5 transition-all cursor-pointer text-center",
-                                            provider === 'onedrive'
-                                                ? "bg-primary/10 border-primary text-primary shadow-sm ring-2 ring-primary/20"
-                                                : "bg-[var(--bg-input)]/40 border-[var(--border)] hover:bg-[var(--bg-input)] text-[var(--text-muted)]"
-                                        )}
-                                    >
-                                        <Cloud size={26} className={provider === 'onedrive' ? "text-primary" : "opacity-60"} />
-                                        <div>
-                                            <span className="text-xs font-bold block text-[var(--text)]">OneDrive / SharePoint</span>
-                                            <span className="text-[10px] text-[var(--text-muted)]">Microsoft 365 Enterprise</span>
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setProvider('gdrive')}
-                                        className={cn(
-                                            "p-4 rounded-xl border flex flex-col items-center gap-2.5 transition-all cursor-pointer text-center",
-                                            provider === 'gdrive'
-                                                ? "bg-emerald-500/10 border-emerald-500 text-emerald-600 shadow-sm ring-2 ring-emerald-500/20"
-                                                : "bg-[var(--bg-input)]/40 border-[var(--border)] hover:bg-[var(--bg-input)] text-[var(--text-muted)]"
-                                        )}
-                                    >
-                                        <GoogleDriveIcon type="folder" size={26} />
-                                        <div>
-                                            <span className="text-xs font-bold block text-[var(--text)]">Google Drive</span>
-                                            <span className="text-[10px] text-[var(--text-muted)]">Google Workspace OAuth</span>
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        onClick={() => setProvider('dropbox')}
-                                        className={cn(
-                                            "p-4 rounded-xl border flex flex-col items-center gap-2.5 transition-all cursor-pointer text-center",
-                                            provider === 'dropbox'
-                                                ? "bg-indigo-500/10 border-indigo-500 text-indigo-600 shadow-sm ring-2 ring-indigo-500/20"
-                                                : "bg-[var(--bg-input)]/40 border-[var(--border)] hover:bg-[var(--bg-input)] text-[var(--text-muted)]"
-                                        )}
-                                    >
-                                        <Cloud size={26} className={provider === 'dropbox' ? "text-indigo-600" : "opacity-60"} />
-                                        <div>
-                                            <span className="text-xs font-bold block text-[var(--text)]">Dropbox Business</span>
-                                            <span className="text-[10px] text-[var(--text-muted)]">Dropbox API App</span>
-                                        </div>
-                                    </button>
+                            {/* Security Badge */}
+                            <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-800/60 rounded-xl flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                                        <ShieldCheck size={20} />
+                                    </div>
+                                    <div className="text-xs">
+                                        <span className="font-bold text-emerald-900 dark:text-emerald-200 block">
+                                            Cifra AES-256-GCM Ativa (Backend BFF)
+                                        </span>
+                                        <span className="text-emerald-800/80 dark:text-emerald-300/80">
+                                            Credenciais de acesso e segredos são protegidos no servidor PostgreSQL. O cliente navegador não armazena chaves privadas.
+                                        </span>
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Google Drive Configuration */}
-                            {provider === 'gdrive' && (
-                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                    <div className="bg-primary/5 border border-primary/20 rounded-xl overflow-hidden">
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsManualOpen(!isManualOpen)}
-                                            className="w-full flex items-center justify-between p-4 text-left hover:bg-primary/10 transition-colors cursor-pointer"
-                                        >
-                                            <div className="flex items-center gap-2 font-bold text-xs text-primary">
-                                                <ExternalLink size={15} />
-                                                <span>Instruções de Configuração do Google Drive</span>
-                                            </div>
-                                            {isManualOpen ? <ChevronDown size={15} className="text-primary" /> : <ChevronRight size={15} className="text-primary" />}
-                                        </button>
-
-                                        {isManualOpen && (
-                                            <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-200">
-                                                <ol className="list-decimal list-inside text-xs text-[var(--text-muted)] space-y-1.5 border-t border-primary/10 pt-3">
-                                                    <li>Aceda à <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="underline text-primary">Google Cloud Console</a>.</li>
-                                                    <li>Crie um projeto ou selecione um existente.</li>
-                                                    <li>Ative a <strong>Google Drive API</strong> em "APIs & Services".</li>
-                                                    <li>Configure o ecrã de consentimento OAuth (Externo).</li>
-                                                    <li>Em "Credentials", crie um <strong>OAuth Client ID</strong> (Web Application).</li>
-                                                    <li>Adicione <code className="bg-[var(--bg-input)] px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}</code> em Authorized JavaScript origins.</li>
-                                                    <li>Adicione <code className="bg-[var(--bg-input)] px-1 rounded">{typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : ''}</code> em Authorized redirect URIs.</li>
-                                                    <li>Copie o <strong>Client ID</strong> e cole abaixo.</li>
-                                                </ol>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Google Client ID</label>
-                                            <input
-                                                type="text"
-                                                value={credentials.clientId}
-                                                onChange={e => setCredentials({ ...credentials, clientId: e.target.value })}
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                                placeholder="xxxxxx.apps.googleusercontent.com"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Link da Pasta Partilhada</label>
-                                            <input
-                                                type="text"
-                                                value={credentials.folderUrl}
-                                                onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                                placeholder="https://drive.google.com/drive/folders/..."
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* OneDrive / SharePoint Configuration */}
-                            {provider === 'onedrive' && (
-                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                    <div className="bg-primary/5 border border-primary/20 rounded-xl overflow-hidden">
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsManualOpen(!isManualOpen)}
-                                            className="w-full flex items-center justify-between p-4 text-left hover:bg-primary/10 transition-colors cursor-pointer"
-                                        >
-                                            <div className="flex items-center gap-2 font-bold text-xs text-primary">
-                                                <ExternalLink size={15} />
-                                                <span>Instruções de Configuração do SharePoint / OneDrive</span>
-                                            </div>
-                                            {isManualOpen ? <ChevronDown size={15} className="text-primary" /> : <ChevronRight size={15} className="text-primary" />}
-                                        </button>
-
-                                        {isManualOpen && (
-                                            <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-200">
-                                                <ol className="list-decimal list-inside text-xs text-[var(--text-muted)] space-y-1.5 border-t border-primary/10 pt-3">
-                                                    <li>Aceda ao <a href="https://portal.azure.com/" target="_blank" rel="noopener noreferrer" className="underline text-primary">Azure Portal</a> e vá a "App registrations".</li>
-                                                    <li>Faça "New registration" (Accounts in this organizational directory only).</li>
-                                                    <li>Copie o <strong>Application (client) ID</strong> e o <strong>Directory (tenant) ID</strong>.</li>
-                                                    <li>Em "Certificates & secrets", crie um novo client secret e copie o <strong>Value</strong>.</li>
-                                                    <li>Em "API Permissions", adicione <code>Sites.ReadWrite.All</code> e conceda "Admin Consent".</li>
-                                                    <li>Preencha os campos abaixo com os dados obtidos.</li>
-                                                </ol>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Link da Pasta do SharePoint</label>
-                                            <input
-                                                type="text"
-                                                value={credentials.folderUrl}
-                                                onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                                placeholder="https://tenant.sharepoint.com/sites/..."
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Tenant ID</label>
-                                                <input 
-                                                    type="text" 
-                                                    value={credentials.tenantId} 
-                                                    onChange={e => setCredentials({ ...credentials, tenantId: e.target.value })} 
-                                                    className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all" 
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Client ID</label>
-                                                <input 
-                                                    type="text" 
-                                                    value={credentials.clientId} 
-                                                    onChange={e => setCredentials({ ...credentials, clientId: e.target.value })} 
-                                                    className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all" 
-                                                />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Client Secret</label>
-                                            <input 
-                                                type="password" 
-                                                value={credentials.clientSecret} 
-                                                onChange={e => setCredentials({ ...credentials, clientSecret: e.target.value })} 
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all" 
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Dropbox Configuration */}
-                            {provider === 'dropbox' && (
-                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">App Key</label>
-                                            <input
-                                                type="text"
-                                                value={credentials.appKey}
-                                                onChange={e => setCredentials({ ...credentials, appKey: e.target.value })}
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                                placeholder="Dropbox App Key"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">App Secret</label>
-                                            <input
-                                                type="password"
-                                                value={credentials.appSecret}
-                                                onChange={e => setCredentials({ ...credentials, appSecret: e.target.value })}
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                                placeholder="Dropbox App Secret"
-                                            />
-                                        </div>
-                                        <div className="col-span-full">
-                                            <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Caminho da Pasta</label>
-                                            <input
-                                                type="text"
-                                                value={credentials.folderUrl}
-                                                onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value })}
-                                                className="w-full px-4 py-2.5 rounded-xl text-xs bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text)] focus:ring-2 focus:ring-primary/20 outline-none transition-all"
-                                                placeholder="/Obras/Projeto A"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {authError && (
-                                <div className="p-4 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs rounded-xl flex items-center gap-2">
-                                    <AlertCircle size={16} className="shrink-0" />
-                                    <span>{authError}</span>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Actions Footer */}
-                        <div className="p-4 bg-[var(--bg-input)]/50 border-t border-[var(--border)] flex flex-wrap items-center justify-between gap-3">
+                            {/* Status Summary & Details */}
                             {project?.cdeConfig?.connected ? (
-                                <button
-                                    type="button"
-                                    onClick={handleDisconnectCDE}
-                                    className="px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
-                                >
-                                    <Trash2 size={15} /> Desconectar CDE
-                                </button>
-                            ) : <div />}
+                                <div className="p-5 rounded-2xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                                        <div className="space-y-1">
+                                            <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">Provedor Ativo</span>
+                                            <span className="font-bold text-sm text-[var(--text)] capitalize flex items-center gap-2">
+                                                <Cloud size={16} className="text-primary" />
+                                                {project.cdeConfig.provider === 'onedrive' ? 'Microsoft SharePoint' :
+                                                 project.cdeConfig.provider === 'gdrive' ? 'Google Drive' :
+                                                 project.cdeConfig.provider === 'dropbox' ? 'Dropbox Business' : 'Servidor Próprio / WebDAV'}
+                                            </span>
+                                        </div>
 
-                            <div className="flex gap-2 ml-auto">
-                                {provider && (
+                                        <div className="space-y-1">
+                                            <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">Destino da Pasta</span>
+                                            <span className="font-mono text-xs text-[var(--text)] truncate block" title={project.cdeConfig.folderPath || project.cdeConfig.folderUrl || project.cdeConfig.siteUrl || '/'}>
+                                                {project.cdeConfig.folderPath || project.cdeConfig.folderUrl || project.cdeConfig.siteUrl || 'Pasta Principal'}
+                                            </span>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">Última Sincronização</span>
+                                            <span className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
+                                                <Clock size={14} />
+                                                {project.cdeConfig.lastSync ? new Date(project.cdeConfig.lastSync).toLocaleString('pt-PT') : 'Conectado'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)]">
+                                        <span className="text-xs text-[var(--text-muted)]">
+                                            A sincronização de fichários ocorre de forma contínua em segundo plano.
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsCdeModalOpen(true)}
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                                        >
+                                            <SettingsIcon size={14} />
+                                            <span>Alterar Definições do CDE</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="p-6 rounded-2xl bg-[var(--bg-input)]/30 border border-dashed border-[var(--border)] text-center space-y-4">
+                                    <div className="w-12 h-12 rounded-full bg-primary/10 text-primary mx-auto flex items-center justify-center">
+                                        <Cloud size={24} />
+                                    </div>
+                                    <div className="max-w-md mx-auto space-y-1">
+                                        <h4 className="text-sm font-bold text-[var(--text)]">
+                                            Nenhum Armazenamento Conectado a esta Obra
+                                        </h4>
+                                        <p className="text-xs text-[var(--text-muted)]">
+                                            Ligue o SharePoint da sua organização, Google Drive, Dropbox ou servidor privado para sincronização em tempo real de documentos e atas de segurança.
+                                        </p>
+                                    </div>
                                     <button
                                         type="button"
-                                        onClick={handleConnectCDE}
-                                        disabled={isAuthenticating}
-                                        className={cn(
-                                            "px-4 py-2 text-xs font-bold text-white rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer",
-                                            provider === 'gdrive' ? "bg-emerald-600 hover:bg-emerald-700" :
-                                                provider === 'dropbox' ? "bg-indigo-600 hover:bg-indigo-700" :
-                                                    "bg-primary hover:bg-primary-hover"
-                                        )}
+                                        onClick={() => setIsCdeModalOpen(true)}
+                                        className="px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all inline-flex items-center gap-2 shadow-md cursor-pointer"
                                     >
-                                        {isAuthenticating ? <RefreshCw size={15} className="animate-spin" /> : <Save size={15} />}
-                                        {provider === 'onedrive' ? 'Guardar Configuração' : 'Autorizar & Conectar'}
+                                        <Cloud size={15} />
+                                        <span>Configurar Ambiente Comum de Dados (CDE)</span>
                                     </button>
-                                )}
+                                </div>
+                            )}
+
+                            {/* Providers Quick Grid */}
+                            <div>
+                                <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-3">
+                                    Provedores Suportados pelo SafeSite
+                                </label>
+                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                                    <div 
+                                        onClick={() => setIsCdeModalOpen(true)}
+                                        className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
+                                                <Cloud size={20} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-primary transition-colors">SharePoint / M365</h5>
+                                                <span className="text-[10px] text-[var(--text-muted)]">Azure Entra ID</span>
+                                            </div>
+                                        </div>
+                                        <span className="text-[11px] font-bold text-primary flex items-center gap-1">
+                                            Configurar <ArrowLeft size={11} className="rotate-180" />
+                                        </span>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => setIsCdeModalOpen(true)}
+                                        className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                                                <GoogleDriveIcon type="folder" size={20} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-emerald-600 transition-colors">Google Drive</h5>
+                                                <span className="text-[10px] text-[var(--text-muted)]">Google Workspace</span>
+                                            </div>
+                                        </div>
+                                        <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                                            Configurar <ArrowLeft size={11} className="rotate-180" />
+                                        </span>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => setIsCdeModalOpen(true)}
+                                        className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-9 h-9 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
+                                                <Cloud size={20} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-indigo-600 transition-colors">Dropbox</h5>
+                                                <span className="text-[10px] text-[var(--text-muted)]">Dropbox Business</span>
+                                            </div>
+                                        </div>
+                                        <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-1">
+                                            Configurar <ArrowLeft size={11} className="rotate-180" />
+                                        </span>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => setIsCdeModalOpen(true)}
+                                        className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                    >
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-600 flex items-center justify-center shrink-0">
+                                                <Server size={20} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-purple-600 transition-colors">Servidor Próprio</h5>
+                                                <span className="text-[10px] text-[var(--text-muted)]">Nextcloud / MinIO</span>
+                                            </div>
+                                        </div>
+                                        <span className="text-[11px] font-bold text-purple-600 flex items-center gap-1">
+                                            Configurar <ArrowLeft size={11} className="rotate-180" />
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1648,6 +1371,14 @@ const ProjectSettings = () => {
                     entityType={profileModalType}
                 />
             )}
+
+            {/* Modal: CDE da Obra */}
+            <CDESettingsModal
+                isOpen={isCdeModalOpen}
+                onClose={() => setIsCdeModalOpen(false)}
+                projectId={projectId}
+                title={`Ambiente Comum de Dados (CDE) - ${project?.name || 'Obra'}`}
+            />
         </div>
     );
 };

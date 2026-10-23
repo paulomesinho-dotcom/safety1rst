@@ -37,7 +37,11 @@ export async function GET(
             return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
         }
 
-        return NextResponse.json({ error: 'Projeto ou Empresa não encontrado' }, { status: 404 });
+        return NextResponse.json({
+            success: true,
+            config: { provider: null, connected: false },
+            cdeConfig: { provider: null, connected: false }
+        });
     } catch (err: any) {
         console.error('[API CDE GET] Error:', err);
         return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 });
