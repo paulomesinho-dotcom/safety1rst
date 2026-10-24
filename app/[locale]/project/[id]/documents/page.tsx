@@ -315,20 +315,18 @@ const Documents = () => {
             return;
         }
 
-        // Se já existem itens/pastas na pasta de destino, confirma com o utilizador
         const rootId = currentCfg.provider === 'dropbox' ? (currentCfg.folderPath || '') : (currentCfg.folderId || 'root');
+        const targetFolderName = currentCfg.folderPath || (currentCfg.provider === 'onedrive' ? 'SharePoint' : 'CDE');
         const hasExisting = driveItems.length > 0 || 
             (treeData[rootId] && treeData[rootId].length > 0) || 
             (treeData['root'] && treeData['root'].length > 0);
 
-        if (hasExisting) {
-            const proceed = window.confirm(
-                'As pastas tipo já parecem ter sido inicializadas nesta localização.\n\n' +
-                'Deseja verificar e recriar a estrutura de pastas tipo?\n\n' +
-                '(Nota: Os ficheiros e pastas já existentes NÃO serão apagados nem alterados.)'
-            );
-            if (!proceed) return;
-        }
+        const confirmMsg = hasExisting
+            ? `As pastas tipo já parecem existir ou foram previamente inicializadas na pasta:\n"${targetFolderName}"\n\nDeseja verificar e criar novamente a estrutura de pastas tipo?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`
+            : `Deseja verificar e criar a estrutura normalizada de pastas tipo na pasta:\n"${targetFolderName}"?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`;
+
+        const proceed = window.confirm(confirmMsg);
+        if (!proceed) return;
 
         setIsInitializing(true);
         try {

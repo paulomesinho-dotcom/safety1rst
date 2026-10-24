@@ -221,6 +221,28 @@ export async function POST(req: NextRequest) {
 
         // Helper: Resolves base folder (immutable ID, driveId, name, webUrl)
         const resolveBaseFolder = async (): Promise<{ id: string; name?: string; driveId?: string; webUrl?: string }> => {
+            const rawTarget = (folderPath || folderUrl || (action !== 'resolve_folder' ? (storedConfig?.folderPath || storedConfig?.folderUrl) : '') || '').trim();
+            let expectedLeaf = '';
+            if (rawTarget && !rawTarget.startsWith('http://') && !rawTarget.startsWith('https://')) {
+                expectedLeaf = rawTarget.split(/[\\/]/).filter(Boolean).pop() || '';
+            } else if (rawTarget.startsWith('http://') || rawTarget.startsWith('https://')) {
+                try {
+                    const u = new URL(rawTarget);
+                    const idParam = u.searchParams.get('id') || u.searchParams.get('RootFolder');
+                    if (idParam) {
+                        expectedLeaf = decodeURIComponent(idParam).split(/[\\/]/).filter(Boolean).pop() || '';
+                    } else {
+                        expectedLeaf = decodeURIComponent(u.pathname).split(/[\\/]/).filter(Boolean).pop() || '';
+                    }
+                } catch (_) {}
+            }
+
+            const matchesExpectedName = (itemName?: string) => {
+                if (!expectedLeaf || !itemName) return true;
+                return itemName.trim().toLowerCase() === expectedLeaf.trim().toLowerCase() ||
+                       encodeURIComponent(itemName.trim()).toLowerCase() === encodeURIComponent(expectedLeaf.trim()).toLowerCase();
+            };
+
             // When action is resolve_folder or user passed folderPath/folderUrl, do NOT reuse storedConfig.folderId
             const explicitId = folderId || (action !== 'resolve_folder' && !folderPath && !folderUrl ? storedConfig?.folderId : undefined);
             if (explicitId && explicitId !== 'root') {
@@ -230,7 +252,11 @@ export async function POST(req: NextRequest) {
                     });
                     if (checkRes.ok) {
                         const data = await checkRes.json();
-                        return { id: data.id, name: data.name, webUrl: data.webUrl };
+                        if (matchesExpectedName(data.name)) {
+                            return { id: data.id, name: data.name, webUrl: data.webUrl };
+                        } else {
+                            console.warn(`[SharePoint] explicitId ${explicitId} resolved to "${data.name}" which does not match expected "${expectedLeaf}". Re-resolving from path.`);
+                        }
                     }
                 } catch (e) { }
 
@@ -242,7 +268,11 @@ export async function POST(req: NextRequest) {
                         });
                         if (dRes.ok) {
                             const data = await dRes.json();
-                            return { id: data.id, name: data.name, driveId: d.id, webUrl: data.webUrl };
+                            if (matchesExpectedName(data.name)) {
+                                return { id: data.id, name: data.name, driveId: d.id, webUrl: data.webUrl };
+                            } else {
+                                console.warn(`[SharePoint] explicitId ${explicitId} in drive ${d.id} resolved to "${data.name}" which does not match expected "${expectedLeaf}". Re-resolving from path.`);
+                            }
                         }
                     } catch (e) { }
                 }

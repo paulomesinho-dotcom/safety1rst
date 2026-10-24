@@ -110,10 +110,17 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
 
     // 2. Encrypt all secrets before storing in the database
     const pathChanged = (incoming.folderPath !== undefined && incoming.folderPath !== existing?.folderPath) ||
-                        (incoming.folderUrl !== undefined && incoming.folderUrl !== existing?.folderUrl);
-    const resolvedFolderId = pathChanged 
-        ? (incoming.folderId?.trim() || '')
-        : (incoming.folderId?.trim() ?? existing?.folderId ?? '');
+                        (incoming.folderUrl !== undefined && incoming.folderUrl !== existing?.folderUrl) ||
+                        (incoming.siteUrl !== undefined && incoming.siteUrl !== existing?.siteUrl);
+
+    let resolvedFolderId = incoming.folderId?.trim() ?? existing?.folderId ?? '';
+    if (pathChanged) {
+        if (!incoming.folderId?.trim() || incoming.folderId.trim() === existing?.folderId) {
+            resolvedFolderId = '';
+        } else {
+            resolvedFolderId = incoming.folderId.trim();
+        }
+    }
 
     const encryptedConfig = {
         provider: incoming.provider || existing?.provider || null,
@@ -134,8 +141,8 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
         accessToken: finalAccessToken ? encryptSecret(finalAccessToken) : '',
     };
 
-    // If SharePoint/OneDrive and folderId not provided or root, attempt automatic server-side resolution
-    if (encryptedConfig.provider === 'onedrive' && (!encryptedConfig.folderId || encryptedConfig.folderId === 'root')) {
+    // If SharePoint/OneDrive and folderId not provided or root or path changed, attempt automatic server-side resolution
+    if (encryptedConfig.provider === 'onedrive' && (!encryptedConfig.folderId || encryptedConfig.folderId === 'root' || pathChanged)) {
         const rawToResolve = encryptedConfig.folderPath || encryptedConfig.folderUrl;
         if (rawToResolve && finalClientSecret && encryptedConfig.clientId && encryptedConfig.tenantId && encryptedConfig.siteUrl) {
             try {
@@ -148,7 +155,7 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
                     siteUrl: encryptedConfig.siteUrl,
                     folderUrl: encryptedConfig.folderUrl,
                     folderPath: encryptedConfig.folderPath,
-                    folderId: encryptedConfig.folderId
+                    folderId: ''
                 }, 'resolve_folder', {});
                 if (res?.folderId && res.folderId !== 'root') {
                     encryptedConfig.folderId = res.folderId;
@@ -488,6 +495,29 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
     // Helper: Resolves base folder (immutable ID, driveId, name, webUrl)
     const resolveBaseFolder = async (): Promise<{ id: string; name?: string; driveId?: string; webUrl?: string }> => {
+        // Extract leaf folder name if folderPath or folderUrl is specified
+        const rawTarget = (config.folderPath || config.folderUrl || '').trim();
+        let expectedLeaf = '';
+        if (rawTarget && !rawTarget.startsWith('http://') && !rawTarget.startsWith('https://')) {
+            expectedLeaf = rawTarget.split(/[\\/]/).filter(Boolean).pop() || '';
+        } else if (rawTarget.startsWith('http://') || rawTarget.startsWith('https://')) {
+            try {
+                const u = new URL(rawTarget);
+                const idParam = u.searchParams.get('id') || u.searchParams.get('RootFolder');
+                if (idParam) {
+                    expectedLeaf = decodeURIComponent(idParam).split(/[\\/]/).filter(Boolean).pop() || '';
+                } else {
+                    expectedLeaf = decodeURIComponent(u.pathname).split(/[\\/]/).filter(Boolean).pop() || '';
+                }
+            } catch (_) {}
+        }
+
+        const matchesExpectedName = (itemName?: string) => {
+            if (!expectedLeaf || !itemName) return true;
+            return itemName.trim().toLowerCase() === expectedLeaf.trim().toLowerCase() ||
+                   encodeURIComponent(itemName.trim()).toLowerCase() === encodeURIComponent(expectedLeaf.trim()).toLowerCase();
+        };
+
         // 1. Explicit folderId (and not 'root') - only prioritize if not resolving a new folder path/url
         const explicitId = (action !== 'resolve_folder' || (!config.folderUrl && !config.folderPath)) ? config.folderId : undefined;
         if (explicitId && explicitId !== 'root') {
@@ -497,7 +527,11 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                 });
                 if (checkRes.ok) {
                     const data = await checkRes.json();
-                    return { id: data.id, name: data.name, webUrl: data.webUrl };
+                    if (matchesExpectedName(data.name)) {
+                        return { id: data.id, name: data.name, webUrl: data.webUrl };
+                    } else {
+                        console.warn(`[SharePoint] explicitId ${explicitId} resolved to "${data.name}" which does not match expected "${expectedLeaf}". Re-resolving from path.`);
+                    }
                 }
             } catch (e) { }
 
@@ -509,7 +543,11 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                     });
                     if (dRes.ok) {
                         const data = await dRes.json();
-                        return { id: data.id, name: data.name, driveId: d.id, webUrl: data.webUrl };
+                        if (matchesExpectedName(data.name)) {
+                            return { id: data.id, name: data.name, driveId: d.id, webUrl: data.webUrl };
+                        } else {
+                            console.warn(`[SharePoint] explicitId ${explicitId} in drive ${d.id} resolved to "${data.name}" which does not match expected "${expectedLeaf}". Re-resolving from path.`);
+                        }
                     }
                 } catch (e) { }
             }

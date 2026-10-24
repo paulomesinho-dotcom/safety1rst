@@ -283,14 +283,16 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 ...prev,
                 siteUrl: parsed.siteUrl,
                 folderPath: parsed.folderPath,
-                folderUrl: parsed.folderPath
+                folderUrl: parsed.folderPath,
+                folderId: ''
             }));
             setUrlCleanedNotice(`Link higienizado! Pasta detetada: "${parsed.folderPath}"`);
             setTimeout(() => setUrlCleanedNotice(''), 4500);
         } else {
             setCredentials(prev => ({
                 ...prev,
-                siteUrl: parsed.siteUrl || value
+                siteUrl: parsed.siteUrl || value,
+                folderId: ''
             }));
         }
     };
@@ -624,7 +626,15 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 const parsed = parseSharePointUrl(credentials.siteUrl || credentials.folderUrl);
                 const finalSiteUrl = parsed.siteUrl || credentials.siteUrl;
                 const finalFolderPath = credentials.folderPath || parsed.folderPath || '';
-                const finalFolderId = credentials.folderId || '';
+                let finalFolderId = credentials.folderId || '';
+
+                // If siteUrl or folderPath changed compared to what was previously saved on the server,
+                // and finalFolderId was not explicitly updated or equals old server folderId, clear it
+                if (serverCdeConfig && (finalSiteUrl !== serverCdeConfig.siteUrl || finalFolderPath !== (serverCdeConfig.folderPath || ''))) {
+                    if (finalFolderId === serverCdeConfig.folderId) {
+                        finalFolderId = '';
+                    }
+                }
 
                 // Save to server with AES-256-GCM encryption
                 const res = await fetch(`/api/projects/${projectId}/cde/setup`, {
