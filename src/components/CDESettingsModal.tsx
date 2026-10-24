@@ -578,8 +578,9 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                         const saveData = await saveRes.json();
                         if (!saveRes.ok) throw new Error(saveData.error || 'Falha ao guardar no servidor.');
 
-                        updateProjectCDE(projectId, saveData.cdeConfig);
-                        setServerCdeConfig(saveData.cdeConfig);
+                        const savedConfig = saveData.cdeConfig || saveData.config;
+                        updateProjectCDE(projectId, savedConfig);
+                        setServerCdeConfig(savedConfig);
                         setAuthError('');
                         setIsAuthenticating(false);
                         onClose();
@@ -646,8 +647,9 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Falha ao guardar no servidor.');
 
-                updateProjectCDE(projectId, data.cdeConfig);
-                setServerCdeConfig(data.cdeConfig);
+                const savedConfig = data.cdeConfig || data.config;
+                updateProjectCDE(projectId, savedConfig);
+                setServerCdeConfig(savedConfig);
                 setIsAuthenticating(false);
                 onClose();
                 alert('Configuração SharePoint/OneDrive guardada com sucesso e cifrada com AES-256-GCM no servidor!');
@@ -673,8 +675,9 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Falha ao guardar no servidor.');
 
-                updateProjectCDE(projectId, data.cdeConfig);
-                setServerCdeConfig(data.cdeConfig);
+                const savedConfig = data.cdeConfig || data.config;
+                updateProjectCDE(projectId, savedConfig);
+                setServerCdeConfig(savedConfig);
                 setIsAuthenticating(false);
                 onClose();
                 alert('Configuração de Servidor Próprio / WebDAV guardada com sucesso no servidor!');

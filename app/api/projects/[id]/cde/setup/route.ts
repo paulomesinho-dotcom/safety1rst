@@ -67,7 +67,8 @@ export async function POST(
         return NextResponse.json({
             success: true,
             message: 'Configuração de CDE gravada e encriptada com sucesso no servidor!',
-            config: sanitized
+            config: sanitized,
+            cdeConfig: sanitized
         });
     } catch (err: any) {
         console.error('[API CDE SETUP] Error:', err);

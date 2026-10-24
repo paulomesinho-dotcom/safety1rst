@@ -61,6 +61,20 @@ const Documents = () => {
     const fileInputUploadRef = useRef<HTMLInputElement>(null);
     const folderInputRef = useRef<HTMLInputElement>(null);
 
+    // Synchronize authoritative CDE configuration from the server on page mount
+    useEffect(() => {
+        if (!projectId) return;
+        fetch(`/api/projects/${projectId}/cde`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                const cfg = data?.cdeConfig || data?.config;
+                if (cfg && cfg.connected) {
+                    updateProjectCDE(projectId, cfg);
+                }
+            })
+            .catch(err => console.warn('[CDE] Sync project cdeConfig failed:', err));
+    }, [projectId, updateProjectCDE]);
+
 
 
     const extractFolderId = (url: string) => {
@@ -281,10 +295,33 @@ const Documents = () => {
     };
 
     const handleInitializeFolders = async () => {
-        if (!project?.cdeConfig?.connected) return;
+        let currentCfg = project?.cdeConfig;
+        if (!currentCfg?.connected) {
+            try {
+                const res = await fetch(`/api/projects/${projectId}/cde`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const srvCfg = data?.cdeConfig || data?.config;
+                    if (srvCfg?.connected) {
+                        currentCfg = srvCfg;
+                        updateProjectCDE(projectId, srvCfg);
+                    }
+                }
+            } catch (_) {}
+        }
 
-        // Se já existem itens/pastas, confirma com o utilizador
-        if (driveItems.length > 0) {
+        if (!currentCfg?.connected) {
+            alert('O CDE não está conectado neste projeto. Aceda às Definições para configurar a ligação ao SharePoint.');
+            return;
+        }
+
+        // Se já existem itens/pastas na pasta de destino, confirma com o utilizador
+        const rootId = currentCfg.provider === 'dropbox' ? (currentCfg.folderPath || '') : (currentCfg.folderId || 'root');
+        const hasExisting = driveItems.length > 0 || 
+            (treeData[rootId] && treeData[rootId].length > 0) || 
+            (treeData['root'] && treeData['root'].length > 0);
+
+        if (hasExisting) {
             const proceed = window.confirm(
                 'As pastas tipo já parecem ter sido inicializadas nesta localização.\n\n' +
                 'Deseja verificar e recriar a estrutura de pastas tipo?\n\n' +
@@ -295,22 +332,21 @@ const Documents = () => {
 
         setIsInitializing(true);
         try {
-            const logs = await initializeProjectStructure({ ...project.cdeConfig, projectId: project.id } as any, async (token, expiresAt) => {
-                updateProjectCDE(project.id, { ...project.cdeConfig, accessToken: token } as any);
+            const logs = await initializeProjectStructure({ ...currentCfg, projectId: project?.id || projectId } as any, async (token, expiresAt) => {
+                updateProjectCDE(projectId, { ...currentCfg, accessToken: token } as any);
             });
             alert('Pastas tipo verificadas com sucesso:\n' + logs.filter(l => l.includes('Created') || l.includes('Criada') || l.includes('Found existing') || l.includes('Existente') || l.includes('verified')).join('\n'));
 
             // Refresh main view
-            const rootId = project.cdeConfig.provider === 'dropbox' ? (project.cdeConfig.folderPath || '') : (project.cdeConfig.folderId || 'root');
             const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : rootId;
 
             let items: any[] = [];
-            if (project.cdeConfig.provider === 'gdrive' && project.cdeConfig.accessToken) {
-                items = await fetchGoogleDriveContent(project.cdeConfig.accessToken, targetId);
-            } else if (project.cdeConfig.provider === 'onedrive') {
-                items = await fetchSharePointContent(project.cdeConfig, targetId);
-            } else if (project.cdeConfig.provider === 'dropbox') {
-                items = await fetchDropboxContent(project.cdeConfig, targetId);
+            if (currentCfg.provider === 'gdrive' && currentCfg.accessToken) {
+                items = await fetchGoogleDriveContent(currentCfg.accessToken, targetId);
+            } else if (currentCfg.provider === 'onedrive') {
+                items = await fetchSharePointContent(currentCfg, targetId);
+            } else if (currentCfg.provider === 'dropbox') {
+                items = await fetchDropboxContent(currentCfg, targetId);
             }
             setDriveItems(items);
             setTreeData(prev => ({ ...prev, [targetId]: items, [rootId]: items, 'root': items }));
