@@ -302,7 +302,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 ...prev,
                 siteUrl: parsed.siteUrl || prev.siteUrl,
                 folderPath: parsed.folderPath || value,
-                folderUrl: value
+                folderUrl: value,
+                folderId: '' // Clear previous folderId when editing or pasting new folder
             }));
             if (parsed.folderPath) {
                 setUrlCleanedNotice(`Pasta extraída do link: "${parsed.folderPath}"`);
@@ -312,14 +313,19 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             setCredentials(prev => ({
                 ...prev,
                 folderPath: value,
-                folderUrl: value
+                folderUrl: value,
+                folderId: '' // Clear previous folderId when editing or pasting new folder
             }));
         }
     };
 
     const handleValidateAndResolveFolder = async (targetVal?: string) => {
-        const val = targetVal || credentials.folderPath || credentials.folderUrl || credentials.siteUrl;
-        if (!val) return;
+        const val = (targetVal !== undefined ? targetVal : (credentials.folderPath || credentials.folderUrl)).trim();
+        if (!val) {
+            setUrlCleanedNotice('Indique o nome da pasta ou link do SharePoint para validar.');
+            setTimeout(() => setUrlCleanedNotice(''), 3500);
+            return;
+        }
         setIsLoadingFolders(true);
         try {
             const parsed = parseSharePointUrl(credentials.siteUrl || val);
@@ -334,6 +340,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                     clientSecret: credentials.clientSecret,
                     folderUrl: val,
                     folderPath: val,
+                    folderId: '', // Explicitly empty so it resolves the NEW input and does not revert to old folder
                     projectId
                 })
             });

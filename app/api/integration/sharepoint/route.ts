@@ -141,9 +141,27 @@ export async function POST(req: NextRequest) {
         // Helper: Ensure/Create folder in SharePoint
         const ensureSharePointFolder = async (pId: string, fName: string, driveId?: string) => {
             const isR = !pId || pId === 'root';
+            let effectiveDriveId = driveId;
+
+            // If not root and driveId is not specified, discover which drive contains pId
+            if (!isR && !effectiveDriveId) {
+                const drives = await getSiteDrives();
+                for (const d of drives) {
+                    try {
+                        const check = await fetch(`https://graph.microsoft.com/v1.0/drives/${d.id}/items/${pId}`, {
+                            headers: { Authorization: `Bearer ${accessToken}` }
+                        });
+                        if (check.ok) {
+                            effectiveDriveId = d.id;
+                            break;
+                        }
+                    } catch (_) { }
+                }
+            }
+
             const childrenUrl = isR
-                ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
-                : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${pId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${pId}/children`);
+                ? (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
+                : (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/items/${pId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${pId}/children`);
 
             try {
                 const listRes = await fetch(childrenUrl, {
@@ -155,7 +173,7 @@ export async function POST(req: NextRequest) {
                         item.folder && item.name.toLowerCase() === fName.toLowerCase()
                     );
                     if (existing) {
-                        return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId };
+                        return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId: effectiveDriveId };
                     }
                 }
             } catch (e) {
@@ -177,7 +195,7 @@ export async function POST(req: NextRequest) {
 
             if (createRes.ok) {
                 const item = await createRes.json();
-                return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl, driveId };
+                return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl, driveId: effectiveDriveId };
             }
 
             if (createRes.status === 409) {
@@ -190,7 +208,7 @@ export async function POST(req: NextRequest) {
                         item.folder && item.name.toLowerCase() === fName.toLowerCase()
                     );
                     if (existing) {
-                        return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId };
+                        return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId: effectiveDriveId };
                     }
                 }
             }
@@ -201,7 +219,8 @@ export async function POST(req: NextRequest) {
 
         // Helper: Resolves base folder (immutable ID, driveId, name, webUrl)
         const resolveBaseFolder = async (): Promise<{ id: string; name?: string; driveId?: string; webUrl?: string }> => {
-            const explicitId = folderId || storedConfig?.folderId;
+            // When action is resolve_folder or user passed folderPath/folderUrl, do NOT reuse storedConfig.folderId
+            const explicitId = folderId || (action !== 'resolve_folder' && !folderPath && !folderUrl ? storedConfig?.folderId : undefined);
             if (explicitId && explicitId !== 'root') {
                 try {
                     const checkRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${explicitId}`, {
@@ -227,7 +246,7 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            const candidateUrl = (folderUrl || folderPath || storedConfig?.folderUrl || storedConfig?.folderPath || '').trim();
+            const candidateUrl = (folderUrl || folderPath || (action !== 'resolve_folder' ? (storedConfig?.folderUrl || storedConfig?.folderPath) : '') || '').trim();
             if (candidateUrl.startsWith('http://') || candidateUrl.startsWith('https://')) {
                 try {
                     const shareToken = encodeSharePointUrlForGraph(candidateUrl);
@@ -273,10 +292,14 @@ export async function POST(req: NextRequest) {
             let targetDriveId: string | undefined = undefined;
             let pathSegments = segments;
 
-            const matchedDrive = drives.find((d: any) => 
-                d.name?.toLowerCase() === segments[0].toLowerCase() ||
-                d.webUrl?.toLowerCase().endsWith('/' + segments[0].toLowerCase())
-            );
+            const matchedDrive = drives.find((d: any) => {
+                const dName = (d.name || '').toLowerCase();
+                const dUrlEnd = decodeURIComponent((d.webUrl || '').split('/').pop() || '').toLowerCase();
+                const seg = segments[0].toLowerCase();
+                return dName === seg || dUrlEnd === seg ||
+                       (seg.includes('document') && (dName.includes('document') || dUrlEnd.includes('document')));
+            });
+
             if (matchedDrive) {
                 targetDriveId = matchedDrive.id;
                 pathSegments = segments.slice(1);
@@ -286,20 +309,26 @@ export async function POST(req: NextRequest) {
                 return { id: 'root', driveId: targetDriveId, name: matchedDrive?.name };
             }
 
-            const relPath = pathSegments.join('/');
-            const directPathUrl = targetDriveId
-                ? `https://graph.microsoft.com/v1.0/drives/${targetDriveId}/root:/${encodeURIComponent(relPath)}`
-                : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(relPath)}`;
+            // Encode path segments individually so forward slashes '/' are preserved
+            const relPathEncoded = pathSegments.map((s: string) => encodeURIComponent(s)).join('/');
+            const drivesToTry = targetDriveId 
+                ? drives.filter((d: any) => d.id === targetDriveId)
+                : (drives.length > 0 ? drives : [{ id: 'default' }]);
 
-            try {
-                const directRes = await fetch(directPathUrl, {
-                    headers: { Authorization: `Bearer ${accessToken}` }
-                });
-                if (directRes.ok) {
-                    const item = await directRes.json();
-                    return { id: item.id, name: item.name, driveId: targetDriveId, webUrl: item.webUrl };
-                }
-            } catch (e) { }
+            for (const drv of drivesToTry) {
+                try {
+                    const directPathUrl = drv.id !== 'default'
+                        ? `https://graph.microsoft.com/v1.0/drives/${drv.id}/root:/${relPathEncoded}`
+                        : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${relPathEncoded}`;
+                    const directRes = await fetch(directPathUrl, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    if (directRes.ok) {
+                        const item = await directRes.json();
+                        return { id: item.id, name: item.name, driveId: drv.id !== 'default' ? drv.id : undefined, webUrl: item.webUrl };
+                    }
+                } catch (e) { }
+            }
 
             let currentParentId = 'root';
             let lastRes: any = null;
@@ -419,18 +448,45 @@ export async function POST(req: NextRequest) {
             const driveId = baseFolder.driveId;
 
             const isRoot = !targetFolderId || targetFolderId === 'root';
+            let effectiveDriveId = driveId;
+
+            // If not root and effectiveDriveId is not known, discover which drive contains targetFolderId
+            if (!isRoot && !effectiveDriveId) {
+                const drives = await getSiteDrives();
+                for (const d of drives) {
+                    try {
+                        const check = await fetch(`https://graph.microsoft.com/v1.0/drives/${d.id}/items/${targetFolderId}`, {
+                            headers: { Authorization: `Bearer ${accessToken}` }
+                        });
+                        if (check.ok) {
+                            effectiveDriveId = d.id;
+                            break;
+                        }
+                    } catch (_) { }
+                }
+            }
+
             const queryUrl = isRoot
-                ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
-                : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`);
+                ? (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
+                : (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/items/${targetFolderId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`);
 
             let driveRes = await fetch(queryUrl, {
                 headers: { Authorization: `Bearer ${accessToken}` }
             });
 
             if (!driveRes.ok && !isRoot) {
-                const fallbackUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`;
-                const fbRes = await fetch(fallbackUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-                if (fbRes.ok) driveRes = fbRes;
+                const drives = await getSiteDrives();
+                for (const d of drives) {
+                    if (d.id === effectiveDriveId) continue;
+                    try {
+                        const altUrl = `https://graph.microsoft.com/v1.0/drives/${d.id}/items/${targetFolderId}/children`;
+                        const altRes = await fetch(altUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+                        if (altRes.ok) {
+                            driveRes = altRes;
+                            break;
+                        }
+                    } catch (_) { }
+                }
             }
 
             if (!driveRes.ok) {

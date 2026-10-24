@@ -280,12 +280,23 @@ const Documents = () => {
 
     const handleInitializeFolders = async () => {
         if (!project?.cdeConfig?.connected) return;
+
+        // Se já existem itens/pastas, confirma com o utilizador
+        if (driveItems.length > 0) {
+            const proceed = window.confirm(
+                'As pastas tipo já parecem ter sido inicializadas nesta localização.\n\n' +
+                'Deseja verificar e recriar a estrutura de pastas tipo?\n\n' +
+                '(Nota: Os ficheiros e pastas já existentes NÃO serão apagados nem alterados.)'
+            );
+            if (!proceed) return;
+        }
+
         setIsInitializing(true);
         try {
-            const logs = await initializeProjectStructure(project.cdeConfig, async (token, expiresAt) => {
+            const logs = await initializeProjectStructure({ ...project.cdeConfig, projectId: project.id } as any, async (token, expiresAt) => {
                 updateProjectCDE(project.id, { ...project.cdeConfig, accessToken: token } as any);
             });
-            alert('Pastas tipo criadas:\n' + logs.filter(l => l.includes('Created') || l.includes('Criada')).join('\n'));
+            alert('Pastas tipo verificadas com sucesso:\n' + logs.filter(l => l.includes('Created') || l.includes('Criada') || l.includes('Found existing') || l.includes('Existente') || l.includes('verified')).join('\n'));
 
             // Refresh main view
             const rootId = project.cdeConfig.provider === 'dropbox' ? (project.cdeConfig.folderPath || '') : (project.cdeConfig.folderId || 'root');

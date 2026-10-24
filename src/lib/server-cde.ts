@@ -109,6 +109,12 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
     const finalAccessToken = resolveSecret(incoming.accessToken, existing?.accessToken);
 
     // 2. Encrypt all secrets before storing in the database
+    const pathChanged = (incoming.folderPath !== undefined && incoming.folderPath !== existing?.folderPath) ||
+                        (incoming.folderUrl !== undefined && incoming.folderUrl !== existing?.folderUrl);
+    const resolvedFolderId = pathChanged 
+        ? (incoming.folderId?.trim() || '')
+        : (incoming.folderId?.trim() ?? existing?.folderId ?? '');
+
     const encryptedConfig = {
         provider: incoming.provider || existing?.provider || null,
         connected: incoming.connected !== undefined ? Boolean(incoming.connected) : (existing?.connected ?? false),
@@ -116,7 +122,7 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
         siteUrl: incoming.siteUrl?.trim() ?? existing?.siteUrl ?? '',
         folderUrl: incoming.folderUrl?.trim() ?? incoming.folderPath?.trim() ?? existing?.folderUrl ?? '',
         folderPath: incoming.folderPath?.trim() ?? incoming.folderUrl?.trim() ?? existing?.folderPath ?? '',
-        folderId: incoming.folderId?.trim() ?? existing?.folderId ?? '',
+        folderId: resolvedFolderId,
         tenantId: incoming.tenantId?.trim() ?? existing?.tenantId ?? '',
         clientId: incoming.clientId?.trim() ?? existing?.clientId ?? '',
         appKey: incoming.appKey?.trim() ?? existing?.appKey ?? '',
@@ -404,9 +410,27 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     // Helper: Ensure/Create folder in SharePoint
     const ensureSharePointFolder = async (parentId: string, folderName: string, driveId?: string) => {
         const isRoot = !parentId || parentId === 'root';
+        let effectiveDriveId = driveId;
+
+        // If not root and driveId is not specified, discover which drive contains parentId
+        if (!isRoot && !effectiveDriveId) {
+            const drives = await getSiteDrives();
+            for (const d of drives) {
+                try {
+                    const check = await fetch(`https://graph.microsoft.com/v1.0/drives/${d.id}/items/${parentId}`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    if (check.ok) {
+                        effectiveDriveId = d.id;
+                        break;
+                    }
+                } catch (_) { }
+            }
+        }
+
         const childrenUrl = isRoot
-            ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
-            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${parentId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`);
+            ? (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
+            : (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/items/${parentId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`);
 
         try {
             const listRes = await fetch(childrenUrl, {
@@ -418,7 +442,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                     item.folder && item.name.toLowerCase() === folderName.toLowerCase()
                 );
                 if (existing) {
-                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId };
+                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId: effectiveDriveId };
                 }
             }
         } catch (e) {
@@ -440,7 +464,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
         if (createRes.ok) {
             const item = await createRes.json();
-            return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl, driveId };
+            return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl, driveId: effectiveDriveId };
         }
 
         if (createRes.status === 409) {
@@ -453,7 +477,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                     item.folder && item.name.toLowerCase() === folderName.toLowerCase()
                 );
                 if (existing) {
-                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId };
+                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId: effectiveDriveId };
                 }
             }
         }
@@ -464,8 +488,8 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
     // Helper: Resolves base folder (immutable ID, driveId, name, webUrl)
     const resolveBaseFolder = async (): Promise<{ id: string; name?: string; driveId?: string; webUrl?: string }> => {
-        // 1. Explicit folderId (and not 'root')
-        const explicitId = config.folderId;
+        // 1. Explicit folderId (and not 'root') - only prioritize if not resolving a new folder path/url
+        const explicitId = (action !== 'resolve_folder' || (!config.folderUrl && !config.folderPath)) ? config.folderId : undefined;
         if (explicitId && explicitId !== 'root') {
             try {
                 const checkRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${explicitId}`, {
@@ -539,10 +563,14 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         let targetDriveId: string | undefined = undefined;
         let pathSegments = segments;
 
-        const matchedDrive = drives.find((d: any) => 
-            d.name?.toLowerCase() === segments[0].toLowerCase() ||
-            d.webUrl?.toLowerCase().endsWith('/' + segments[0].toLowerCase())
-        );
+        const matchedDrive = drives.find((d: any) => {
+            const dName = (d.name || '').toLowerCase();
+            const dUrlEnd = decodeURIComponent((d.webUrl || '').split('/').pop() || '').toLowerCase();
+            const seg = segments[0].toLowerCase();
+            return dName === seg || dUrlEnd === seg ||
+                   (seg.includes('document') && (dName.includes('document') || dUrlEnd.includes('document')));
+        });
+
         if (matchedDrive) {
             targetDriveId = matchedDrive.id;
             pathSegments = segments.slice(1);
@@ -552,20 +580,26 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             return { id: 'root', driveId: targetDriveId, name: matchedDrive?.name };
         }
 
-        const relPath = pathSegments.join('/');
-        const directPathUrl = targetDriveId
-            ? `https://graph.microsoft.com/v1.0/drives/${targetDriveId}/root:/${encodeURIComponent(relPath)}`
-            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(relPath)}`;
+        // Encode path segments individually so forward slashes '/' are preserved for Graph
+        const relPathEncoded = pathSegments.map((s: string) => encodeURIComponent(s)).join('/');
+        const drivesToTry = targetDriveId 
+            ? drives.filter((d: any) => d.id === targetDriveId)
+            : (drives.length > 0 ? drives : [{ id: 'default' }]);
 
-        try {
-            const directRes = await fetch(directPathUrl, {
-                headers: { Authorization: `Bearer ${accessToken}` }
-            });
-            if (directRes.ok) {
-                const item = await directRes.json();
-                return { id: item.id, name: item.name, driveId: targetDriveId, webUrl: item.webUrl };
-            }
-        } catch (e) { }
+        for (const drv of drivesToTry) {
+            try {
+                const directPathUrl = drv.id !== 'default'
+                    ? `https://graph.microsoft.com/v1.0/drives/${drv.id}/root:/${relPathEncoded}`
+                    : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${relPathEncoded}`;
+                const directRes = await fetch(directPathUrl, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                if (directRes.ok) {
+                    const item = await directRes.json();
+                    return { id: item.id, name: item.name, driveId: drv.id !== 'default' ? drv.id : undefined, webUrl: item.webUrl };
+                }
+            } catch (e) { }
+        }
 
         let currentParentId = 'root';
         let lastRes: any = null;
@@ -604,18 +638,45 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const driveId = baseFolder.driveId;
 
         const isRoot = !targetFolderId || targetFolderId === 'root';
+        let effectiveDriveId = driveId;
+
+        // If not root and effectiveDriveId is not known, discover which drive contains targetFolderId
+        if (!isRoot && !effectiveDriveId) {
+            const drives = await getSiteDrives();
+            for (const d of drives) {
+                try {
+                    const check = await fetch(`https://graph.microsoft.com/v1.0/drives/${d.id}/items/${targetFolderId}`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    if (check.ok) {
+                        effectiveDriveId = d.id;
+                        break;
+                    }
+                } catch (_) { }
+            }
+        }
+
         const queryUrl = isRoot
-            ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
-            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`);
+            ? (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
+            : (effectiveDriveId ? `https://graph.microsoft.com/v1.0/drives/${effectiveDriveId}/items/${targetFolderId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`);
 
         let driveRes = await fetch(queryUrl, {
             headers: { Authorization: `Bearer ${accessToken}` }
         });
 
         if (!driveRes.ok && !isRoot) {
-            const fallbackUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`;
-            const fbRes = await fetch(fallbackUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-            if (fbRes.ok) driveRes = fbRes;
+            const drives = await getSiteDrives();
+            for (const d of drives) {
+                if (d.id === effectiveDriveId) continue;
+                try {
+                    const altUrl = `https://graph.microsoft.com/v1.0/drives/${d.id}/items/${targetFolderId}/children`;
+                    const altRes = await fetch(altUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+                    if (altRes.ok) {
+                        driveRes = altRes;
+                        break;
+                    }
+                } catch (_) { }
+            }
         }
 
         if (!driveRes.ok) {

@@ -221,7 +221,7 @@ async function createDropboxFolder(accessToken: string, parentPath: string, name
 }
 
 export async function createOneDriveFolder(config: CDEConfig, parentId: string, name: string): Promise<CreateFolderResult> {
-    const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+    const compOrProjId = (config as any).projectId || (config as any).id || (config as any).companyId || 'comp_master';
 
     // 1. Tentar via endpoint de ação CDE no servidor (que tem credenciais desencriptadas)
     try {
@@ -300,7 +300,7 @@ export async function initializeProjectStructure(
 ): Promise<string[]> {
     if (!config.connected) throw new Error('CDE not connected');
 
-    const compOrProjId = (config as any).projectId || 'root';
+    const compOrProjId = (config as any).projectId || (config as any).id || (config as any).companyId || 'comp_master';
 
     // Execução ultra-rápida no servidor para SharePoint
     if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
@@ -322,9 +322,9 @@ export async function initializeProjectStructure(
         }
     }
 
-    const rootId = (config.provider === 'gdrive' ? config.folderId :
+    const rootId = (config.provider === 'gdrive' ? (config.folderId || 'root') :
         config.provider === 'dropbox' ? (config.folderPath || '') :
-            'root');
+            (config.folderId || 'root'));
 
     if (!rootId && rootId !== '') throw new Error('Root folder not defined');
 
