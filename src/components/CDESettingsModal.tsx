@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { 
     Cloud, X, Save, RefreshCw, Trash2, ExternalLink, ChevronDown, ChevronRight, 
     ShieldCheck, CheckCircle2, AlertCircle, Lock, Copy, Check, BookOpen, 
-    Server, HelpCircle, Building2, HardDrive, Key, Globe, ArrowRight, Shield
+    Server, HelpCircle, Building2, HardDrive, Key, Globe, ArrowRight, Shield,
+    Folder, FolderPlus, Search, CornerDownRight, CheckSquare, Sparkles
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { GoogleDriveIcon } from './GoogleDriveIcons';
@@ -17,6 +18,66 @@ interface CDESettingsModalProps {
 }
 
 type ModalTab = 'config' | 'sharepoint_guide' | 'self_hosted' | 'free_setup' | 'troubleshooting';
+
+/**
+ * Intelligently parses SharePoint browser URLs (including query parameters ?id=, ?RootFolder=,
+ * document library view paths, and encoded symbols) into a clean siteUrl and folderPath.
+ */
+export function parseSharePointUrl(rawUrl: string): {
+    siteUrl: string;
+    folderPath: string;
+} {
+    if (!rawUrl || typeof rawUrl !== 'string') {
+        return { siteUrl: '', folderPath: '' };
+    }
+
+    const trimmed = rawUrl.trim();
+    let url: URL;
+    try {
+        url = new URL(trimmed);
+    } catch {
+        // If not a full URL, it could be a direct path
+        return { siteUrl: '', folderPath: trimmed.replace(/^[/\\]+/, '') };
+    }
+
+    const host = url.origin;
+    // Check if query parameter has the real folder path (copied directly from browser address bar)
+    const queryId = url.searchParams.get('id') || url.searchParams.get('RootFolder') || url.searchParams.get('rootfolder');
+    let rawPath = queryId ? decodeURIComponent(queryId) : decodeURIComponent(url.pathname);
+
+    // Identify /sites/SiteName or /teams/TeamName
+    let siteUrl = host;
+    let pathAfterSite = rawPath;
+
+    const siteMatch = rawPath.match(/^(\/(?:sites|teams)\/[^/]+)/i);
+    if (siteMatch) {
+        siteUrl = `${host}${siteMatch[1]}`;
+        pathAfterSite = rawPath.substring(siteMatch[1].length);
+    } else {
+        siteUrl = host;
+        pathAfterSite = rawPath;
+    }
+
+    // Strip ASPX views like /Forms/AllItems.aspx
+    let cleaned = pathAfterSite
+        .replace(/\/Forms\/[a-zA-Z0-9_\.]+/i, '')
+        .replace(/\/[a-zA-Z0-9_]+\.aspx$/i, '')
+        .replace(/^\/+/, '');
+
+    // Check if starts with a standard document library name
+    const libMatch = cleaned.match(/^(Shared Documents|Documentos Partilhados|Documentos|Documents)\/?(.*)$/i);
+    let extractedFolderPath = '';
+    if (libMatch) {
+        extractedFolderPath = libMatch[2] ? libMatch[2].replace(/^\/+|\/+$/g, '') : '';
+    } else {
+        extractedFolderPath = cleaned.replace(/^\/+|\/+$/g, '');
+    }
+
+    return {
+        siteUrl,
+        folderPath: extractedFolderPath
+    };
+}
 
 export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onClose, projectId, title }) => {
     const { projects, updateProjectCDE } = useStore();
@@ -32,6 +93,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
     const [isLoadingServerConfig, setIsLoadingServerConfig] = useState(false);
     const [credentials, setCredentials] = useState({
         folderUrl: '',
+        folderPath: '',
+        folderId: '',
         serviceAccountJson: '', // Google
         tenantId: '',           // SharePoint
         clientId: '',           // SharePoint / Google / WebDAV username
@@ -42,6 +105,19 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
     });
     const [isAuthenticating, setIsAuthenticating] = useState(false);
     const [authError, setAuthError] = useState('');
+
+    // SharePoint Folder Picker state
+    const [isExploringFolders, setIsExploringFolders] = useState(false);
+    const [isLoadingFolders, setIsLoadingFolders] = useState(false);
+    const [folderList, setFolderList] = useState<Array<{ id: string; name: string; childCount?: number; webViewLink?: string }>>([]);
+    const [folderPickerParentId, setFolderPickerParentId] = useState<string>('root');
+    const [folderBreadcrumbs, setFolderBreadcrumbs] = useState<Array<{ id: string; name: string }>>([
+        { id: 'root', name: 'Documentos (Raiz)' }
+    ]);
+    const [folderPickerError, setFolderPickerError] = useState<string>('');
+    const [isCreatingFolderInPicker, setIsCreatingFolderInPicker] = useState(false);
+    const [newPickerFolderName, setNewPickerFolderName] = useState('');
+    const [urlCleanedNotice, setUrlCleanedNotice] = useState<string>('');
 
     // Test connection state
     const [isTesting, setIsTesting] = useState(false);
@@ -70,6 +146,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             setProvider((project.cdeConfig.provider as any) || null);
             setCredentials({
                 folderUrl: project.cdeConfig.folderPath || project.cdeConfig.folderUrl || '',
+                folderPath: project.cdeConfig.folderPath || project.cdeConfig.folderUrl || '',
+                folderId: (project.cdeConfig as any).folderId || '',
                 serviceAccountJson: project.cdeConfig.serviceAccountKey || '',
                 tenantId: project.cdeConfig.tenantId || '',
                 clientId: project.cdeConfig.clientId || '',
@@ -94,6 +172,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                         }
                         setCredentials(prev => ({
                             folderUrl: cfg.folderPath || cfg.folderUrl || prev.folderUrl,
+                            folderPath: cfg.folderPath || cfg.folderUrl || prev.folderPath,
+                            folderId: cfg.folderId || prev.folderId,
                             serviceAccountJson: cfg.serviceAccountKey || prev.serviceAccountJson,
                             tenantId: cfg.tenantId || prev.tenantId,
                             clientId: cfg.clientId || prev.clientId,
@@ -186,6 +266,172 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
         }, 400);
         window.addEventListener('storage', handler);
         setTimeout(() => { clearInterval(interval); window.removeEventListener('storage', handler); }, 5 * 60 * 1000);
+    };
+
+    // SharePoint input handlers and folder explorer logic
+    const handleSiteUrlChange = (value: string) => {
+        const parsed = parseSharePointUrl(value);
+        if (parsed.folderPath) {
+            setCredentials(prev => ({
+                ...prev,
+                siteUrl: parsed.siteUrl,
+                folderPath: parsed.folderPath,
+                folderUrl: parsed.folderPath
+            }));
+            setUrlCleanedNotice(`Link higienizado! Pasta detetada: "${parsed.folderPath}"`);
+            setTimeout(() => setUrlCleanedNotice(''), 4500);
+        } else {
+            setCredentials(prev => ({
+                ...prev,
+                siteUrl: parsed.siteUrl || value
+            }));
+        }
+    };
+
+    const handleFolderPathChange = (value: string) => {
+        if (value.startsWith('http://') || value.startsWith('https://')) {
+            const parsed = parseSharePointUrl(value);
+            setCredentials(prev => ({
+                ...prev,
+                siteUrl: parsed.siteUrl || prev.siteUrl,
+                folderPath: parsed.folderPath || value,
+                folderUrl: parsed.folderPath || value,
+                folderId: ''
+            }));
+            if (parsed.folderPath) {
+                setUrlCleanedNotice(`Pasta extraída do link: "${parsed.folderPath}"`);
+                setTimeout(() => setUrlCleanedNotice(''), 4500);
+            }
+        } else {
+            setCredentials(prev => ({
+                ...prev,
+                folderPath: value,
+                folderUrl: value,
+                folderId: ''
+            }));
+        }
+    };
+
+    const loadSharePointFolders = async (targetParentId: string = 'root', breadcrumbTitle?: string) => {
+        setIsLoadingFolders(true);
+        setFolderPickerError('');
+
+        const parsed = parseSharePointUrl(credentials.siteUrl);
+        const effectiveSiteUrl = parsed.siteUrl || credentials.siteUrl;
+
+        try {
+            const res = await fetch('/api/integration/sharepoint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'list_folders',
+                    siteUrl: effectiveSiteUrl,
+                    tenantId: credentials.tenantId,
+                    clientId: credentials.clientId,
+                    clientSecret: credentials.clientSecret,
+                    parentId: targetParentId,
+                    projectId: projectId
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                throw new Error(data.error || data.details || 'Falha ao listar pastas do SharePoint.');
+            }
+
+            setFolderList(data.folders || []);
+            setFolderPickerParentId(targetParentId);
+
+            if (targetParentId === 'root') {
+                setFolderBreadcrumbs([{ id: 'root', name: 'Documentos (Raiz)' }]);
+            } else if (breadcrumbTitle) {
+                setFolderBreadcrumbs(prev => {
+                    const idx = prev.findIndex(b => b.id === targetParentId);
+                    if (idx !== -1) {
+                        return prev.slice(0, idx + 1);
+                    }
+                    return [...prev, { id: targetParentId, name: breadcrumbTitle }];
+                });
+            }
+        } catch (err: any) {
+            setFolderPickerError(err.message || 'Erro ao explorar pastas do SharePoint.');
+        } finally {
+            setIsLoadingFolders(false);
+        }
+    };
+
+    const handleSelectFolder = (folder: { id: string; name: string }) => {
+        const pathSegments = folderBreadcrumbs
+            .filter(b => b.id !== 'root')
+            .map(b => b.name);
+        pathSegments.push(folder.name);
+        const fullPath = pathSegments.join('/');
+
+        setCredentials(prev => ({
+            ...prev,
+            folderId: folder.id,
+            folderPath: fullPath,
+            folderUrl: fullPath
+        }));
+        setIsExploringFolders(false);
+        setUrlCleanedNotice(`Pasta "${folder.name}" vinculada com sucesso!`);
+        setTimeout(() => setUrlCleanedNotice(''), 4500);
+    };
+
+    const handleSelectCurrentBreadcrumb = () => {
+        if (folderPickerParentId === 'root') {
+            setCredentials(prev => ({
+                ...prev,
+                folderId: 'root',
+                folderPath: '',
+                folderUrl: ''
+            }));
+            setUrlCleanedNotice('Selecionada a raiz da biblioteca de documentos.');
+        } else {
+            const currentItem = folderBreadcrumbs[folderBreadcrumbs.length - 1];
+            const fullPath = folderBreadcrumbs.filter(b => b.id !== 'root').map(b => b.name).join('/');
+            setCredentials(prev => ({
+                ...prev,
+                folderId: currentItem.id,
+                folderPath: fullPath,
+                folderUrl: fullPath
+            }));
+            setUrlCleanedNotice(`Pasta "${currentItem.name}" vinculada com sucesso!`);
+        }
+        setIsExploringFolders(false);
+        setTimeout(() => setUrlCleanedNotice(''), 4500);
+    };
+
+    const handleCreateFolderInPicker = async () => {
+        if (!newPickerFolderName.trim()) return;
+        setIsCreatingFolderInPicker(true);
+        try {
+            const parsed = parseSharePointUrl(credentials.siteUrl);
+            const res = await fetch('/api/integration/sharepoint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'create_folder',
+                    siteUrl: parsed.siteUrl || credentials.siteUrl,
+                    tenantId: credentials.tenantId,
+                    clientId: credentials.clientId,
+                    clientSecret: credentials.clientSecret,
+                    parentId: folderPickerParentId,
+                    folderName: newPickerFolderName.trim(),
+                    projectId
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                throw new Error(data.error || 'Erro ao criar pasta');
+            }
+            setNewPickerFolderName('');
+            await loadSharePointFolders(folderPickerParentId);
+        } catch (err: any) {
+            setFolderPickerError(err.message || 'Erro ao criar pasta');
+        } finally {
+            setIsCreatingFolderInPicker(false);
+        }
     };
 
     // Test connection action executed securely on server
@@ -306,26 +552,16 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 return;
 
             } else if (provider === 'onedrive') {
-                const link = credentials.folderUrl || credentials.siteUrl;
-                if (!link) throw new Error('Indique o Link do Site ou Pasta do SharePoint.');
+                const rawLink = credentials.siteUrl || credentials.folderUrl;
+                if (!rawLink) throw new Error('Indique o Link do Site ou Pasta do SharePoint.');
                 if (!credentials.tenantId) throw new Error('Directory (Tenant) ID é obrigatório.');
                 if (!credentials.clientId) throw new Error('Application (Client) ID é obrigatório.');
 
-                let siteUrl = credentials.siteUrl || link;
-                let folderPath = '';
-                try {
-                    const url = new URL(link);
-                    if (url.pathname.toLowerCase().startsWith('/sites/')) {
-                        const parts = url.pathname.split('/').filter(Boolean);
-                        if (parts.length >= 2) {
-                            siteUrl = `${url.origin}/sites/${parts[1]}`;
-                            if (parts.length > 2) {
-                                const sitePrefix = `/sites/${parts[1]}`;
-                                folderPath = url.pathname.substring(url.pathname.toLowerCase().indexOf(sitePrefix.toLowerCase()) + sitePrefix.length);
-                            }
-                        }
-                    }
-                } catch (e) { }
+                // Cleanly parse SharePoint URL to extract base siteUrl and folderPath
+                const parsed = parseSharePointUrl(credentials.siteUrl || credentials.folderUrl);
+                const finalSiteUrl = parsed.siteUrl || credentials.siteUrl;
+                const finalFolderPath = credentials.folderPath || parsed.folderPath || '';
+                const finalFolderId = credentials.folderId || '';
 
                 // Save to server with AES-256-GCM encryption
                 const res = await fetch(`/api/projects/${projectId}/cde/setup`, {
@@ -338,8 +574,10 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                         clientId: credentials.clientId,
                         clientSecret: credentials.clientSecret,
                         tenantId: credentials.tenantId,
-                        siteUrl,
-                        folderPath
+                        siteUrl: finalSiteUrl,
+                        folderPath: finalFolderPath,
+                        folderUrl: finalFolderPath,
+                        folderId: finalFolderId
                     })
                 });
 
@@ -403,7 +641,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             setProvider(null);
             setServerCdeConfig(null);
             setCredentials({
-                folderUrl: '', serviceAccountJson: '', tenantId: '', clientId: '', clientSecret: '', siteUrl: '', appKey: '', appSecret: ''
+                folderUrl: '', folderPath: '', folderId: '', serviceAccountJson: '', tenantId: '', clientId: '', clientSecret: '', siteUrl: '', appKey: '', appSecret: ''
             });
             onClose();
             alert('CDE desligado e credenciais eliminadas com sucesso.');
@@ -667,21 +905,262 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                         </button>
                                     </div>
 
+                                    {/* Smart URL Notification */}
+                                    {urlCleanedNotice && (
+                                        <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in">
+                                            <Sparkles size={15} className="shrink-0 text-emerald-600" />
+                                            <span>{urlCleanedNotice}</span>
+                                        </div>
+                                    )}
+
+                                    {/* Link do Site SharePoint */}
                                     <div>
                                         <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1">
-                                            Link do Site ou Pasta do SharePoint
+                                            Link do Site SharePoint (Site URL)
                                         </label>
                                         <input
                                             type="text"
-                                            value={credentials.folderUrl || credentials.siteUrl}
-                                            onChange={e => setCredentials({ ...credentials, folderUrl: e.target.value, siteUrl: e.target.value })}
+                                            value={credentials.siteUrl}
+                                            onChange={e => handleSiteUrlChange(e.target.value)}
                                             className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-xs bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary/20 outline-none"
-                                            placeholder="https://suaempresa.sharepoint.com/sites/NomeObra"
+                                            placeholder="https://empresa.sharepoint.com/sites/NomeObra"
                                         />
                                         <p className="text-[10px] text-gray-500 mt-1">
-                                            Ex: <code>https://empresa.sharepoint.com/sites/ObraLisboa</code>
+                                            Pode colar o link direto do navegador; o SafeSite limpa os parâmetros estranhos e extrai o site e a pasta automaticamente.
                                         </p>
                                     </div>
+
+                                    {/* Pasta de Destino no SharePoint */}
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
+                                                Pasta de Destino na Biblioteca de Documentos
+                                            </label>
+                                            {credentials.folderId && (
+                                                <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                    <CheckCircle2 size={11} /> Vinculada por ID
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <input
+                                                    type="text"
+                                                    value={credentials.folderPath}
+                                                    onChange={e => handleFolderPathChange(e.target.value)}
+                                                    className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-xs bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary/20 outline-none"
+                                                    placeholder="Ex: SafeSite ou Obras/Edificio (deixe vazio para usar a raiz)"
+                                                />
+                                                <Folder size={15} className="absolute left-3 top-3 text-gray-400" />
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const willOpen = !isExploringFolders;
+                                                    setIsExploringFolders(willOpen);
+                                                    if (willOpen) {
+                                                        loadSharePointFolders('root');
+                                                    }
+                                                }}
+                                                className="px-3.5 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-primary text-xs font-bold hover:bg-blue-100 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer shadow-sm"
+                                                title="Explorar e selecionar pasta no SharePoint"
+                                            >
+                                                <Search size={14} />
+                                                <span>{isExploringFolders ? 'Fechar Explorador' : 'Explorar Pastas'}</span>
+                                            </button>
+                                        </div>
+
+                                        {/* Quick Shortcut Pills */}
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                            <span className="text-[10px] text-gray-400 font-semibold mr-1">Atalhos rápidos:</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setCredentials(prev => ({ ...prev, folderPath: 'SafeSite', folderUrl: 'SafeSite', folderId: '' }));
+                                                    setUrlCleanedNotice('Pasta definida como "SafeSite"');
+                                                    setTimeout(() => setUrlCleanedNotice(''), 3000);
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#1f2022] border border-gray-200 dark:border-gray-700 hover:border-primary text-[11px] font-medium text-gray-700 dark:text-gray-300 transition-all cursor-pointer flex items-center gap-1"
+                                            >
+                                                📁 Pasta "SafeSite"
+                                            </button>
+                                            {project?.name && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const pName = `SafeSite/${project.name.trim()}`;
+                                                        setCredentials(prev => ({ ...prev, folderPath: pName, folderUrl: pName, folderId: '' }));
+                                                        setUrlCleanedNotice(`Pasta definida como "${pName}"`);
+                                                        setTimeout(() => setUrlCleanedNotice(''), 3000);
+                                                    }}
+                                                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#1f2022] border border-gray-200 dark:border-gray-700 hover:border-primary text-[11px] font-medium text-gray-700 dark:text-gray-300 transition-all cursor-pointer flex items-center gap-1"
+                                                >
+                                                    🏢 SafeSite/{project.name.length > 15 ? project.name.slice(0, 15) + '...' : project.name}
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setCredentials(prev => ({ ...prev, folderPath: '', folderUrl: '', folderId: 'root' }));
+                                                    setUrlCleanedNotice('Definido para usar a raiz da biblioteca');
+                                                    setTimeout(() => setUrlCleanedNotice(''), 3000);
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#1f2022] border border-gray-200 dark:border-gray-700 hover:border-gray-400 text-[11px] font-medium text-gray-500 dark:text-gray-400 transition-all cursor-pointer"
+                                            >
+                                                📂 Raiz (/)
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Interactive SharePoint Folder Explorer */}
+                                    {isExploringFolders && (
+                                        <div className="p-4 rounded-xl border border-blue-300 dark:border-blue-800 bg-white dark:bg-[#131314] shadow-md space-y-3 animate-in fade-in zoom-in-95 duration-200">
+                                            {/* Explorer Header */}
+                                            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-gray-800">
+                                                <div className="flex items-center gap-2">
+                                                    <Folder size={16} className="text-primary" />
+                                                    <span className="text-xs font-bold text-gray-900 dark:text-gray-100">
+                                                        Explorador de Pastas do SharePoint
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setIsExploringFolders(false)}
+                                                    className="text-gray-400 hover:text-gray-600 p-1 rounded"
+                                                >
+                                                    <X size={15} />
+                                                </button>
+                                            </div>
+
+                                            {/* Breadcrumbs */}
+                                            <div className="flex flex-wrap items-center gap-1 text-[11px] font-medium bg-gray-50 dark:bg-[#1b1c1d] px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-800">
+                                                {folderBreadcrumbs.map((b, idx) => (
+                                                    <React.Fragment key={b.id}>
+                                                        {idx > 0 && <span className="text-gray-400">/</span>}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => loadSharePointFolders(b.id, b.name)}
+                                                            className={`hover:underline cursor-pointer ${
+                                                                idx === folderBreadcrumbs.length - 1 ? 'font-bold text-primary' : 'text-gray-600 dark:text-gray-400'
+                                                            }`}
+                                                        >
+                                                            {b.name}
+                                                        </button>
+                                                    </React.Fragment>
+                                                ))}
+                                            </div>
+
+                                            {/* Current Folder Selection Action */}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleSelectCurrentBreadcrumb}
+                                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                                                >
+                                                    <CheckSquare size={13} />
+                                                    <span>Usar pasta atual ({folderBreadcrumbs[folderBreadcrumbs.length - 1]?.name || 'Raiz'})</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => loadSharePointFolders(folderPickerParentId)}
+                                                    disabled={isLoadingFolders}
+                                                    className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 text-xs transition-colors cursor-pointer"
+                                                    title="Recarregar pastas"
+                                                >
+                                                    <RefreshCw size={13} className={isLoadingFolders ? 'animate-spin' : ''} />
+                                                </button>
+                                            </div>
+
+                                            {/* Error Display */}
+                                            {folderPickerError && (
+                                                <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-xs flex items-start gap-2">
+                                                    <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-600" />
+                                                    <div>
+                                                        <p className="font-semibold">{folderPickerError}</p>
+                                                        <p className="text-[10px] text-red-600/80 mt-0.5">
+                                                            Certifique-se de que o Tenant ID, Client ID e Client Secret estão preenchidos antes de explorar.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Loading State */}
+                                            {isLoadingFolders && (
+                                                <div className="py-6 flex flex-col items-center justify-center gap-2 text-xs text-gray-500">
+                                                    <RefreshCw size={18} className="animate-spin text-primary" />
+                                                    <span>A carregar pastas do SharePoint...</span>
+                                                </div>
+                                            )}
+
+                                            {/* Folder Items */}
+                                            {!isLoadingFolders && !folderPickerError && (
+                                                <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+                                                    {folderList.length === 0 ? (
+                                                        <div className="py-5 text-center text-xs text-gray-400">
+                                                            Nenhuma subpasta encontrada nesta localização. Pode criar uma abaixo ou usar a pasta atual.
+                                                        </div>
+                                                    ) : (
+                                                        folderList.map(folder => (
+                                                            <div
+                                                                key={folder.id}
+                                                                className="p-2 rounded-lg border border-gray-200 dark:border-gray-800 hover:border-blue-400 dark:hover:border-blue-600 bg-white dark:bg-[#1a1b1c] flex items-center justify-between gap-2 transition-all group"
+                                                            >
+                                                                <div
+                                                                    onClick={() => loadSharePointFolders(folder.id, folder.name)}
+                                                                    className="flex items-center gap-2 flex-1 cursor-pointer min-w-0"
+                                                                >
+                                                                    <Folder size={16} className="text-amber-500 shrink-0" />
+                                                                    <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate group-hover:text-primary transition-colors">
+                                                                        {folder.name}
+                                                                    </span>
+                                                                    {folder.childCount !== undefined && folder.childCount > 0 && (
+                                                                        <span className="text-[10px] text-gray-400">({folder.childCount})</span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => loadSharePointFolders(folder.id, folder.name)}
+                                                                        className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 text-[10px] font-semibold text-gray-600 dark:text-gray-300 cursor-pointer"
+                                                                    >
+                                                                        Abrir
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleSelectFolder(folder)}
+                                                                        className="px-2.5 py-1 rounded bg-primary/10 hover:bg-primary text-primary hover:text-white text-[10px] font-bold transition-all cursor-pointer"
+                                                                    >
+                                                                        ✓ Selecionar
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Create Folder Inline */}
+                                            <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    value={newPickerFolderName}
+                                                    onChange={e => setNewPickerFolderName(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateFolderInPicker(); } }}
+                                                    placeholder="Criar nova pasta aqui..."
+                                                    className="flex-1 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-xs bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 outline-none"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={handleCreateFolderInPicker}
+                                                    disabled={isCreatingFolderInPicker || !newPickerFolderName.trim()}
+                                                    className="px-3 py-1.5 rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-bold hover:bg-gray-800 transition-all flex items-center gap-1 disabled:opacity-50 cursor-pointer shrink-0"
+                                                >
+                                                    {isCreatingFolderInPicker ? <RefreshCw size={13} className="animate-spin" /> : <FolderPlus size={13} />}
+                                                    <span>Criar</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                                         <div>
