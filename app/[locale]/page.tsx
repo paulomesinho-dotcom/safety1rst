@@ -145,11 +145,11 @@ export default function Home() {
         syncFromServer?.().catch(() => {});
     }, [syncFromServer]);
 
-    // Active Account & Subscription Details
+    // Active Account & Subscription Details — strictly isolated per user
     const userAccount = useMemo(() => {
-        if (!currentUser) return null;
-        return accounts.find(a => a.id === currentUser.accountId) || accounts.find(a => a.id === account?.id) || account || null;
-    }, [accounts, currentUser, account]);
+        if (!currentUser || currentUser.role === 'superadmin') return null;
+        return accounts.find(a => a.id === currentUser.accountId) || null;
+    }, [accounts, currentUser]);
 
     // Paid & Free Accounts Split for SuperAdmin
     const paidAccounts = useMemo(() => accounts.filter(a => a.plan !== 'free'), [accounts]);

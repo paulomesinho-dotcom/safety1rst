@@ -24,6 +24,8 @@ export interface DecryptedCdeConfig {
  * This runs ONLY on the server.
  */
 export async function getProjectCdeConfig(id: string): Promise<DecryptedCdeConfig | null> {
+    if (!id || id === 'comp_master') return null;
+
     const project = await prisma.project.findUnique({
         where: { id },
         select: { id: true, cdeConfig: true }
@@ -846,6 +848,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const baseFolder = await resolveBaseFolder();
         const baseFolderId = baseFolder.id;
         const driveId = baseFolder.driveId;
+        logs.push(`Pasta base no SharePoint: ${baseFolder.name || config.folderPath || 'Raiz'} (ID ${baseFolderId})`);
 
         const COMPANY_STANDARD_FOLDERS = [
             '01-Empresa',

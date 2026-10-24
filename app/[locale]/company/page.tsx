@@ -274,14 +274,36 @@ export default function MyCompanyPage() {
     const [activeTab, setActiveTab] = useState<CompanyTab>('organization');
     const [isCollapsed, setIsCollapsed] = useState(false);
 
-    // Current user's account & master company record
-    const userAccount = accounts.find(a => a.id === currentUser?.accountId) || account;
+    // Current user's account & master company record (strictly isolated per user/account, never shared with superadmin or across accounts)
+    const effectiveAccountId = useMemo(() => {
+        if (!currentUser) return '';
+        if (currentUser.role === 'superadmin') return `sa_${currentUser.id}`;
+        return currentUser.accountId || `usr_${currentUser.id}`;
+    }, [currentUser]);
+
+    const userAccount = useMemo(() => {
+        if (!currentUser || currentUser.role === 'superadmin' || !currentUser.accountId) return null;
+        return accounts.find(a => a.id === currentUser.accountId) || null;
+    }, [accounts, currentUser]);
+
     const currentPlan = userAccount?.plan || 'free';
     const isPaidOrAdmin = currentPlan !== 'free' || currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
 
-    // Find or init the master company entity for this account (without project link or fallback)
-    const masterCompany = companies.find(c => c.accountId === userAccount?.id && !c.projectId) || 
-                          companies.find(c => c.accountId === userAccount?.id);
+    // Find the master company entity strictly for this account/user
+    const masterCompany = useMemo(() => {
+        if (!effectiveAccountId) return undefined;
+        return companies.find(c => c.accountId === effectiveAccountId && !c.projectId && c.id !== 'comp_master') ||
+               companies.find(c => c.accountId === effectiveAccountId && c.id !== 'comp_master');
+    }, [companies, effectiveAccountId]);
+
+    // Deterministic, strictly isolated corporate entity ID per user/account (never 'comp_master')
+    const corporateEntityId = useMemo(() => {
+        if (!currentUser) return '';
+        if (currentUser.role === 'superadmin') return `comp_sa_${currentUser.id}`;
+        if (masterCompany?.id && masterCompany.id !== 'comp_master') return masterCompany.id;
+        if (currentUser.accountId) return `comp_acc_${currentUser.accountId}`;
+        return `comp_usr_${currentUser.id}`;
+    }, [currentUser, masterCompany?.id]);
 
     // Form state for Company Details
     const [companyForm, setCompanyForm] = useState({
@@ -361,11 +383,10 @@ export default function MyCompanyPage() {
     const [selectedEquipIds, setSelectedEquipIds] = useState<string[]>([]);
     const [equipProjectFilter, setEquipProjectFilter] = useState<string>('all');
 
-    // Only projects that the user has on the Workplace "Os Meus Projetos" page
+    // Only projects that the user personally owns or belongs to
     const userProjects = useMemo(() => {
         if (!currentUser) return [];
         return (projects || []).filter((p: Project) => {
-            if (currentUser.role === 'superadmin') return true;
             if (p.creatorId && p.creatorId === currentUser.id) return true;
             if (userAccount && p.accountId === userAccount.id) return true;
             return currentUser.projectAccess?.some(pa => pa.projectId === p.id);
@@ -463,19 +484,17 @@ export default function MyCompanyPage() {
             return;
         }
 
-        let compId = masterCompany?.id;
-        if (!compId) {
-            const newId = `comp_${nanoid(8)}`;
+        let compId = masterCompany?.id || corporateEntityId;
+        if (!masterCompany && compId) {
             addCompany({
                 ...companyForm,
-                id: newId,
-                accountId: userAccount?.id || 'default',
+                id: compId,
+                accountId: effectiveAccountId || 'default',
                 status: companyForm.status,
                 workflowStatus: 'validated',
                 ifcActorRole: getIfcRoleFromCompanyRole(companyForm.companyRole || ''),
                 createdAt: new Date().toISOString()
             } as any);
-            compId = newId;
         }
 
         if (exportEntityType === 'company') {
@@ -531,59 +550,204 @@ export default function MyCompanyPage() {
         }
     };
 
-    // Filter Workers & Equipment for this company account (account level)
+    // Filter Workers & Equipment strictly for this company account (never leak across accounts)
     const companyWorkers = useMemo(() => {
+        if (!effectiveAccountId) return [];
         return workers.filter(w => {
-            // Corporate catalog workers do not have a projectId attached directly
             if (w.projectId) return false;
-            if (userAccount?.id && w.accountId === userAccount.id) return true;
-            if (masterCompany && (w.companyId === masterCompany.id || (userAccount?.id && w.companyId === `comp_${userAccount.id}`))) return true;
-            if (w.id.startsWith('w_corp_')) return true;
-            if (!w.accountId && !w.projectId) return true;
+            if (w.accountId && w.accountId === effectiveAccountId) return true;
+            if (corporateEntityId && w.companyId === corporateEntityId) return true;
+            if (masterCompany && w.companyId === masterCompany.id) return true;
             return false;
         });
-    }, [workers, userAccount?.id, masterCompany?.id]);
+    }, [workers, effectiveAccountId, corporateEntityId, masterCompany]);
 
     const companyEquipment = useMemo(() => {
+        if (!effectiveAccountId) return [];
         return equipment.filter(e => {
-            // Corporate catalog equipment do not have a projectId attached directly
             if (e.projectId) return false;
-            if (userAccount?.id && e.accountId === userAccount.id) return true;
-            if (masterCompany && (e.companyId === masterCompany.id || (userAccount?.id && e.companyId === `comp_${userAccount.id}`))) return true;
-            if (e.id.startsWith('eq_corp_')) return true;
-            if (!e.accountId && !e.projectId) return true;
+            if (e.accountId && e.accountId === effectiveAccountId) return true;
+            if (corporateEntityId && e.companyId === corporateEntityId) return true;
+            if (masterCompany && e.companyId === masterCompany.id) return true;
             return false;
         });
-    }, [equipment, userAccount?.id, masterCompany?.id]);
+    }, [equipment, effectiveAccountId, corporateEntityId, masterCompany]);
 
     // ════════ GESTÃO DOCUMENTAL & CDE CORPORATIVO ════════
     const [companyCdeConfig, setCompanyCdeConfig] = useState<any>(null);
     const [isLoadingCdeConfig, setIsLoadingCdeConfig] = useState(false);
 
+    // Live CDE Explorer State (fetches actual folders & files from SharePoint / Cloud CDE)
+    const [cdeCurrentPath, setCdeCurrentPath] = useState<Array<{ id: string; name: string }>>([]);
+    const [cdeDriveItems, setCdeDriveItems] = useState<any[]>([]);
+    const [cdeTreeData, setCdeTreeData] = useState<Record<string, any[]>>({});
+    const [cdeExpandedFolders, setCdeExpandedFolders] = useState<Set<string>>(new Set(['root']));
+    const [isLoadingCdeItems, setIsLoadingCdeItems] = useState(false);
+    const [cdeLoadError, setCdeLoadError] = useState<string>('');
+    const prevCdeFolderKeyRef = useRef<string>('');
+
     const fetchCompanyCde = async () => {
-        const compId = masterCompany?.id || 'comp_master';
+        if (!corporateEntityId || corporateEntityId === 'comp_master') {
+            setCompanyCdeConfig(null);
+            return null;
+        }
         setIsLoadingCdeConfig(true);
         try {
-            const res = await fetch(`/api/projects/${compId}/cde`);
+            const res = await fetch(`/api/projects/${corporateEntityId}/cde`);
             if (res.ok) {
                 const data = await res.json();
                 const cfg = data.cdeConfig || null;
-                if (cfg) {
-                    cfg.projectId = compId;
-                    cfg.companyId = compId;
+                if (cfg && (cfg.connected || cfg.provider)) {
+                    cfg.projectId = corporateEntityId;
+                    cfg.companyId = corporateEntityId;
+                    setCompanyCdeConfig(cfg);
+                    return cfg;
                 }
-                setCompanyCdeConfig(cfg);
             }
+            setCompanyCdeConfig(null);
+            return null;
         } catch (e) {
             console.error('Failed to fetch corporate CDE config:', e);
+            setCompanyCdeConfig(null);
+            return null;
         } finally {
             setIsLoadingCdeConfig(false);
         }
     };
 
     useEffect(() => {
+        setCompanyCdeConfig(null);
+        setCdeCurrentPath([]);
+        setCdeDriveItems([]);
+        setCdeTreeData({});
+        setCdeLoadError('');
         fetchCompanyCde();
-    }, [masterCompany?.id]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [corporateEntityId]);
+
+    // Fetch live folder content from the server-side CDE action endpoint
+    const fetchCompanyCdeContent = async (cfg: any, folderId: string): Promise<any[]> => {
+        if (!corporateEntityId || !cfg?.connected) return [];
+        const serverFolderId = (!folderId || folderId === 'root' || folderId === cfg?.folderId) ? 'root' : folderId;
+
+        const res = await fetch(`/api/projects/${corporateEntityId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'list',
+                payload: { folderId: serverFolderId }
+            })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data?.error || 'Falha ao carregar pastas do CDE.');
+        }
+
+        const srvBaseId = data.result?.baseFolderId;
+        if (serverFolderId === 'root' && srvBaseId && srvBaseId !== 'root' && srvBaseId !== cfg?.folderId) {
+            fetchCompanyCde();
+        }
+
+        return data.result?.files || [];
+    };
+
+    // Reset navigation & tree cache when the linked CDE folder changes
+    useEffect(() => {
+        const key = `${companyCdeConfig?.provider || ''}:${companyCdeConfig?.siteUrl || ''}:${companyCdeConfig?.folderId || ''}:${companyCdeConfig?.folderPath || ''}`;
+        if (key !== prevCdeFolderKeyRef.current) {
+            prevCdeFolderKeyRef.current = key;
+            setCdeCurrentPath([]);
+            setCdeTreeData({});
+            setCdeDriveItems([]);
+        }
+    }, [companyCdeConfig?.provider, companyCdeConfig?.siteUrl, companyCdeConfig?.folderId, companyCdeConfig?.folderPath]);
+
+    // Load live CDE content when connected or navigating
+    const loadCompanyCdeView = async (overrideTargetId?: string, refreshRootAlso: boolean = false) => {
+        if (!companyCdeConfig?.connected) {
+            setCdeDriveItems([]);
+            setCdeTreeData({});
+            return;
+        }
+        setIsLoadingCdeItems(true);
+        setCdeLoadError('');
+        try {
+            const targetId = overrideTargetId !== undefined
+                ? overrideTargetId
+                : (cdeCurrentPath.length > 0 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : 'root');
+            const items = await fetchCompanyCdeContent(companyCdeConfig, targetId);
+            setCdeDriveItems(items);
+
+            const isRoot = !targetId || targetId === 'root' || targetId === companyCdeConfig.folderId;
+            if (isRoot) {
+                setCdeTreeData(prev => ({
+                    ...prev,
+                    root: items,
+                    ...(companyCdeConfig.folderId ? { [companyCdeConfig.folderId]: items } : {})
+                }));
+            } else {
+                setCdeTreeData(prev => ({ ...prev, [targetId]: items }));
+                if (refreshRootAlso || !cdeTreeData['root']) {
+                    const rootItems = await fetchCompanyCdeContent(companyCdeConfig, 'root');
+                    setCdeTreeData(prev => ({
+                        ...prev,
+                        [targetId]: items,
+                        root: rootItems,
+                        ...(companyCdeConfig.folderId ? { [companyCdeConfig.folderId]: rootItems } : {})
+                    }));
+                }
+            }
+
+            setCdeExpandedFolders(prev => {
+                const next = new Set(prev);
+                next.add('root');
+                if (companyCdeConfig.folderId) next.add(companyCdeConfig.folderId);
+                cdeCurrentPath.forEach(p => next.add(p.id));
+                return next;
+            });
+        } catch (err: any) {
+            console.error('[Corporate CDE] Load error:', err);
+            setCdeLoadError(err?.message || 'Erro ao comunicar com o CDE.');
+        } finally {
+            setIsLoadingCdeItems(false);
+        }
+    };
+
+    useEffect(() => {
+        if (companyCdeConfig?.connected) {
+            loadCompanyCdeView();
+        } else {
+            setCdeDriveItems([]);
+            setCdeTreeData({});
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        companyCdeConfig?.connected,
+        companyCdeConfig?.folderId,
+        companyCdeConfig?.folderPath,
+        companyCdeConfig?.lastSync,
+        cdeCurrentPath
+    ]);
+
+    const toggleCdeTreeFolderExpand = async (folderId: string) => {
+        const next = new Set(cdeExpandedFolders);
+        if (next.has(folderId)) {
+            next.delete(folderId);
+            setCdeExpandedFolders(next);
+        } else {
+            next.add(folderId);
+            setCdeExpandedFolders(next);
+            if (!cdeTreeData[folderId] && companyCdeConfig?.connected) {
+                try {
+                    const items = await fetchCompanyCdeContent(companyCdeConfig, folderId);
+                    setCdeTreeData(prev => ({ ...prev, [folderId]: items }));
+                } catch (e) {
+                    console.warn('Failed to expand folder in tree:', e);
+                }
+            }
+        }
+    };
 
     // Folders & Document Navigation State
     const [selectedFolderPath, setSelectedFolderPath] = useState<string>('01-Empresa');
@@ -611,9 +775,7 @@ export default function MyCompanyPage() {
     const [docSearchTerm, setDocSearchTerm] = useState('');
     const [docStatusFilter, setDocStatusFilter] = useState<'all' | 'valid' | 'expiring' | 'expired' | 'permanent' | 'archived'>('all');
 
-    // CDE Document Explorer Navigation States
-    const [cdeCurrentPath, setCdeCurrentPath] = useState<Array<{ id: string; name: string }>>([{ id: 'root', name: 'CDE' }]);
-    const [cdeExpandedFolders, setCdeExpandedFolders] = useState<Set<string>>(new Set(['01-Empresa']));
+    // CDE Document Explorer Menu & Search States
     const [isCdeNewMenuOpen, setIsCdeNewMenuOpen] = useState(false);
     const [cdeDocSearch, setCdeDocSearchTerm] = useState('');
 
@@ -625,7 +787,7 @@ export default function MyCompanyPage() {
     // New Folder Modal State
     const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
-    const [newFolderParent, setNewFolderParent] = useState('01-Empresa');
+    const [newFolderParent, setNewFolderParent] = useState('root');
 
     // Upload / Place Document State
     const [isUploadDocModalOpen, setIsUploadDocModalOpen] = useState(false);
@@ -634,7 +796,7 @@ export default function MyCompanyPage() {
     const [uploadDocForm, setUploadDocForm] = useState({
         name: '',
         entityType: 'company' as 'company' | 'worker' | 'equipment',
-        entityId: masterCompany?.id || 'comp_master',
+        entityId: corporateEntityId,
         category: 'insurance_work_accident',
         folderPath: '01-Empresa/02-Seguros',
         issueDate: '',
@@ -676,24 +838,20 @@ export default function MyCompanyPage() {
 
     const companyWorkerIds = useMemo(() => companyWorkers.map(w => w.id), [companyWorkers]);
     const companyEquipmentIds = useMemo(() => companyEquipment.map(e => e.id), [companyEquipment]);
-    const corporateCompanyId = masterCompany?.id;
+    const corporateCompanyId = corporateEntityId;
 
-    // Filter documents relevant to corporate company, its workers, and its equipment
+    // Filter documents strictly belonging to this corporate company, its workers, and its equipment
     const corporateDocuments = useMemo(() => {
+        if (!effectiveAccountId && !corporateCompanyId) return [];
         return documents.filter(doc => {
-            const belongsToAccount = Boolean(userAccount?.id && doc.accountId === userAccount.id);
-            const isOurCompany = doc.entityType === 'company' && (
-                !doc.entityId || 
-                doc.entityId === corporateCompanyId || 
-                doc.entityId === 'comp_master' ||
-                doc.entityId.startsWith('comp_')
-            );
+            const belongsToAccount = Boolean(effectiveAccountId && doc.accountId === effectiveAccountId);
+            const isOurCompany = doc.entityType === 'company' && Boolean(corporateCompanyId && doc.entityId === corporateCompanyId);
             const isOurWorker = doc.entityType === 'worker' && companyWorkerIds.includes(doc.entityId);
             const isOurEquipment = doc.entityType === 'equipment' && companyEquipmentIds.includes(doc.entityId);
 
             return belongsToAccount || isOurCompany || isOurWorker || isOurEquipment;
         });
-    }, [documents, userAccount?.id, corporateCompanyId, companyWorkerIds, companyEquipmentIds]);
+    }, [documents, effectiveAccountId, corporateCompanyId, companyWorkerIds, companyEquipmentIds]);
 
     // Document compliance status calculation
     const getDocumentStatusInfo = (doc: Document) => {
@@ -871,7 +1029,7 @@ export default function MyCompanyPage() {
         let defaultCat = 'insurance_work_accident';
 
         if (type === 'company') {
-            defaultId = masterCompany?.id || 'comp_master';
+            defaultId = corporateEntityId;
             defaultFolder = '01-Empresa/02-Seguros';
             defaultCat = 'insurance_work_accident';
         } else if (type === 'worker') {
@@ -935,16 +1093,40 @@ export default function MyCompanyPage() {
 
     // Create Company Standard Folder Structure
     const handleInitializeCompanyFolders = async () => {
+        let activeCfg = companyCdeConfig;
+        if (!activeCfg?.connected) {
+            activeCfg = await fetchCompanyCde();
+        }
+
+        if (!activeCfg?.connected) {
+            alert('O CDE não está conectado. Configure primeiro a ligação ao SharePoint/Cloud no botão "CDE" para criar a estrutura de pastas tipo.');
+            setIsCdeModalOpen(true);
+            return;
+        }
+
+        const targetFolderName = activeCfg.folderPath || (activeCfg.provider === 'onedrive' ? 'SharePoint (Raiz)' : 'CDE');
+        const hasExisting = cdeDriveItems.length > 0 ||
+            (cdeTreeData['root'] && cdeTreeData['root'].length > 0) ||
+            (activeCfg.folderId && cdeTreeData[activeCfg.folderId] && cdeTreeData[activeCfg.folderId].length > 0);
+
+        const confirmMsg = hasExisting
+            ? `As pastas tipo já parecem existir ou já foram criadas pastas na pasta:\n"${targetFolderName}"\n\nDeseja verificar e criar novamente a estrutura de pastas tipo?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`
+            : `Deseja verificar e criar a estrutura normalizada de pastas tipo na pasta:\n"${targetFolderName}"?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`;
+
+        if (!window.confirm(confirmMsg)) {
+            return;
+        }
+
         setIsInitializingFolders(true);
         try {
-            const compId = masterCompany?.id || 'comp_master';
+            const compId = corporateEntityId;
             const config = {
-                ...(companyCdeConfig || {}),
+                ...activeCfg,
                 projectId: compId,
                 companyId: compId,
-                connected: Boolean(companyCdeConfig?.connected),
-                provider: companyCdeConfig?.provider || 'local',
-                folderPath: companyCdeConfig?.folderPath || 'SafeSite_Empresa'
+                connected: true,
+                provider: activeCfg.provider,
+                folderPath: activeCfg.folderPath || ''
             };
 
             const companyInfo = {
@@ -952,35 +1134,23 @@ export default function MyCompanyPage() {
                 nif: companyForm.nif
             };
 
-            if (config.connected) {
-                const logs = await initializeCompanyStructure(
-                    config,
-                    companyInfo,
-                    companyWorkers.map(w => ({ id: w.id, name: w.name, nif: w.nif, idNumber: w.idCardNumber })),
-                    companyEquipment.map(e => ({ id: e.id, name: e.name, licensePlate: (e as any).licensePlate, serialNumber: e.serialNumber })),
-                    () => {}
-                );
-                setInitResultLogs(logs);
-            } else {
-                const mockLogs: string[] = [];
-                mockLogs.push('Estrutura Documental Local Normalizada criada com sucesso:');
-                COMPANY_STANDARD_FOLDERS.forEach(top => {
-                    mockLogs.push(`Criada pasta: ${top}`);
-                    if (COMPANY_SPECIAL_SUBFOLDERS[top]) {
-                        COMPANY_SPECIAL_SUBFOLDERS[top].forEach(sub => mockLogs.push(`  └─ ${sub}`));
-                    }
-                });
-                mockLogs.push(`Colaboradores da Empresa: ${companyWorkers.length} pastas individuais registadas`);
-                mockLogs.push(`Equipamentos da Empresa: ${companyEquipment.length} pastas individuais registadas`);
-                mockLogs.push('Nota: Para sincronização automática com a Cloud (Google Drive, Dropbox, SharePoint), configure o CDE no botão "Definições CDE".');
-                setInitResultLogs(mockLogs);
-            }
-
+            const logs = await initializeCompanyStructure(
+                config,
+                companyInfo,
+                companyWorkers.map(w => ({ id: w.id, name: w.name, nif: w.nif, idNumber: w.idCardNumber })),
+                companyEquipment.map(e => ({ id: e.id, name: e.name, licensePlate: (e as any).licensePlate, serialNumber: e.serialNumber })),
+                () => {}
+            );
+            setInitResultLogs(logs);
             setIsInitResultModalOpen(true);
-            addNotification('success', 'Estrutura documental normalizada da empresa criada com sucesso!');
+            addNotification('success', 'Estrutura documental normalizada da empresa verificada no CDE com sucesso!');
+
+            // Refresh live CDE folder contents so newly created folders appear immediately
+            await loadCompanyCdeView(undefined, true);
         } catch (err: any) {
             console.error('Erro ao inicializar pastas da empresa:', err);
             addNotification('error', `Falha ao criar pastas: ${err.message || 'Erro desconhecido'}`);
+            alert(`Erro ao criar pastas tipo: ${err.message || 'Erro desconhecido'}`);
         } finally {
             setIsInitializingFolders(false);
         }
@@ -1001,11 +1171,12 @@ export default function MyCompanyPage() {
             let cdeUrl: string | undefined;
 
             // Upload to Cloud CDE if connected and file is selected
-            if (uploadDocFile && companyCdeConfig?.connected && companyCdeConfig.accessToken) {
+            if (uploadDocFile && companyCdeConfig?.connected) {
                 try {
+                    const targetCdeFolder = cdeCurrentPath.length > 0 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : 'root';
                     const uploadRes = await uploadToCDEFolder(
-                        companyCdeConfig,
-                        uploadDocForm.folderPath,
+                        { ...companyCdeConfig, projectId: corporateEntityId, companyId: corporateEntityId },
+                        companyCdeConfig.provider === 'onedrive' ? targetCdeFolder : uploadDocForm.folderPath,
                         uploadDocFile
                     );
                     cdeFileId = uploadRes.id;
@@ -1017,7 +1188,7 @@ export default function MyCompanyPage() {
             }
 
             const entityId = uploadDocForm.entityType === 'company' 
-                ? (masterCompany?.id || 'comp_master')
+                ? corporateEntityId
                 : uploadDocForm.entityId;
 
             if (!entityId) {
@@ -1044,7 +1215,7 @@ export default function MyCompanyPage() {
                 provider: companyCdeConfig?.connected ? (companyCdeConfig.provider || 'local') : 'local',
                 status: cdeFileId ? 'synced' : 'pending',
                 approvalStatus: 'published',
-                accountId: userAccount?.id || 'default'
+                accountId: effectiveAccountId || 'default'
             } as any);
 
             // Synchronize with Entity Profile dates
@@ -1125,6 +1296,10 @@ export default function MyCompanyPage() {
                 expiryDate: '',
                 hasNoExpiry: false
             }));
+
+            if (companyCdeConfig?.connected) {
+                await loadCompanyCdeView();
+            }
         } catch (err: any) {
             console.error('Erro ao colocar documento:', err);
             addNotification('error', `Falha ao registar documento: ${err.message || 'Erro inesperado'}`);
@@ -1139,32 +1314,33 @@ export default function MyCompanyPage() {
         const cleanName = newFolderName.trim();
         if (!cleanName) return;
 
-        const fullPath = newFolderParent ? `${newFolderParent}/${cleanName}` : cleanName;
-        if (customFolders.includes(fullPath) || allCompanyFolders.some(f => f.path === fullPath)) {
-            addNotification('warning', 'Esta pasta já existe.');
+        if (!companyCdeConfig?.connected) {
+            alert('O CDE não está conectado. Configure primeiro a ligação ao CDE.');
+            setIsNewFolderModalOpen(false);
+            setIsCdeModalOpen(true);
             return;
         }
 
-        setCustomFolders(prev => [...prev, fullPath]);
-        setSelectedFolderPath(fullPath);
         setIsNewFolderModalOpen(false);
         setNewFolderName('');
-        addNotification('success', `Pasta "${cleanName}" criada com sucesso.`);
+        setIsLoadingCdeItems(true);
 
-        // Sincronizar criação física na Cloud (SharePoint / OneDrive / Google Drive / Dropbox)
-        if (companyCdeConfig?.connected) {
-            const compId = masterCompany?.id || 'comp_master';
+        try {
+            const parentFolderId = cdeCurrentPath.length > 0 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : 'root';
             const effectiveConfig = {
                 ...companyCdeConfig,
-                projectId: compId,
-                companyId: compId
+                projectId: corporateEntityId,
+                companyId: corporateEntityId
             };
-            if (companyCdeConfig.provider === 'onedrive' || (companyCdeConfig.provider as string) === 'sharepoint') {
-                createOneDriveFolder(effectiveConfig, newFolderParent || 'root', cleanName).catch(err => {
-                    console.error('Erro ao criar pasta no SharePoint:', err);
-                    addNotification('warning', `Pasta registada na app, mas falhou no SharePoint: ${err.message}`);
-                });
-            }
+            await createOneDriveFolder(effectiveConfig, parentFolderId, cleanName);
+            addNotification('success', `Pasta "${cleanName}" criada com sucesso no CDE!`);
+            await loadCompanyCdeView(parentFolderId, true);
+        } catch (err: any) {
+            console.error('Erro ao criar pasta no CDE:', err);
+            addNotification('error', `Falha ao criar pasta no CDE: ${err.message}`);
+            alert(`Erro ao criar pasta: ${err.message}`);
+        } finally {
+            setIsLoadingCdeItems(false);
         }
     };
 
@@ -1379,11 +1555,11 @@ export default function MyCompanyPage() {
                 nif: trimmedNif,
                 ifcActorRole,
             });
-        } else {
+        } else if (corporateEntityId) {
             addCompany({
                 ...companyForm,
-                id: `comp_${nanoid(8)}`,
-                accountId: userAccount?.id || 'default',
+                id: corporateEntityId,
+                accountId: effectiveAccountId || 'default',
                 status: companyForm.status,
                 workflowStatus: 'validated',
                 ifcActorRole,
@@ -1479,8 +1655,8 @@ export default function MyCompanyPage() {
             const newWorkerId = `w_corp_${nanoid(8)}`;
             const newWorker: Worker = {
                 id: newWorkerId,
-                companyId: masterCompany?.id || `comp_${userAccount?.id}`,
-                accountId: userAccount?.id,
+                companyId: corporateEntityId,
+                accountId: effectiveAccountId,
                 status: 'active',
                 accessCardCode: `EMP-${nanoid(6).toUpperCase()}`,
                 accessCardValid: true,
@@ -1516,7 +1692,8 @@ export default function MyCompanyPage() {
             addEquipment({
                 name: equipForm.name.trim(),
                 type: equipForm.type,
-                companyId: masterCompany?.id || `comp_${userAccount?.id}`,
+                companyId: corporateEntityId,
+                accountId: effectiveAccountId,
                 status: 'operational',
                 serialNumber: equipForm.serialNumber.trim(),
                 brand: equipForm.brand.trim(),
@@ -2463,9 +2640,20 @@ export default function MyCompanyPage() {
                                             </h2>
                                             {/* Breadcrumbs Navigation */}
                                             <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-1 flex-wrap">
+                                                <span
+                                                    className={cn(
+                                                        "cursor-pointer transition-colors",
+                                                        cdeCurrentPath.length === 0 ? "font-bold text-[var(--text)]" : "hover:underline hover:text-primary"
+                                                    )}
+                                                    onClick={() => setCdeCurrentPath([])}
+                                                >
+                                                    {companyCdeConfig?.connected
+                                                        ? (companyCdeConfig.folderPath || 'SharePoint / CDE')
+                                                        : 'CDE (Não Ligado)'}
+                                                </span>
                                                 {cdeCurrentPath.map((p, idx) => (
                                                     <span key={p.id || idx} className="flex items-center gap-1.5">
-                                                        {idx > 0 && <span>/</span>}
+                                                        <span>/</span>
                                                         <span
                                                             className={cn(
                                                                 "cursor-pointer transition-colors",
@@ -2487,7 +2675,7 @@ export default function MyCompanyPage() {
                                                 onClick={handleInitializeCompanyFolders}
                                                 disabled={isInitializingFolders}
                                                 className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all cursor-pointer shadow-xs disabled:opacity-50"
-                                                title="Inicializar estrutura de pastas padronizada"
+                                                title="Inicializar estrutura de pastas padronizada no CDE"
                                             >
                                                 {isInitializingFolders ? (
                                                     <RotateCw size={14} className="animate-spin text-primary" />
@@ -2501,7 +2689,14 @@ export default function MyCompanyPage() {
                                             <div className="relative">
                                                 <button
                                                     type="button"
-                                                    onClick={() => setIsCdeNewMenuOpen(!isCdeNewMenuOpen)}
+                                                    onClick={() => {
+                                                        if (!companyCdeConfig?.connected) {
+                                                            addNotification('warning', 'Ligue primeiro o CDE da sua empresa para criar pastas ou carregar ficheiros.');
+                                                            setIsCdeModalOpen(true);
+                                                            return;
+                                                        }
+                                                        setIsCdeNewMenuOpen(!isCdeNewMenuOpen);
+                                                    }}
                                                     className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-primary rounded-full hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
                                                 >
                                                     <Plus size={15} className="text-white" />
@@ -2517,7 +2712,7 @@ export default function MyCompanyPage() {
                                                                 type="button"
                                                                 onClick={() => {
                                                                     setIsCdeNewMenuOpen(false);
-                                                                    setNewFolderParent(cdeCurrentPath.length > 1 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : '01-Empresa');
+                                                                    setNewFolderParent(cdeCurrentPath.length > 0 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : 'root');
                                                                     setIsNewFolderModalOpen(true);
                                                                 }}
                                                                 className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
@@ -2530,7 +2725,7 @@ export default function MyCompanyPage() {
                                                                 type="button"
                                                                 onClick={() => {
                                                                     setIsCdeNewMenuOpen(false);
-                                                                    const currentFolder = cdeCurrentPath.length > 1 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : '01-Empresa';
+                                                                    const currentFolder = cdeCurrentPath.length > 0 ? cdeCurrentPath.map(p => p.name).join('/') : '01-Empresa';
                                                                     setUploadDocForm(prev => ({ ...prev, folderPath: currentFolder }));
                                                                     setIsUploadDocModalOpen(true);
                                                                 }}
@@ -2552,7 +2747,7 @@ export default function MyCompanyPage() {
                                                 title="Configurar integração com Cloud CDE"
                                             >
                                                 <Cloud size={14} className={companyCdeConfig?.connected ? "text-emerald-500" : "text-amber-500"} />
-                                                <span>CDE: {companyCdeConfig?.connected ? (companyCdeConfig.provider?.toUpperCase() || 'Cloud') : 'Local'}</span>
+                                                <span>CDE: {companyCdeConfig?.connected ? (companyCdeConfig.provider?.toUpperCase() || 'Cloud') : 'Não Ligado'}</span>
                                             </button>
 
                                             {/* Search input */}
@@ -2575,305 +2770,275 @@ export default function MyCompanyPage() {
                                         <div className="w-64 flex-shrink-0 border-r border-gray-100 dark:border-[#444746] hidden md:flex md:flex-col p-4 h-full bg-gray-50/50 dark:bg-[#131314]/30">
                                             <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] pb-2 border-b border-[var(--border)] mb-2 flex items-center justify-between">
                                                 <span>Pastas CDE</span>
-                                                <span className="text-[10px] font-mono">{allCompanyFolders.length}</span>
+                                                {companyCdeConfig?.connected && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => loadCompanyCdeView(undefined, true)}
+                                                        className="text-[10px] text-primary hover:underline cursor-pointer flex items-center gap-1"
+                                                        title="Atualizar pastas do SharePoint"
+                                                    >
+                                                        <RotateCw size={11} className={isLoadingCdeItems ? "animate-spin" : ""} />
+                                                    </button>
+                                                )}
                                             </div>
 
                                             <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar pr-1 space-y-0.5">
-                                                {/* Root item */}
-                                                <div
-                                                    className={cn(
-                                                        "flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
-                                                        cdeCurrentPath.length === 1 && cdeCurrentPath[0].id === 'root'
-                                                            ? "bg-primary-light text-primary font-bold"
-                                                            : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
-                                                    )}
-                                                    onClick={() => setCdeCurrentPath([{ id: 'root', name: 'CDE' }])}
-                                                >
-                                                    <GoogleDriveIcon type="folder" size={16} />
-                                                    <span className="truncate">CDE (Raiz da Empresa)</span>
-                                                </div>
+                                                {!companyCdeConfig?.connected ? (
+                                                    <div className="py-8 px-2 text-center text-xs text-[var(--text-muted)]">
+                                                        Sem pastas (CDE não ligado)
+                                                    </div>
+                                                ) : (
+                                                    (() => {
+                                                        const renderCdeTreeItem = (
+                                                            folderId: string,
+                                                            folderName: string,
+                                                            pathUntilNow: Array<{ id: string; name: string }>,
+                                                            depth = 0
+                                                        ): React.ReactNode => {
+                                                            const isExpanded = cdeExpandedFolders.has(folderId);
+                                                            const isCurrent =
+                                                                (folderId === 'root' && cdeCurrentPath.length === 0) ||
+                                                                (cdeCurrentPath.length > 0 && cdeCurrentPath[cdeCurrentPath.length - 1].id === folderId);
+                                                            const children = (cdeTreeData[folderId] || []).filter(
+                                                                (i: any) => i.mimeType === 'application/vnd.google-apps.folder' || (i.mimeType || '').includes('folder')
+                                                            );
 
-                                                {/* Standard Company Folders */}
-                                                {COMPANY_STANDARD_FOLDERS.map(top => {
-                                                    const isSelected = cdeCurrentPath.length > 1 && cdeCurrentPath[1].id === top;
-                                                    const isExpanded = cdeExpandedFolders.has(top);
-                                                    const subfolders = allCompanyFolders.filter(f => f.parent === top);
-
-                                                    return (
-                                                        <div key={top} className="space-y-0.5">
-                                                            <div
-                                                                className={cn(
-                                                                    "flex items-center justify-between py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
-                                                                    isSelected
-                                                                        ? "bg-primary-light text-primary font-bold"
-                                                                        : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
-                                                                )}
-                                                            >
-                                                                <div
-                                                                    className="flex items-center gap-1.5 flex-1 min-w-0"
-                                                                    onClick={() => setCdeCurrentPath([{ id: 'root', name: 'CDE' }, { id: top, name: top }])}
-                                                                >
-                                                                    <GoogleDriveIcon type="folder" size={16} />
-                                                                    <span className="truncate">{top}</span>
-                                                                </div>
-                                                                {subfolders.length > 0 && (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setCdeExpandedFolders(prev => {
-                                                                                const next = new Set(prev);
-                                                                                if (next.has(top)) next.delete(top);
-                                                                                else next.add(top);
-                                                                                return next;
-                                                                            });
-                                                                        }}
-                                                                        className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-surface text-gray-500 cursor-pointer"
-                                                                    >
-                                                                        {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                                                                    </button>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Subfolders in Tree */}
-                                                            {isExpanded && subfolders.map(sub => {
-                                                                const isSubSelected = cdeCurrentPath.some(p => p.id === sub.path);
-                                                                return (
+                                                            return (
+                                                                <div key={folderId} className="select-none">
                                                                     <div
-                                                                        key={sub.path}
                                                                         className={cn(
-                                                                            "flex items-center gap-1.5 py-1.5 pl-6 pr-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
-                                                                            isSubSelected
+                                                                            "flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs",
+                                                                            isCurrent
                                                                                 ? "bg-primary-light text-primary font-bold"
-                                                                                : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                                                : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
                                                                         )}
+                                                                        style={{ paddingLeft: `${depth * 14 + 8}px` }}
                                                                         onClick={() => {
-                                                                            setCdeCurrentPath([
-                                                                                { id: 'root', name: 'CDE' },
-                                                                                { id: top, name: top },
-                                                                                { id: sub.path, name: sub.name }
-                                                                            ]);
+                                                                            if (folderId === 'root') {
+                                                                                setCdeCurrentPath([]);
+                                                                            } else {
+                                                                                setCdeCurrentPath(pathUntilNow);
+                                                                            }
+                                                                            if (!isExpanded) {
+                                                                                toggleCdeTreeFolderExpand(folderId);
+                                                                            }
                                                                         }}
                                                                     >
-                                                                        <GoogleDriveIcon type="folder" size={14} />
-                                                                        <span className="truncate">{sub.name}</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                toggleCdeTreeFolderExpand(folderId);
+                                                                            }}
+                                                                            className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-surface text-gray-500 cursor-pointer shrink-0"
+                                                                        >
+                                                                            {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                                                        </button>
+                                                                        <GoogleDriveIcon type="folder" size={16} />
+                                                                        <span className="truncate">{folderName}</span>
                                                                     </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    );
-                                                })}
+
+                                                                    {isExpanded && children.length > 0 && (
+                                                                        <div className="space-y-0.5 mt-0.5">
+                                                                            {children.map((child: any) =>
+                                                                                renderCdeTreeItem(
+                                                                                    child.id,
+                                                                                    child.name,
+                                                                                    [...pathUntilNow, { id: child.id, name: child.name }],
+                                                                                    depth + 1
+                                                                                )
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        };
+
+                                                        return renderCdeTreeItem(
+                                                            'root',
+                                                            companyCdeConfig.folderPath || 'SharePoint',
+                                                            [],
+                                                            0
+                                                        );
+                                                    })()
+                                                )}
                                             </div>
                                         </div>
 
                                         {/* Right Main Table */}
                                         <div className="flex-1 flex flex-col min-w-0 p-4 overflow-y-auto">
-                                            {/* Table view matching Project Documents */}
-                                            <table className="w-full text-left text-xs text-gray-600 dark:text-gray-300">
-                                                <thead>
-                                                    <tr className="border-b border-gray-200 dark:border-[#444746] text-gray-400 font-normal">
-                                                        <th className="py-2.5 px-3 font-normal w-10 text-center">#</th>
-                                                        <th className="py-2.5 px-3 font-normal">Nome</th>
-                                                        <th className="py-2.5 px-3 font-normal w-24">Versão</th>
-                                                        <th className="py-2.5 px-3 font-normal w-32">Data</th>
-                                                        <th className="py-2.5 px-3 font-normal w-24">Tamanho</th>
-                                                        <th className="w-20 text-right pr-4">Ações</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {/* Parent navigation row */}
-                                                    {cdeCurrentPath.length > 1 && (
-                                                        <tr
-                                                            className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
-                                                            onClick={() => setCdeCurrentPath(cdeCurrentPath.slice(0, cdeCurrentPath.length - 1))}
-                                                        >
-                                                            <td className="py-2 px-3 text-center">
-                                                                <div className="flex justify-center">
-                                                                    <GoogleDriveIcon type="folder" size={20} />
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-2 px-3 font-medium text-gray-500">
-                                                                .. (Voltar para pasta anterior)
-                                                            </td>
-                                                            <td colSpan={4}></td>
+                                            {!companyCdeConfig?.connected ? (
+                                                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                                                    <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-4">
+                                                        <Cloud size={28} />
+                                                    </div>
+                                                    <h3 className="text-sm font-bold text-[var(--text)] mb-1">
+                                                        Nenhum CDE conectado a esta conta
+                                                    </h3>
+                                                    <p className="text-xs text-[var(--text-muted)] max-w-md mb-5 leading-relaxed">
+                                                        Para visualizar e gerir as pastas reais da sua empresa no SharePoint, OneDrive ou Google Drive, configure primeiro a ligação ao Ambiente Comum de Dados (CDE) desta conta.
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsCdeModalOpen(true)}
+                                                        className="px-4 py-2 rounded-full text-xs font-bold bg-primary text-white hover:bg-primary-hover shadow-sm transition-all cursor-pointer inline-flex items-center gap-2"
+                                                    >
+                                                        <Cloud size={14} />
+                                                        <span>Configurar Ligação CDE</span>
+                                                    </button>
+                                                </div>
+                                            ) : isLoadingCdeItems ? (
+                                                <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-gray-400">
+                                                    <RotateCw size={26} className="animate-spin text-primary mb-3" />
+                                                    <p className="text-xs">A carregar pastas e documentos do CDE ({companyCdeConfig.folderPath || 'SharePoint'})...</p>
+                                                </div>
+                                            ) : (
+                                                <table className="w-full text-left text-xs text-gray-600 dark:text-gray-300">
+                                                    <thead>
+                                                        <tr className="border-b border-gray-200 dark:border-[#444746] text-gray-400 font-normal">
+                                                            <th className="py-2.5 px-3 font-normal w-10 text-center">#</th>
+                                                            <th className="py-2.5 px-3 font-normal">Nome</th>
+                                                            <th className="py-2.5 px-3 font-normal w-36">Data</th>
+                                                            <th className="py-2.5 px-3 font-normal w-24">Tamanho</th>
+                                                            <th className="w-20 text-right pr-4">Ações</th>
                                                         </tr>
-                                                    )}
-
-                                                    {/* Display Folders for the current level */}
-                                                    {(() => {
-                                                        const currentLevelId = cdeCurrentPath[cdeCurrentPath.length - 1].id;
-                                                        let visibleFolders: Array<{ id: string; name: string }> = [];
-
-                                                        if (currentLevelId === 'root') {
-                                                            visibleFolders = COMPANY_STANDARD_FOLDERS.map(f => ({ id: f, name: f }));
-                                                        } else {
-                                                            visibleFolders = allCompanyFolders
-                                                                .filter(f => f.parent === currentLevelId)
-                                                                .map(f => ({ id: f.path, name: f.name }));
-                                                        }
-
-                                                        // Apply search filter if active
-                                                        if (cdeDocSearch.trim()) {
-                                                            const q = cdeDocSearch.toLowerCase();
-                                                            visibleFolders = visibleFolders.filter(f => f.name.toLowerCase().includes(q));
-                                                        }
-
-                                                        return visibleFolders.map(folder => (
+                                                    </thead>
+                                                    <tbody>
+                                                        {/* Parent navigation row */}
+                                                        {cdeCurrentPath.length > 0 && (
                                                             <tr
-                                                                key={folder.id}
                                                                 className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
-                                                                onClick={() => setCdeCurrentPath([...cdeCurrentPath, { id: folder.id, name: folder.name }])}
+                                                                onClick={() => setCdeCurrentPath(cdeCurrentPath.slice(0, cdeCurrentPath.length - 1))}
                                                             >
                                                                 <td className="py-2 px-3 text-center">
                                                                     <div className="flex justify-center">
-                                                                        <GoogleDriveIcon type="folder" size={22} />
+                                                                        <GoogleDriveIcon type="folder" size={20} />
                                                                     </div>
                                                                 </td>
-                                                                <td className="py-2 px-3">
-                                                                    <span className="font-semibold text-gray-900 dark:text-white block hover:text-primary transition-colors">
-                                                                        {folder.name}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="py-2 px-3 text-gray-400 font-mono">—</td>
-                                                                <td className="py-2 px-3 text-gray-400">—</td>
-                                                                <td className="py-2 px-3 text-gray-400 font-mono">—</td>
-                                                                <td className="py-2 px-3 text-right pr-4">
-                                                                    <ChevronRight size={14} className="inline text-gray-400 group-hover:text-primary transition-colors" />
+                                                                <td className="py-2 px-3 font-medium text-gray-500" colSpan={4}>
+                                                                    .. (Voltar para pasta anterior)
                                                                 </td>
                                                             </tr>
-                                                        ));
-                                                    })()}
+                                                        )}
 
-                                                    {/* Display Files for the current level */}
-                                                    {(() => {
-                                                        const currentLevelId = cdeCurrentPath[cdeCurrentPath.length - 1].id;
-                                                        let filesInLevel = corporateDocuments.filter(doc => {
-                                                            if (currentLevelId === 'root') {
-                                                                return !doc.folderPath || doc.folderPath === 'all' || doc.folderPath === 'root';
+                                                        {(() => {
+                                                            let visibleItems = [...cdeDriveItems];
+                                                            if (cdeDocSearch.trim()) {
+                                                                const q = cdeDocSearch.toLowerCase();
+                                                                visibleItems = visibleItems.filter((item: any) => (item.name || '').toLowerCase().includes(q));
                                                             }
-                                                            return doc.folderPath === currentLevelId || doc.folderPath?.startsWith(`${currentLevelId}/`);
-                                                        });
 
-                                                        if (cdeDocSearch.trim()) {
-                                                            const q = cdeDocSearch.toLowerCase();
-                                                            filesInLevel = filesInLevel.filter(d =>
-                                                                (d.name || '').toLowerCase().includes(q) ||
-                                                                (d.category || '').toLowerCase().includes(q) ||
-                                                                (d.documentCode || '').toLowerCase().includes(q)
-                                                            );
-                                                        }
+                                                            // Sort folders first, then alphabetically
+                                                            visibleItems.sort((a: any, b: any) => {
+                                                                const aIsFolder = a.mimeType === 'application/vnd.google-apps.folder' || (a.mimeType || '').includes('folder');
+                                                                const bIsFolder = b.mimeType === 'application/vnd.google-apps.folder' || (b.mimeType || '').includes('folder');
+                                                                if (aIsFolder && !bIsFolder) return -1;
+                                                                if (!aIsFolder && bIsFolder) return 1;
+                                                                return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+                                                            });
 
-                                                        if (filesInLevel.length === 0 && (cdeCurrentPath.length > 1 && allCompanyFolders.filter(f => f.parent === currentLevelId).length === 0)) {
-                                                            return (
-                                                                <tr>
-                                                                    <td colSpan={6} className="py-12 text-center text-gray-400">
-                                                                        <GoogleDriveIcon type="default" size={40} className="mx-auto mb-2 opacity-20" />
-                                                                        <p className="text-xs">Esta pasta está vazia.</p>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => {
-                                                                                setUploadDocForm(prev => ({ ...prev, folderPath: currentLevelId === 'root' ? '01-Empresa' : currentLevelId }));
-                                                                                setIsUploadDocModalOpen(true);
-                                                                            }}
-                                                                            className="mt-3 px-3 py-1 rounded-full text-xs font-semibold bg-primary text-white hover:bg-primary-hover shadow-xs transition-all cursor-pointer inline-flex items-center gap-1"
-                                                                        >
-                                                                            <Plus size={12} /> Carregar documento
-                                                                        </button>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        }
+                                                            if (visibleItems.length === 0) {
+                                                                return (
+                                                                    <tr>
+                                                                        <td colSpan={5} className="py-12 text-center text-gray-400">
+                                                                            <GoogleDriveIcon type="default" size={40} className="mx-auto mb-2 opacity-20" />
+                                                                            <p className="text-xs font-medium text-[var(--text)] mb-1">
+                                                                                Nenhum documento ou pasta encontrado nesta localização do CDE.
+                                                                            </p>
+                                                                            {cdeLoadError && (
+                                                                                <p className="text-[11px] text-red-500 mb-2">
+                                                                                    Erro: {cdeLoadError}
+                                                                                </p>
+                                                                            )}
+                                                                            <p className="text-[11px] text-[var(--text-muted)] mb-4">
+                                                                                Fornecedor: <strong>{companyCdeConfig.provider?.toUpperCase()}</strong> • Pasta base: <strong>{companyCdeConfig.folderPath || 'Raiz'}</strong>
+                                                                            </p>
+                                                                            <div className="flex items-center justify-center gap-2">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => loadCompanyCdeView(undefined, true)}
+                                                                                    className="px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-[var(--text)] hover:bg-gray-200 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                                                                                >
+                                                                                    <RotateCw size={12} /> Recarregar Conteúdos
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={handleInitializeCompanyFolders}
+                                                                                    className="px-3 py-1.5 rounded-full text-xs font-semibold bg-primary text-white hover:bg-primary-hover shadow-xs transition-all cursor-pointer inline-flex items-center gap-1.5"
+                                                                                >
+                                                                                    <FolderPlus size={12} /> Criar Pastas Tipo
+                                                                                </button>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            }
 
-                                                        return filesInLevel.map(doc => {
-                                                            const version = doc.version ? `v${doc.version}.0` : 'v1.0';
-                                                            const displayDate = (doc as any).updatedAt ? new Date((doc as any).updatedAt).toLocaleDateString() : (doc.createdAt ? new Date(doc.createdAt).toLocaleDateString() : '—');
-                                                            const displaySize = doc.size ? (doc.size > 1048576 ? `${(doc.size / 1048576).toFixed(1)} MB` : `${Math.round(doc.size / 1024)} KB`) : '—';
+                                                            return visibleItems.map((item: any) => {
+                                                                const isFolder = item.mimeType === 'application/vnd.google-apps.folder' || (item.mimeType || '').includes('folder');
+                                                                const displayDate = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString() : '—';
+                                                                const displaySize = !isFolder && item.size
+                                                                    ? (Number(item.size) > 1048576
+                                                                        ? `${(Number(item.size) / 1048576).toFixed(1)} MB`
+                                                                        : `${Math.max(1, Math.round(Number(item.size) / 1024))} KB`)
+                                                                    : '—';
 
-                                                            return (
-                                                                <tr
-                                                                    key={doc.id}
-                                                                    className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
-                                                                    onClick={() => {
-                                                                        if (doc.url) window.open(doc.url, '_blank');
-                                                                    }}
-                                                                >
-                                                                    <td className="py-2 px-3 text-center">
-                                                                        <div className="flex justify-center">
-                                                                            <GoogleDriveIcon type={doc.type || 'pdf'} size={20} />
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="py-2 px-3">
-                                                                        <span className="font-medium text-gray-900 dark:text-white block group-hover:text-primary transition-colors">
-                                                                            {doc.name}
-                                                                        </span>
-                                                                        {doc.documentCode && (
-                                                                            <span className="text-[10px] text-gray-400 font-mono">
-                                                                                Ref: {doc.documentCode}
+                                                                return (
+                                                                    <tr
+                                                                        key={item.id}
+                                                                        className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
+                                                                        onClick={() => {
+                                                                            if (isFolder) {
+                                                                                setCdeCurrentPath([...cdeCurrentPath, { id: item.id, name: item.name }]);
+                                                                            } else if (item.webViewLink) {
+                                                                                window.open(item.webViewLink, '_blank');
+                                                                            }
+                                                                        }}
+                                                                    >
+                                                                        <td className="py-2 px-3 text-center">
+                                                                            <div className="flex justify-center">
+                                                                                <GoogleDriveIcon type={isFolder ? 'folder' : (item.mimeType || 'pdf')} size={20} />
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="py-2 px-3">
+                                                                            <span className={cn(
+                                                                                "block group-hover:text-primary transition-colors",
+                                                                                isFolder ? "font-semibold text-gray-900 dark:text-white" : "font-medium text-gray-900 dark:text-white"
+                                                                            )}>
+                                                                                {item.name}
                                                                             </span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="py-2 px-3">
-                                                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary font-mono">
-                                                                            {version}
-                                                                        </span>
-                                                                    </td>
-                                                                    <td className="py-2 px-3 text-gray-500 font-mono">
-                                                                        {displayDate}
-                                                                    </td>
-                                                                    <td className="py-2 px-3 text-gray-500 font-mono">
-                                                                        {displaySize}
-                                                                    </td>
-                                                                    <td className="py-2 px-3 text-right pr-4">
-                                                                        <div className="flex items-center gap-1 justify-end">
-                                                                            {doc.archived ? (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        unarchiveDocument(doc.id);
-                                                                                        addNotification('success', 'Documento restaurado.');
-                                                                                    }}
-                                                                                    className="p-1 rounded-full text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer"
-                                                                                    title="Restaurar Documento"
-                                                                                >
-                                                                                    <History size={15} />
-                                                                                </button>
+                                                                        </td>
+                                                                        <td className="py-2 px-3 text-gray-500 font-mono">
+                                                                            {displayDate}
+                                                                        </td>
+                                                                        <td className="py-2 px-3 text-gray-500 font-mono">
+                                                                            {displaySize}
+                                                                        </td>
+                                                                        <td className="py-2 px-3 text-right pr-4">
+                                                                            {isFolder ? (
+                                                                                <ChevronRight size={14} className="inline text-gray-400 group-hover:text-primary transition-colors" />
                                                                             ) : (
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        if (confirm(`Arquivar o documento "${doc.name}"?`)) {
-                                                                                            updateDocument(doc.id, { archived: true });
-                                                                                            addNotification('info', 'Documento movido para o Arquivo.');
-                                                                                        }
-                                                                                    }}
-                                                                                    className="p-1 rounded-full text-gray-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 cursor-pointer"
-                                                                                    title="Arquivar Versão"
-                                                                                >
-                                                                                    <Archive size={15} />
-                                                                                </button>
+                                                                                item.webViewLink && (
+                                                                                    <a
+                                                                                        href={item.webViewLink}
+                                                                                        target="_blank"
+                                                                                        rel="noopener noreferrer"
+                                                                                        onClick={(e) => e.stopPropagation()}
+                                                                                        className="p-1 rounded-full text-gray-400 hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-950/40 inline-flex"
+                                                                                        title="Abrir no SharePoint / Cloud"
+                                                                                    >
+                                                                                        <ExternalLink size={15} />
+                                                                                    </a>
+                                                                                )
                                                                             )}
-                                                                            {doc.url && (
-                                                                                <a
-                                                                                    href={doc.url}
-                                                                                    target="_blank"
-                                                                                    rel="noopener noreferrer"
-                                                                                    onClick={(e) => e.stopPropagation()}
-                                                                                    className="p-1 rounded-full text-gray-400 hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                                                                                    title="Abrir no CDE"
-                                                                                >
-                                                                                    <ExternalLink size={15} />
-                                                                                </a>
-                                                                            )}
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        });
-                                                    })()}
-                                                </tbody>
-                                            </table>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            });
+                                                        })()}
+                                                    </tbody>
+                                                </table>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -3525,7 +3690,7 @@ export default function MyCompanyPage() {
                                     label="Contrato de Trabalho / Declaração de Cedência"
                                     category="work_contract"
                                     entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={masterCompany?.id || 'comp_master'}
+                                    projectId={corporateEntityId}
                                     expiryDate={selectedWorker?.contractExpiry || workerForm.contractExpiry}
                                     isEditing={workerModalMode === 'edit'}
                                 >
@@ -3693,7 +3858,7 @@ export default function MyCompanyPage() {
                                     label="Ficha de Aptidão Médica (FAT)"
                                     category="medical_fitness"
                                     entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={masterCompany?.id || 'comp_master'}
+                                    projectId={corporateEntityId}
                                     expiryDate={selectedWorker?.medicalExpiry || workerForm.medicalExpiry}
                                     isEditing={workerModalMode === 'edit'}
                                 />
@@ -3702,7 +3867,7 @@ export default function MyCompanyPage() {
                                     label="Ficha de Entrega de EPI Assinada (DL 273/2003)"
                                     category="ppe_receipt"
                                     entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={masterCompany?.id || 'comp_master'}
+                                    projectId={corporateEntityId}
                                     isEditing={workerModalMode === 'edit'}
                                 />
 
@@ -3730,7 +3895,7 @@ export default function MyCompanyPage() {
                                     </div>
                                     <DocumentUpload
                                         entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        projectId={corporateEntityId}
                                         category="general"
                                         layout="button"
                                         label="Carregar Documento"
@@ -3739,7 +3904,7 @@ export default function MyCompanyPage() {
 
                                 <DocumentList
                                     entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={masterCompany?.id || 'comp_master'}
+                                    projectId={corporateEntityId}
                                     isEditing={workerModalMode === 'edit'}
                                 />
                             </div>
@@ -4180,8 +4345,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Seguro de Acidentes de Trabalho (Apólice e Recibo)"
                                         category="insurance_work_accident"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         expiryDate={companyForm.insuranceWorkAccDate}
                                         policyNumber={companyForm.insuranceWorkAccPolicy}
                                         isEditing={companyModalMode === 'edit'}
@@ -4219,8 +4384,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Seguro de Responsabilidade Civil"
                                         category="insurance_civil_liability"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         expiryDate={companyForm.insuranceCivilDate}
                                         policyNumber={companyForm.insuranceCivilPolicy}
                                         isEditing={companyModalMode === 'edit'}
@@ -4258,8 +4423,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Certidão de Não Dívida da Autoridade Tributária (Finanças)"
                                         category="non_debt_tax"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         expiryDate={companyForm.cleanFinDate}
                                         isEditing={companyModalMode === 'edit'}
                                     >
@@ -4284,8 +4449,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Certidão de Não Dívida da Segurança Social"
                                         category="non_debt_ss"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         expiryDate={companyForm.cleanSSDate}
                                         isEditing={companyModalMode === 'edit'}
                                     >
@@ -4310,8 +4475,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Alvará de Construção / Título de Registo IMPIC"
                                         category="alvara_impic"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         policyNumber={companyForm.impic}
                                         isEditing={companyModalMode === 'edit'}
                                     >
@@ -4337,8 +4502,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Certidão Comercial / Código Certidão Permanente"
                                         category="certidao_comercial"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         isEditing={companyModalMode === 'edit'}
                                     />
 
@@ -4346,8 +4511,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Medicina no Trabalho (Contrato ou Comprovativo de Prestador SST)"
                                         category="medicina_trabalho"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         isEditing={companyModalMode === 'edit'}
                                     />
 
@@ -4355,8 +4520,8 @@ export default function MyCompanyPage() {
                                     <RequirementCard
                                         label="Folhas de Remunerações / Declaração DRI (Segurança Social)"
                                         category="folhas_remuneracao"
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         isEditing={companyModalMode === 'edit'}
                                     />
                                 </div>
@@ -4387,8 +4552,8 @@ export default function MyCompanyPage() {
                                         </p>
                                     </div>
                                     <DocumentUpload
-                                        entityId={masterCompany?.id || 'comp_master'}
-                                        projectId={masterCompany?.id || 'comp_master'}
+                                        entityId={corporateEntityId}
+                                        projectId={corporateEntityId}
                                         category="general"
                                         layout="button"
                                         label="Carregar Documento"
@@ -4396,8 +4561,8 @@ export default function MyCompanyPage() {
                                 </div>
 
                                 <DocumentList
-                                    entityId={masterCompany?.id || 'comp_master'}
-                                    projectId={masterCompany?.id || 'comp_master'}
+                                    entityId={corporateEntityId}
+                                    projectId={corporateEntityId}
                                     isEditing={companyModalMode === 'edit'}
                                 />
                             </div>
@@ -4917,20 +5082,13 @@ export default function MyCompanyPage() {
                         <form onSubmit={handleCreateNewFolder} className="space-y-4">
                             <div>
                                 <label className="block text-xs font-bold text-[var(--text)] mb-1">
-                                    Pasta Superior (Localização)
+                                    Pasta de Destino no CDE
                                 </label>
-                                <select
-                                    value={newFolderParent}
-                                    onChange={e => setNewFolderParent(e.target.value)}
-                                    className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
-                                >
-                                    {COMPANY_STANDARD_FOLDERS.map(top => (
-                                        <option key={top} value={top}>📁 {top}</option>
-                                    ))}
-                                    {customFolders.map(cf => (
-                                        <option key={cf} value={cf}>📁 {cf}</option>
-                                    ))}
-                                </select>
+                                <div className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/60 text-[var(--text-muted)] font-mono truncate">
+                                    📁 {cdeCurrentPath.length > 0
+                                        ? `${companyCdeConfig?.folderPath || 'CDE'} / ${cdeCurrentPath.map(p => p.name).join(' / ')}`
+                                        : (companyCdeConfig?.folderPath || 'Raiz do CDE')}
+                                </div>
                             </div>
 
                             <div>
@@ -5009,7 +5167,7 @@ export default function MyCompanyPage() {
                             setIsCdeModalOpen(false);
                             fetchCompanyCde();
                         }}
-                        projectId={masterCompany?.id || 'comp_master'}
+                        projectId={corporateEntityId}
                         title="Ambiente Comum de Dados (CDE) da Empresa"
                     />
                 </div>

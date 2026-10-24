@@ -144,12 +144,27 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
     useEffect(() => {
         if (!isOpen) return;
 
-        // Reset errors and test status
+        // Reset errors, explorer, and test status
         setAuthError('');
         setTestResult(null);
+        setIsExploringFolders(false);
+        setFolderList([]);
 
-        // Populate initial values from local store if present
-        if (project?.cdeConfig) {
+        const emptyCredentials = {
+            folderUrl: '',
+            folderPath: '',
+            folderId: '',
+            serviceAccountJson: '',
+            tenantId: '',
+            clientId: '',
+            clientSecret: '',
+            siteUrl: '',
+            appKey: '',
+            appSecret: ''
+        };
+
+        // Populate initial values from local store if present, otherwise clear immediately
+        if (project?.cdeConfig && (project.cdeConfig.connected || project.cdeConfig.provider)) {
             setProvider((project.cdeConfig.provider as any) || null);
             setCredentials({
                 folderUrl: project.cdeConfig.folderPath || project.cdeConfig.folderUrl || '',
@@ -163,32 +178,38 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 appKey: project.cdeConfig.appKey || '',
                 appSecret: project.cdeConfig.appSecret || ''
             });
+        } else {
+            setProvider(null);
+            setServerCdeConfig(null);
+            setCredentials(emptyCredentials);
         }
 
         // Fetch authoritative server-side sanitized config
-        if (projectId) {
+        if (projectId && projectId !== 'comp_master') {
             setIsLoadingServerConfig(true);
             fetch(`/api/projects/${projectId}/cde`)
                 .then(res => res.ok ? res.json() : null)
                 .then(data => {
-                    if (data?.cdeConfig) {
-                        const cfg = data.cdeConfig;
+                    const cfg = data?.cdeConfig;
+                    if (cfg && (cfg.connected || cfg.provider)) {
                         setServerCdeConfig(cfg);
-                        if (cfg.provider) {
-                            setProvider(cfg.provider);
-                        }
-                        setCredentials(prev => ({
+                        setProvider(cfg.provider || null);
+                        setCredentials({
                             folderUrl: cfg.folderPath || cfg.folderUrl || '',
                             folderPath: cfg.folderPath || cfg.folderUrl || '',
                             folderId: cfg.folderId || '',
-                            serviceAccountJson: cfg.serviceAccountKey || prev.serviceAccountJson,
-                            tenantId: cfg.tenantId || prev.tenantId,
-                            clientId: cfg.clientId || prev.clientId,
-                            clientSecret: cfg.clientSecretMasked || (cfg.hasClientSecret ? '••••••••••••••••' : prev.clientSecret),
-                            siteUrl: cfg.siteUrl || prev.siteUrl,
-                            appKey: cfg.appKey || prev.appKey,
-                            appSecret: cfg.appSecretMasked || (cfg.hasAppSecret ? '••••••••••••••••' : prev.appSecret)
-                        }));
+                            serviceAccountJson: cfg.serviceAccountKey || '',
+                            tenantId: cfg.tenantId || '',
+                            clientId: cfg.clientId || '',
+                            clientSecret: cfg.clientSecretMasked || (cfg.hasClientSecret ? '••••••••••••••••' : ''),
+                            siteUrl: cfg.siteUrl || '',
+                            appKey: cfg.appKey || '',
+                            appSecret: cfg.appSecretMasked || (cfg.hasAppSecret ? '••••••••••••••••' : '')
+                        });
+                    } else {
+                        setServerCdeConfig(null);
+                        setProvider(null);
+                        setCredentials(emptyCredentials);
                     }
                 })
                 .catch(err => {
