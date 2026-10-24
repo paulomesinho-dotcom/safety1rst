@@ -15,9 +15,10 @@ import {
     LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
     User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter,
     FolderPlus, FolderCheck, FileSpreadsheet, HardDrive, RotateCw, History, Paperclip, ChevronDown,
-    Archive
+    Archive, ShieldCheck, Server, Settings as SettingsIcon
 } from 'lucide-react';
 import { CDESettingsModal } from '@/components/CDESettingsModal';
+import { ProfileManagerModal, type ProfileType } from '@/components/ProfileManagerModal';
 import { 
     initializeCompanyStructure, 
     uploadToCDEFolder, 
@@ -31,7 +32,8 @@ import { DocumentList } from '@/components/DocumentList';
 import { GoogleDriveIcon } from '@/components/GoogleDriveIcons';
 import { 
     FlatCompaniesIcon, FlatWorkersIcon, FlatEquipmentIcon, 
-    FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon 
+    FlatTrainingIcon, FlatDocumentsIcon, FlatFolderIcon,
+    FlatSettingsIcon
 } from '@/components/FlatIcons';
 import { 
     COMPANY_ROLE_OPTIONS, 
@@ -49,7 +51,7 @@ import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 import type { Worker, Equipment, Company, Project, Document } from '@/types';
 
-type CompanyTab = 'organization' | 'workers' | 'equipment' | 'training' | 'documents';
+type CompanyTab = 'organization' | 'workers' | 'equipment' | 'training' | 'documents' | 'settings';
 
 function getInitials(name?: string) {
     if (!name) return 'U';
@@ -273,6 +275,9 @@ export default function MyCompanyPage() {
 
     const [activeTab, setActiveTab] = useState<CompanyTab>('organization');
     const [isCollapsed, setIsCollapsed] = useState(false);
+    const [settingsSubTab, setSettingsSubTab] = useState<'cde' | 'profiles'>('cde');
+    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+    const [profileModalType, setProfileModalType] = useState<ProfileType>('company');
 
     // Current user's account & master company record (strictly isolated per user/account, never shared with superadmin or across accounts)
     const effectiveAccountId = useMemo(() => {
@@ -1783,6 +1788,7 @@ export default function MyCompanyPage() {
                                     { id: 'equipment', label: 'Equipamentos', icon: FlatEquipmentIcon, badge: companyEquipment.length },
                                     { id: 'training', label: 'Formação', icon: FlatTrainingIcon },
                                     { id: 'documents', label: 'Documentos', icon: FlatDocumentsIcon, badge: corporateDocuments.length },
+                                    { id: 'settings', label: 'Configurações', icon: FlatSettingsIcon },
                                 ].map((item) => {
                                     const IconComponent = item.icon;
                                     const isActive = activeTab === item.id;
@@ -1869,7 +1875,7 @@ export default function MyCompanyPage() {
                                     <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-1">
                                         <span className="font-semibold text-primary">A Minha Empresa</span>
                                         <span>•</span>
-                                        <span className="capitalize">{activeTab === 'organization' ? 'Organizações' : activeTab}</span>
+                                        <span className="capitalize">{activeTab === 'organization' ? 'Organizações' : activeTab === 'settings' ? 'Configurações' : activeTab}</span>
                                     </div>
                                     <h1 className="text-xl font-extrabold text-[var(--text)]">
                                         {activeTab === 'organization' && 'Dados e Documentos da Organização'}
@@ -1877,6 +1883,7 @@ export default function MyCompanyPage() {
                                         {activeTab === 'equipment' && `Equipamentos e Máquinas (${companyEquipment.length})`}
                                         {activeTab === 'training' && 'Matriz e Cursos de Formação'}
                                         {activeTab === 'documents' && 'Repositório Documental Corporativo'}
+                                        {activeTab === 'settings' && 'Definições & Configurações da Empresa'}
                                     </h1>
                                 </div>
 
@@ -3041,6 +3048,347 @@ export default function MyCompanyPage() {
                                             )}
                                         </div>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* ════════ TAB: CONFIGURAÇÕES ════════ */}
+                            {activeTab === 'settings' && (
+                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                    {/* Navigation Tabs (Segmented Bar) */}
+                                    <div className="flex items-center gap-2 border-b border-[var(--border)] overflow-x-auto pb-1 scrollbar-none">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSettingsSubTab('cde')}
+                                            className={cn(
+                                                "flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer",
+                                                settingsSubTab === 'cde'
+                                                    ? "bg-primary text-white shadow-sm"
+                                                    : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]"
+                                            )}
+                                        >
+                                            <FlatDocumentsIcon size={16} /> Integrações &amp; CDE
+                                            {companyCdeConfig?.connected && (
+                                                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                            )}
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => setSettingsSubTab('profiles')}
+                                            className={cn(
+                                                "flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer",
+                                                settingsSubTab === 'profiles'
+                                                    ? "bg-primary text-white shadow-sm"
+                                                    : "text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)]"
+                                            )}
+                                        >
+                                            <FlatSettingsIcon size={16} /> Perfis de Documentos &amp; Metadados
+                                        </button>
+                                    </div>
+
+                                    {/* ── SUB-TAB: INTEGRAÇÕES & CDE ── */}
+                                    {settingsSubTab === 'cde' && (
+                                        <div className="space-y-6">
+                                            {/* Main CDE Dashboard Card */}
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                                <div className="p-6 border-b border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-blue-50/40 via-transparent to-transparent dark:from-blue-950/20">
+                                                    <div className="flex items-start gap-4">
+                                                        <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20 shadow-sm">
+                                                            <Cloud size={26} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2.5">
+                                                                <h3 className="text-lg font-bold text-[var(--text)]">
+                                                                    Ambiente Comum de Dados (CDE) da Empresa
+                                                                </h3>
+                                                                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hidden sm:inline-block">
+                                                                    ISO 19650 &amp; DL 273/2003
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-xs text-[var(--text-muted)] mt-1 max-w-2xl leading-relaxed">
+                                                                Repositório corporativo para sincronização bidirecional de documentação legal, certidões permanentes, apólices de seguros, alvarás IMPIC e fichas de colaboradores e equipamentos.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                                                        <span className={cn(
+                                                            "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border self-start sm:self-auto shadow-sm",
+                                                            companyCdeConfig?.connected
+                                                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                                                : "bg-gray-500/10 text-[var(--text-muted)] border-[var(--border)]"
+                                                        )}>
+                                                            <span className={cn("w-2 h-2 rounded-full", companyCdeConfig?.connected ? "bg-emerald-500 animate-pulse" : "bg-gray-400")} />
+                                                            {companyCdeConfig?.connected ? `Conectado (${companyCdeConfig.provider?.toUpperCase()})` : 'Desconectado'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="p-6 space-y-6">
+                                                    {/* Security Badge */}
+                                                    <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-800/60 rounded-xl flex items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                                                                <ShieldCheck size={20} />
+                                                            </div>
+                                                            <div className="text-xs">
+                                                                <span className="font-bold text-emerald-900 dark:text-emerald-200 block">
+                                                                    Cifra AES-256-GCM Ativa (Backend BFF)
+                                                                </span>
+                                                                <span className="text-emerald-800/80 dark:text-emerald-300/80">
+                                                                    Credenciais de acesso e segredos são protegidos no servidor PostgreSQL. O cliente navegador não armazena chaves privadas.
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Status Summary & Details */}
+                                                    {companyCdeConfig?.connected ? (
+                                                        <div className="p-5 rounded-2xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-4">
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                                                                <div className="space-y-1">
+                                                                    <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">Provedor Ativo</span>
+                                                                    <span className="font-bold text-sm text-[var(--text)] capitalize flex items-center gap-2">
+                                                                        <Cloud size={16} className="text-primary" />
+                                                                        {companyCdeConfig.provider === 'onedrive' ? 'Microsoft SharePoint' :
+                                                                         companyCdeConfig.provider === 'gdrive' ? 'Google Drive' :
+                                                                         companyCdeConfig.provider === 'dropbox' ? 'Dropbox Business' : 'Servidor Próprio / WebDAV'}
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="space-y-1">
+                                                                    <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">Destino da Pasta</span>
+                                                                    <span className="font-mono text-xs text-[var(--text)] truncate block" title={companyCdeConfig.folderPath || companyCdeConfig.folderUrl || companyCdeConfig.siteUrl || '/'}>
+                                                                        {companyCdeConfig.folderPath || companyCdeConfig.folderUrl || companyCdeConfig.siteUrl || 'Pasta Principal'}
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="space-y-1">
+                                                                    <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider block">Última Sincronização</span>
+                                                                    <span className="text-xs text-[var(--text-muted)] flex items-center gap-1.5">
+                                                                        <Clock size={14} />
+                                                                        {companyCdeConfig.lastSync ? new Date(companyCdeConfig.lastSync).toLocaleString('pt-PT') : 'Conectado'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)]">
+                                                                <div className="flex items-center gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={handleInitializeCompanyFolders}
+                                                                        disabled={isInitializingFolders}
+                                                                        className="px-3.5 py-2 rounded-xl bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-xs font-semibold text-[var(--text)] transition-all flex items-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
+                                                                        title="Verificar ou criar estrutura tipo no CDE"
+                                                                    >
+                                                                        {isInitializingFolders ? <RotateCw size={14} className="animate-spin text-primary" /> : <FolderPlus size={14} className="text-primary" />}
+                                                                        <span>Pastas Tipo ISO 19650</span>
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setActiveTab('documents')}
+                                                                        className="px-3.5 py-2 rounded-xl bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] hover:bg-gray-50 dark:hover:bg-[#131314] text-xs font-semibold text-[var(--text)] transition-all flex items-center gap-2 cursor-pointer shadow-xs"
+                                                                    >
+                                                                        <Folder size={14} className="text-primary" />
+                                                                        <span>Explorador de Documentos</span>
+                                                                    </button>
+                                                                </div>
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setIsCdeModalOpen(true)}
+                                                                    className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                                                                >
+                                                                    <SettingsIcon size={14} />
+                                                                    <span>Alterar Definições do CDE</span>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="p-6 rounded-2xl bg-[var(--bg-input)]/30 border border-dashed border-[var(--border)] text-center space-y-4">
+                                                            <div className="w-12 h-12 rounded-full bg-primary/10 text-primary mx-auto flex items-center justify-center">
+                                                                <Cloud size={24} />
+                                                            </div>
+                                                            <div className="max-w-md mx-auto space-y-1">
+                                                                <h4 className="text-sm font-bold text-[var(--text)]">
+                                                                    Nenhum Armazenamento Conectado a esta Empresa
+                                                                </h4>
+                                                                <p className="text-xs text-[var(--text-muted)]">
+                                                                    Ligue o SharePoint da sua organização, Google Drive, Dropbox ou servidor privado para sincronização em tempo real de documentos e requisitos legais.
+                                                                </p>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setIsCdeModalOpen(true)}
+                                                                className="px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all inline-flex items-center gap-2 shadow-md cursor-pointer"
+                                                            >
+                                                                <Cloud size={15} />
+                                                                <span>Configurar Ambiente Comum de Dados (CDE)</span>
+                                                            </button>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Providers Quick Grid */}
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-3">
+                                                            Provedores Suportados pelo SafeSite
+                                                        </label>
+                                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                                                            <div 
+                                                                onClick={() => setIsCdeModalOpen(true)}
+                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                                            >
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
+                                                                        <Cloud size={20} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-primary transition-colors">SharePoint / M365</h5>
+                                                                        <span className="text-[10px] text-[var(--text-muted)]">Azure Entra ID</span>
+                                                                    </div>
+                                                                </div>
+                                                                <span className="text-[11px] font-bold text-primary flex items-center gap-1">
+                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
+                                                                </span>
+                                                            </div>
+
+                                                            <div 
+                                                                onClick={() => setIsCdeModalOpen(true)}
+                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                                            >
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                                                                        <GoogleDriveIcon type="folder" size={20} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-emerald-600 transition-colors">Google Drive</h5>
+                                                                        <span className="text-[10px] text-[var(--text-muted)]">Google Workspace</span>
+                                                                    </div>
+                                                                </div>
+                                                                <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
+                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
+                                                                </span>
+                                                            </div>
+
+                                                            <div 
+                                                                onClick={() => setIsCdeModalOpen(true)}
+                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                                            >
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className="w-9 h-9 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
+                                                                        <Cloud size={20} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-indigo-600 transition-colors">Dropbox</h5>
+                                                                        <span className="text-[10px] text-[var(--text-muted)]">Dropbox Business</span>
+                                                                    </div>
+                                                                </div>
+                                                                <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-1">
+                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
+                                                                </span>
+                                                            </div>
+
+                                                            <div 
+                                                                onClick={() => setIsCdeModalOpen(true)}
+                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
+                                                            >
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-600 flex items-center justify-center shrink-0">
+                                                                        <Server size={20} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-purple-600 transition-colors">Servidor Próprio</h5>
+                                                                        <span className="text-[10px] text-[var(--text-muted)]">Nextcloud / MinIO</span>
+                                                                    </div>
+                                                                </div>
+                                                                <span className="text-[11px] font-bold text-purple-600 flex items-center gap-1">
+                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ── SUB-TAB: PERFIS DE DOCUMENTOS ── */}
+                                    {settingsSubTab === 'profiles' && (
+                                        <div className="space-y-6">
+                                            {/* Perfis de Dados e Metadados Card */}
+                                            <div className="p-6 bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm space-y-6">
+                                                <div className="flex items-start justify-between gap-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                                                            <FlatSettingsIcon size={20} />
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-base font-bold text-[var(--text)]">
+                                                                Perfis de Documentos &amp; Metadados
+                                                            </h3>
+                                                            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                                                Configure os campos de informação, formulários, prazos de validade e categorias de documentação exigidos aos intervenientes da sua empresa.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="p-4 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-xs text-[var(--text)] flex items-start gap-2.5">
+                                                    <Shield size={18} className="text-primary shrink-0 mt-0.5" />
+                                                    <div>
+                                                        <span className="font-bold block">Normalização Legal e Conformidade (DL 273/2003 &amp; ISO 19650)</span>
+                                                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                                            Os perfis de documentação determinam que documentos obrigatórios (seguros, aptidão médica, entrega de EPI, declarações CE) são solicitados em cada ficha e sincronizados com os estaleiros de obra.
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setProfileModalType('company'); setIsProfileModalOpen(true); }}
+                                                        className="p-5 border border-[var(--border)] rounded-2xl bg-[var(--bg-input)]/30 hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-3 group text-center cursor-pointer shadow-xs"
+                                                    >
+                                                        <div className="w-12 h-12 bg-blue-500/10 text-primary rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform border border-blue-500/20">
+                                                            <FlatCompaniesIcon size={22} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-xs text-[var(--text)] mb-0.5">Organizações</div>
+                                                            <div className="text-[11px] text-[var(--text-muted)]">Campos e perfis empresariais (Seguros, Finanças, SS, IMPIC)</div>
+                                                        </div>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setProfileModalType('worker'); setIsProfileModalOpen(true); }}
+                                                        className="p-5 border border-[var(--border)] rounded-2xl bg-[var(--bg-input)]/30 hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-3 group text-center cursor-pointer shadow-xs"
+                                                    >
+                                                        <div className="w-12 h-12 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform border border-emerald-500/20">
+                                                            <FlatWorkersIcon size={22} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-xs text-[var(--text)] mb-0.5">Pessoas</div>
+                                                            <div className="text-[11px] text-[var(--text-muted)]">Fichas e aptidão de colaboradores (FAT Médica, EPI, Contratos)</div>
+                                                        </div>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setProfileModalType('equipment'); setIsProfileModalOpen(true); }}
+                                                        className="p-5 border border-[var(--border)] rounded-2xl bg-[var(--bg-input)]/30 hover:border-primary/50 hover:bg-primary/5 transition-all flex flex-col items-center justify-center gap-3 group text-center cursor-pointer shadow-xs"
+                                                    >
+                                                        <div className="w-12 h-12 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform border border-amber-500/20">
+                                                            <FlatEquipmentIcon size={22} />
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-xs text-[var(--text)] mb-0.5">Equipamentos</div>
+                                                            <div className="text-[11px] text-[var(--text-muted)]">Inspeções e fichas de maquinaria (Conformidade CE, Manutenções)</div>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                                 </div>
@@ -5170,6 +5518,16 @@ export default function MyCompanyPage() {
                         projectId={corporateEntityId}
                         title="Ambiente Comum de Dados (CDE) da Empresa"
                     />
+
+                    {/* Modal Perfis de Documentos da Empresa */}
+                    {isProfileModalOpen && (
+                        <ProfileManagerModal
+                            isOpen={isProfileModalOpen}
+                            onClose={() => setIsProfileModalOpen(false)}
+                            projectId={corporateEntityId}
+                            entityType={profileModalType}
+                        />
+                    )}
                 </div>
             )}
         </AuthGuard>

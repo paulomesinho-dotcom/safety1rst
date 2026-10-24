@@ -39,7 +39,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
     const store = useStore();
     const currentProject = store.projects.find(p => p.id === projectId);
     const userRole = store.currentUser ? store.getUserRoleInProject(store.currentUser.id, projectId) : null;
-    const isManager = userRole === 'manager';
+    const isManager = userRole === 'manager' || store.currentUser?.role === 'admin' || store.currentUser?.role === 'superadmin' || projectId.startsWith('comp_');
 
     // Select Data based on Type
     const getProfiles = () => {
@@ -91,6 +91,36 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
 
     const projectProfiles = getProfiles().filter(p => p.projectId === projectId);
     const standardDocIds = DOC_IDS[entityType];
+
+    // Auto-create standard profile if none exists for this projectId
+    React.useEffect(() => {
+        if (!isOpen || !projectId) return;
+        const currentProfiles = getProfiles().filter(p => p.projectId === projectId);
+        if (currentProfiles.length === 0) {
+            const stdId = `std_${entityType}_${projectId}`;
+            const defaultConfig: Record<string, { isExpirationDate: boolean; toleranceDays: number }> = {};
+            Object.entries(STANDARD_DATE_DOC_CONFIG).forEach(([docId, meta]) => {
+                defaultConfig[docId] = { isExpirationDate: meta.defaultExpiry, toleranceDays: 0 };
+            });
+            const defaultRequirements = standardDocIds.reduce((acc, id) => ({ ...acc, [id]: true }), {});
+            const defaultUploads = standardDocIds.reduce((acc, id) => ({ ...acc, [id]: true }), {});
+
+            const newProfile = {
+                id: stdId,
+                projectId,
+                name: 'Perfil Padrão (DL 273/2003)',
+                requirements: defaultRequirements,
+                standardUploads: defaultUploads,
+                standardDocConfig: defaultConfig,
+                customDocuments: [],
+                isSystem: false,
+                createdAt: new Date().toISOString()
+            };
+            if (entityType === 'company') store.addCompanyProfile(newProfile);
+            if (entityType === 'worker') store.addWorkerProfile(newProfile);
+            if (entityType === 'equipment') store.addEquipmentProfile(newProfile);
+        }
+    }, [isOpen, projectId, entityType]);
 
     // Local State
     const [editingId, setEditingId] = useState<string | null>(null);
