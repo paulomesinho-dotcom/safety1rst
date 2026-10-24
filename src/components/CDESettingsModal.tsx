@@ -349,17 +349,26 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 setCredentials(prev => ({
                     ...prev,
                     folderId: data.folder.id,
-                    folderPath: data.folder.name || prev.folderPath,
-                    folderUrl: data.folder.name || prev.folderUrl
+                    folderPath: prev.folderPath || data.folder.name,
+                    folderUrl: prev.folderUrl || data.folder.name
                 }));
-                setUrlCleanedNotice(`✓ Pasta "${data.folder.name}" validada e vinculada por ID imutável (${data.folder.id})!`);
+                setUrlCleanedNotice(`✓ Pasta "${data.folder.name || val}" validada e vinculada por ID imutável (${data.folder.id})!`);
                 setTimeout(() => setUrlCleanedNotice(''), 6000);
+            } else if (data?.folder?.id === 'root') {
+                setCredentials(prev => ({
+                    ...prev,
+                    folderId: 'root',
+                    folderPath: prev.folderPath || '',
+                    folderUrl: prev.folderUrl || ''
+                }));
+                setUrlCleanedNotice('✓ Raiz da biblioteca validada com sucesso!');
+                setTimeout(() => setUrlCleanedNotice(''), 5000);
             } else {
-                setUrlCleanedNotice('Pasta não encontrada pelo link. Use "Explorar Pastas" para selecionar manualmente.');
+                setUrlCleanedNotice(data?.error || 'Pasta não encontrada pelo link. Use "Explorar Pastas" para selecionar manualmente.');
                 setTimeout(() => setUrlCleanedNotice(''), 5000);
             }
-        } catch (_) { 
-            setUrlCleanedNotice('Erro ao validar pasta. Verifique as credenciais.');
+        } catch (err: any) { 
+            setUrlCleanedNotice(err?.message || 'Erro ao validar pasta. Verifique as credenciais.');
             setTimeout(() => setUrlCleanedNotice(''), 5000);
         } finally {
             setIsLoadingFolders(false);

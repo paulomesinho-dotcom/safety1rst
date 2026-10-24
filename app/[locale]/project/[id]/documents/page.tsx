@@ -55,6 +55,8 @@ const Documents = () => {
     const [isSidebarExpanded, setIsSidebarExpanded] = useState(true); // Default open (per user request "vista inicial predefinida... mostrar todas as pastas")
     const [isNewMenuOpen, setIsNewMenuOpen] = useState(false);
     const [isInitializing, setIsInitializing] = useState(false);
+    const [cdeLoadError, setCdeLoadError] = useState<string>('');
+    const prevFolderIdRef = useRef<string | undefined>(project?.cdeConfig?.folderId);
 
     const fileInputUploadRef = useRef<HTMLInputElement>(null);
     const folderInputRef = useRef<HTMLInputElement>(null);
@@ -476,13 +478,21 @@ const Documents = () => {
         }
     };
 
-    // ... useEffect ...
+    // Reset navigation if CDE folder configuration changes
+    useEffect(() => {
+        if (project?.cdeConfig?.folderId !== prevFolderIdRef.current) {
+            prevFolderIdRef.current = project?.cdeConfig?.folderId;
+            setCurrentPath([]);
+            setTreeData({});
+        }
+    }, [project?.cdeConfig?.folderId]);
 
     // Initial Load & Navigation
     useEffect(() => {
         if (project?.cdeConfig?.connected) {
             const load = async () => {
                 setIsLoadingDrive(true);
+                setCdeLoadError('');
                 try {
                     const defaultRootId = project.cdeConfig!.provider === 'dropbox' ? (project.cdeConfig!.folderPath || '') : (project.cdeConfig!.folderId || 'root');
                     const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : defaultRootId;
@@ -568,13 +578,20 @@ const Documents = () => {
                     setDriveItems(items);
                 } catch (err: any) {
                     console.error('Content Load Error:', err);
+                    setCdeLoadError(err?.message || 'Falha ao carregar conteúdos do CDE.');
                 } finally {
                     setIsLoadingDrive(false);
                 }
             };
             load();
         }
-    }, [project?.cdeConfig?.lastSync, project?.cdeConfig?.connected, currentPath]);
+    }, [
+        project?.cdeConfig?.lastSync, 
+        project?.cdeConfig?.connected, 
+        project?.cdeConfig?.folderId, 
+        project?.cdeConfig?.folderPath, 
+        currentPath
+    ]);
 
 
 
@@ -906,36 +923,51 @@ const Documents = () => {
                     {driveItems.length === 0 && !isLoadingDrive ? (
                         <div className="flex flex-col items-center justify-center h-64 text-gray-400">
                             <GoogleDriveIcon type="default" size={48} className="mb-4 opacity-10" />
-                            <p className="text-sm font-medium">No documents found.</p>
+                            <p className="text-sm font-medium">Nenhum documento ou pasta encontrado.</p>
+
+                            {/* Error Banner if any */}
+                            {cdeLoadError && (
+                                <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300 max-w-md w-full text-center">
+                                    <p className="font-semibold">Erro ao comunicar com o CDE:</p>
+                                    <p className="mt-1">{cdeLoadError}</p>
+                                </div>
+                            )}
 
                             {/* DEBUG INFO FOR USER */}
                             {project?.cdeConfig?.connected && (
-                                <div className="mt-4 p-4 bg-gray-50 dark:bg-[#131314] rounded text-xs text-left max-w-sm w-full">
-                                    <p className="font-bold mb-2">Debug Info:</p>
-                                    <p>Provider: {project.cdeConfig.provider}</p>
-                                    <p>Connected: Yes</p>
-                                    <p>Token: {project.cdeConfig.accessToken ? 'Present (' + project.cdeConfig.accessToken.substring(0, 10) + '...)' : 'Missing'}</p>
-                                    <p>Folder ID: {project.cdeConfig.folderId || 'Missing'}</p>
+                                <div className="mt-4 p-4 bg-gray-50 dark:bg-[#131314] rounded-xl text-xs text-left max-w-sm w-full border border-gray-200 dark:border-gray-800">
+                                    <p className="font-bold mb-2 text-gray-800 dark:text-gray-200">Informação da Ligação CDE:</p>
+                                    <p><span className="font-medium text-gray-500">Fornecedor:</span> {project.cdeConfig.provider}</p>
+                                    <p><span className="font-medium text-gray-500">Pasta:</span> {project.cdeConfig.folderPath || '(Raiz)'}</p>
+                                    <p><span className="font-medium text-gray-500">ID da Pasta:</span> {project.cdeConfig.folderId || '(Raiz)'}</p>
                                     <button
-                                        className="mt-3 px-3 py-1 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded shadow-sm hover:bg-gray-100 dark:hover:bg-surface w-full"
-                                        onClick={() => {
-                                            if (project.cdeConfig?.accessToken && project.cdeConfig?.folderId) {
-                                                setIsLoadingDrive(true);
-                                                fetchGoogleDriveContent(project.cdeConfig.accessToken, project.cdeConfig.folderId)
-                                                    .then(items => {
-                                                        setDriveItems(items);
-                                                        setIsLoadingDrive(false);
-                                                    })
-                                                    .catch(err => {
-                                                        alert('Retry Failed: ' + err.message);
-                                                        setIsLoadingDrive(false);
-                                                    });
-                                            } else {
-                                                alert('Missing Token or Folder ID');
+                                        className="mt-3 px-3 py-1.5 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg shadow-sm hover:bg-gray-100 dark:hover:bg-surface w-full font-medium text-gray-700 dark:text-gray-200 transition-colors cursor-pointer"
+                                        onClick={async () => {
+                                            setIsLoadingDrive(true);
+                                            setCdeLoadError('');
+                                            try {
+                                                const defaultRootId = project.cdeConfig!.provider === 'dropbox' 
+                                                    ? (project.cdeConfig!.folderPath || '') 
+                                                    : (project.cdeConfig!.folderId || 'root');
+                                                const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : defaultRootId;
+                                                let items: any[] = [];
+                                                if (project.cdeConfig!.provider === 'gdrive' && project.cdeConfig!.accessToken) {
+                                                    items = await fetchGoogleDriveContent(project.cdeConfig!.accessToken, targetId);
+                                                } else if (project.cdeConfig!.provider === 'onedrive') {
+                                                    items = await fetchSharePointContent(project.cdeConfig, targetId);
+                                                } else if (project.cdeConfig!.provider === 'dropbox') {
+                                                    items = await fetchDropboxContent(project.cdeConfig, targetId);
+                                                }
+                                                setDriveItems(items);
+                                            } catch (err: any) {
+                                                alert('Erro ao recarregar: ' + err.message);
+                                                setCdeLoadError(err.message);
+                                            } finally {
+                                                setIsLoadingDrive(false);
                                             }
                                         }}
                                     >
-                                        Retry Fetch
+                                        Recarregar Conteúdos
                                     </button>
                                 </div>
                             )}

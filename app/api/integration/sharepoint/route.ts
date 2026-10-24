@@ -32,7 +32,9 @@ export async function POST(req: NextRequest) {
             storedConfig = await getProjectCdeConfig(lookupId);
             if (storedConfig) {
                 clientId = clientId || storedConfig.clientId;
-                clientSecret = storedConfig.clientSecret || clientSecret;
+                clientSecret = (!clientSecret || clientSecret.includes('•')) 
+                    ? (storedConfig.clientSecret || '') 
+                    : (clientSecret || storedConfig.clientSecret || '');
                 tenantId = tenantId || storedConfig.tenantId;
                 siteUrl = siteUrl || storedConfig.siteUrl;
                 folderId = folderId || (parentId ? undefined : storedConfig.folderId);

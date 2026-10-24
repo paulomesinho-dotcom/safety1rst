@@ -152,7 +152,7 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
                 }, 'resolve_folder', {});
                 if (res?.folderId && res.folderId !== 'root') {
                     encryptedConfig.folderId = res.folderId;
-                    if (res.folderName) {
+                    if (!encryptedConfig.folderPath && res.folderName) {
                         encryptedConfig.folderPath = res.folderName;
                     }
                 }
