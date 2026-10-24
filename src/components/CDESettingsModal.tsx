@@ -178,9 +178,9 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                             setProvider(cfg.provider);
                         }
                         setCredentials(prev => ({
-                            folderUrl: cfg.folderPath || cfg.folderUrl || prev.folderUrl,
-                            folderPath: cfg.folderPath || cfg.folderUrl || prev.folderPath,
-                            folderId: cfg.folderId || prev.folderId,
+                            folderUrl: cfg.folderPath || cfg.folderUrl || '',
+                            folderPath: cfg.folderPath || cfg.folderUrl || '',
+                            folderId: cfg.folderId || '',
                             serviceAccountJson: cfg.serviceAccountKey || prev.serviceAccountJson,
                             tenantId: cfg.tenantId || prev.tenantId,
                             clientId: cfg.clientId || prev.clientId,
@@ -198,7 +198,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                     setIsLoadingServerConfig(false);
                 });
         }
-    }, [isOpen, projectId, project]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isOpen, projectId]);
 
     const OAUTH_PENDING_KEY = 'safesite_oauth_pending';
     const OAUTH_RESULT_KEY = 'safesite_oauth_result';
@@ -431,15 +432,17 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             return;
         }
 
-        const cleanName = folder.name;
+        // Full path from breadcrumbs (skip the synthetic root entry) so that a same-named folder elsewhere can't be matched
+        const parentSegments = folderBreadcrumbs.slice(1).map(b => b.name);
+        const fullPath = [...parentSegments, folder.name].join('/');
         setCredentials(prev => ({
             ...prev,
             folderId: folder.id,
-            folderPath: cleanName,
-            folderUrl: cleanName
+            folderPath: fullPath,
+            folderUrl: fullPath
         }));
         setIsExploringFolders(false);
-        setUrlCleanedNotice(`Pasta "${cleanName}" vinculada com sucesso pelo ID imutável (${folder.id})!`);
+        setUrlCleanedNotice(`Pasta "${fullPath}" vinculada com sucesso pelo ID imutável (${folder.id})! Clique em Guardar para aplicar.`);
         setTimeout(() => setUrlCleanedNotice(''), 5000);
     };
 
@@ -454,13 +457,14 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             setUrlCleanedNotice('Selecionada a raiz da biblioteca de documentos.');
         } else {
             const currentItem = folderBreadcrumbs[folderBreadcrumbs.length - 1];
+            const fullPath = folderBreadcrumbs.slice(1).map(b => b.name).join('/');
             setCredentials(prev => ({
                 ...prev,
                 folderId: currentItem.id,
-                folderPath: currentItem.name,
-                folderUrl: currentItem.name
+                folderPath: fullPath,
+                folderUrl: fullPath
             }));
-            setUrlCleanedNotice(`Pasta "${currentItem.name}" vinculada por ID imutável (${currentItem.id})!`);
+            setUrlCleanedNotice(`Pasta "${fullPath}" vinculada por ID imutável (${currentItem.id})! Clique em Guardar para aplicar.`);
         }
         setIsExploringFolders(false);
         setTimeout(() => setUrlCleanedNotice(''), 5000);

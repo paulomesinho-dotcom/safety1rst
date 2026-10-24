@@ -141,8 +141,10 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
         accessToken: finalAccessToken ? encryptSecret(finalAccessToken) : '',
     };
 
-    // If SharePoint/OneDrive and folderId not provided or root or path changed, attempt automatic server-side resolution
-    if (encryptedConfig.provider === 'onedrive' && (!encryptedConfig.folderId || encryptedConfig.folderId === 'root' || pathChanged)) {
+    // If SharePoint/OneDrive and folderId not provided (or root), attempt automatic server-side resolution.
+    // NOTE: an explicit, freshly-picked folderId is authoritative and must NEVER be overridden by path resolution
+    // (path resolution by leaf name can match a different/older folder with the same name).
+    if (encryptedConfig.provider === 'onedrive' && (!encryptedConfig.folderId || encryptedConfig.folderId === 'root') && encryptedConfig.folderPath) {
         const rawToResolve = encryptedConfig.folderPath || encryptedConfig.folderUrl;
         if (rawToResolve && finalClientSecret && encryptedConfig.clientId && encryptedConfig.tenantId && encryptedConfig.siteUrl) {
             try {
@@ -943,6 +945,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const baseFolder = await resolveBaseFolder();
         const baseFolderId = baseFolder.id;
         const driveId = baseFolder.driveId;
+        logs.push(`Pasta base no SharePoint: ${baseFolder.name || config.folderPath || 'Raiz'} (ID ${baseFolderId})`);
 
         const STANDARD_FOLDERS = [
             '01-Empresas',

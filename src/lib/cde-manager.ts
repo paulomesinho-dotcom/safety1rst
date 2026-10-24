@@ -223,6 +223,10 @@ async function createDropboxFolder(accessToken: string, parentPath: string, name
 export async function createOneDriveFolder(config: CDEConfig, parentId: string, name: string): Promise<CreateFolderResult> {
     const compOrProjId = (config as any).projectId || (config as any).id || (config as any).companyId || 'comp_master';
 
+    // Base folder → send 'root' so the SERVER resolves it from the authoritative DB config
+    // (the client-side cached folderId may be stale after the CDE folder was changed).
+    const serverParentId = (!parentId || parentId === 'root' || parentId === config.folderId) ? 'root' : parentId;
+
     // 1. Tentar via endpoint de ação CDE no servidor (que tem credenciais desencriptadas)
     try {
         const res = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
@@ -230,7 +234,7 @@ export async function createOneDriveFolder(config: CDEConfig, parentId: string, 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 action: 'create_folder',
-                payload: { parentId, folderName: name }
+                payload: { parentId: serverParentId, folderName: name }
             })
         });
         if (res.ok) {
@@ -302,24 +306,21 @@ export async function initializeProjectStructure(
 
     const compOrProjId = (config as any).projectId || (config as any).id || (config as any).companyId || 'comp_master';
 
-    // Execução ultra-rápida no servidor para SharePoint
+    // Execução no servidor para SharePoint (fonte de verdade: configuração cifrada na BD)
     if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
-        try {
-            const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'initialize_project_structure',
-                    payload: {}
-                })
-            });
-            if (srvRes.ok) {
-                const srvData = await srvRes.json();
-                if (srvData.result?.logs) return srvData.result.logs;
-            }
-        } catch (srvErr) {
-            console.warn('Server initialize_project_structure fallback:', srvErr);
+        const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'initialize_project_structure',
+                payload: {}
+            })
+        });
+        const srvData = await srvRes.json().catch(() => ({}));
+        if (!srvRes.ok) {
+            throw new Error(srvData?.error || 'Falha ao criar pastas tipo no SharePoint.');
         }
+        return srvData.result?.logs || [];
     }
 
     const rootId = (config.provider === 'gdrive' ? (config.folderId || 'root') :
@@ -340,7 +341,7 @@ export async function initializeProjectStructure(
                     result = await createGoogleDriveFolder(config.accessToken!, rootId, folderName);
                 } else if (config.provider === 'dropbox') {
                     result = await createDropboxFolder(config.accessToken!, rootId, folderName);
-                } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+                } else if ((config.provider as string) === 'onedrive' || (config.provider as string) === 'sharepoint') {
                     result = await createOneDriveFolder(config, rootId, folderName);
                 }
 
@@ -355,7 +356,7 @@ export async function initializeProjectStructure(
                                 await createGoogleDriveFolder(config.accessToken!, result.id, sub);
                             } else if (config.provider === 'dropbox') {
                                 await createDropboxFolder(config.accessToken!, result.id, sub);
-                            } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
+                            } else if ((config.provider as string) === 'onedrive' || (config.provider as string) === 'sharepoint') {
                                 await createOneDriveFolder(config, result.id, sub);
                             }
                         }

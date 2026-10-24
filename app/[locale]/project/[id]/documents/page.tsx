@@ -333,7 +333,7 @@ const Documents = () => {
             const logs = await initializeProjectStructure({ ...currentCfg, projectId: project?.id || projectId } as any, async (token, expiresAt) => {
                 updateProjectCDE(projectId, { ...currentCfg, accessToken: token } as any);
             });
-            alert('Pastas tipo verificadas com sucesso:\n' + logs.filter(l => l.includes('Created') || l.includes('Criada') || l.includes('Found existing') || l.includes('Existente') || l.includes('verified')).join('\n'));
+            alert('Pastas tipo verificadas com sucesso:\n' + logs.filter(l => l.includes('Pasta base') || l.includes('Created') || l.includes('Criada') || l.includes('Found existing') || l.includes('Existente') || l.includes('verified') || l.includes('Erro')).join('\n'));
 
             // Refresh main view
             const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : rootId;
@@ -356,6 +356,9 @@ const Documents = () => {
     };
 
     const fetchSharePointContent = async (config: any, folderId: string) => {
+        // Base folder → 'root' so the server resolves it from the authoritative DB config
+        // (the cached config.folderId in the browser may be stale after changing the CDE folder).
+        const serverFolderId = (!folderId || folderId === 'root' || folderId === config?.folderId) ? 'root' : folderId;
         try {
             // 1. Tentar via endpoint de ação CDE no servidor (que tem credenciais desencriptadas)
             try {
@@ -364,12 +367,25 @@ const Documents = () => {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         action: 'list',
-                        payload: { folderId }
+                        payload: { folderId: serverFolderId }
                     })
                 });
                 if (res.ok) {
                     const data = await res.json();
                     if (data.result?.files) {
+                        // Self-heal: if the server's authoritative base folder differs from the cached one, re-sync config
+                        const srvBaseId = data.result.baseFolderId;
+                        if (serverFolderId === 'root' && srvBaseId && srvBaseId !== 'root' && srvBaseId !== config?.folderId) {
+                            fetch(`/api/projects/${projectId}/cde`)
+                                .then(r => r.ok ? r.json() : null)
+                                .then(d => {
+                                    const cfg = d?.cdeConfig || d?.config;
+                                    if (cfg?.connected && (cfg.folderId !== config?.folderId || cfg.folderPath !== config?.folderPath)) {
+                                        updateProjectCDE(projectId, cfg);
+                                    }
+                                })
+                                .catch(() => { });
+                        }
                         return data.result.files;
                     }
                 }
@@ -385,8 +401,7 @@ const Documents = () => {
                     clientId: config.clientId,
                     clientSecret: config.clientSecret,
                     siteUrl: config.siteUrl,
-                    folderPath: config.folderPath,
-                    folderId: folderId,
+                    folderId: serverFolderId,
                     projectId: projectId
                 })
             });
