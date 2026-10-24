@@ -818,11 +818,25 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
         const COMPANY_SPECIAL_SUBFOLDERS: Record<string, string[]> = {
             '01-Empresa': [
-                '01-Certidões e Legal',
+                '01-Certidão Comercial',
                 '02-Seguros',
-                '03-Alvará e Licenças',
-                '04-Medicina no Trabalho',
-                '05-Folhas de Remuneração (DRI)'
+                '03-Certidões Não Dívida (AT e SS)',
+                '04-Alvará e Título Registo',
+                '05-Medicina no Trabalho',
+                '06-Folhas de Remunerações',
+                'Arquivo'
+            ],
+            '04-Formação e Qualificações': [
+                'Planos de Formação',
+                'Manuais de Acolhimento',
+                'Certificados',
+                'Arquivo'
+            ],
+            '05-Segurança e Saúde (SST)': [
+                'Avaliações de Risco',
+                'Procedimentos de Trabalho Seguro',
+                'Registos de Acidentes',
+                'Arquivo'
             ]
         };
 
@@ -896,9 +910,12 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             '01-Empresas',
             '02-Trabalhadores',
             '03-Equipamentos',
-            '04-Formação',
-            '05-Segurança e Saúde',
-            '06-Atas e Comunicações'
+            '04-Controlo de Acessos',
+            '05-Sinistralidade',
+            '06-Formação',
+            '07-Segurança e Saúde',
+            '08-Atas e Comunicações',
+            '09-Modelos e Minutas'
         ];
         const SPECIAL_SUBFOLDERS: Record<string, string[]> = {
             '01-Empresas': ['00-Reports']
