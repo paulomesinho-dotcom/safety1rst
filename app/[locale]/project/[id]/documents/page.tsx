@@ -961,7 +961,8 @@ const Documents = () => {
                                 {driveItems.map(doc => (
                                     <tr key={doc.id} className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-50 cursor-pointer group"
                                         onClick={() => {
-                                            if (doc.mimeType === 'application/vnd.google-apps.folder') {
+                                            const isFolder = doc.mimeType === 'application/vnd.google-apps.folder' || (doc.mimeType || '').includes('folder');
+                                            if (isFolder) {
                                                 setCurrentPath([...currentPath, { id: doc.id, name: doc.name }]);
                                             } else {
                                                 window.open(doc.webViewLink, '_blank');
@@ -971,7 +972,8 @@ const Documents = () => {
                                         {(() => {
                                             // Match with DB Document
                                             // Prioritize ID match (Robust against renames), fallback to Name
-                                            const dbDoc = dbDocMapById.get(doc.id) || (!doc.mimeType.includes('folder') ? dbDocMapByName.get(doc.name.toLowerCase()) : null);
+                                            const isFolder = doc.mimeType === 'application/vnd.google-apps.folder' || (doc.mimeType || '').includes('folder');
+                                            const dbDoc = dbDocMapById.get(doc.id) || (!isFolder ? dbDocMapByName.get(doc.name.toLowerCase()) : null);
 
                                             const version = dbDoc?.version ? `v${dbDoc.version}.0` : 'v1.0';
                                             // Prefer DB date if available, else File date

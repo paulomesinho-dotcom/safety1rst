@@ -31,19 +31,26 @@ export function parseSharePointUrl(rawUrl: string): {
         return { siteUrl: '', folderPath: '' };
     }
 
-    const trimmed = rawUrl.trim();
+    let trimmed = rawUrl.trim();
+    try {
+        if (trimmed.includes('%2F') || trimmed.includes('%3A')) {
+            trimmed = decodeURIComponent(trimmed);
+        }
+    } catch { }
+
     let url: URL;
     try {
         url = new URL(trimmed);
     } catch {
-        // If not a full URL, it could be a direct path
         return { siteUrl: '', folderPath: trimmed.replace(/^[/\\]+/, '') };
     }
 
     const host = url.origin;
-    // Check if query parameter has the real folder path (copied directly from browser address bar)
     const queryId = url.searchParams.get('id') || url.searchParams.get('RootFolder') || url.searchParams.get('rootfolder');
     let rawPath = queryId ? decodeURIComponent(queryId) : decodeURIComponent(url.pathname);
+
+    // Strip sharing prefix like /:f:/r/ or /:f:/s/
+    rawPath = rawPath.replace(/^\/:(?:[a-z]):\/[a-z]\//i, '/');
 
     // Identify /sites/SiteName or /teams/TeamName
     let siteUrl = host;
@@ -295,8 +302,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 ...prev,
                 siteUrl: parsed.siteUrl || prev.siteUrl,
                 folderPath: parsed.folderPath || value,
-                folderUrl: parsed.folderPath || value,
-                folderId: ''
+                folderUrl: value
             }));
             if (parsed.folderPath) {
                 setUrlCleanedNotice(`Pasta extraída do link: "${parsed.folderPath}"`);
@@ -306,9 +312,50 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             setCredentials(prev => ({
                 ...prev,
                 folderPath: value,
-                folderUrl: value,
-                folderId: ''
+                folderUrl: value
             }));
+        }
+    };
+
+    const handleValidateAndResolveFolder = async (targetVal?: string) => {
+        const val = targetVal || credentials.folderPath || credentials.folderUrl || credentials.siteUrl;
+        if (!val) return;
+        setIsLoadingFolders(true);
+        try {
+            const parsed = parseSharePointUrl(credentials.siteUrl || val);
+            const res = await fetch('/api/integration/sharepoint', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'resolve_folder',
+                    siteUrl: parsed.siteUrl || credentials.siteUrl,
+                    tenantId: credentials.tenantId,
+                    clientId: credentials.clientId,
+                    clientSecret: credentials.clientSecret,
+                    folderUrl: val,
+                    folderPath: val,
+                    projectId
+                })
+            });
+            const data = await res.json();
+            if (data?.folder?.id && data.folder.id !== 'root') {
+                setCredentials(prev => ({
+                    ...prev,
+                    folderId: data.folder.id,
+                    folderPath: data.folder.name || prev.folderPath,
+                    folderUrl: data.folder.name || prev.folderUrl
+                }));
+                setUrlCleanedNotice(`✓ Pasta "${data.folder.name}" validada e vinculada por ID imutável (${data.folder.id})!`);
+                setTimeout(() => setUrlCleanedNotice(''), 6000);
+            } else {
+                setUrlCleanedNotice('Pasta não encontrada pelo link. Use "Explorar Pastas" para selecionar manualmente.');
+                setTimeout(() => setUrlCleanedNotice(''), 5000);
+            }
+        } catch (_) { 
+            setUrlCleanedNotice('Erro ao validar pasta. Verifique as credenciais.');
+            setTimeout(() => setUrlCleanedNotice(''), 5000);
+        } finally {
+            setIsLoadingFolders(false);
         }
     };
 
@@ -360,22 +407,22 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
         }
     };
 
-    const handleSelectFolder = (folder: { id: string; name: string }) => {
-        const pathSegments = folderBreadcrumbs
-            .filter(b => b.id !== 'root')
-            .map(b => b.name);
-        pathSegments.push(folder.name);
-        const fullPath = pathSegments.join('/');
+    const handleSelectFolder = (folder: { id: string; name: string; isDrive?: boolean }) => {
+        if (folder.isDrive) {
+            loadSharePointFolders(folder.id, folder.name.replace(/^📚 \[Biblioteca\] /, ''));
+            return;
+        }
 
+        const cleanName = folder.name;
         setCredentials(prev => ({
             ...prev,
             folderId: folder.id,
-            folderPath: fullPath,
-            folderUrl: fullPath
+            folderPath: cleanName,
+            folderUrl: cleanName
         }));
         setIsExploringFolders(false);
-        setUrlCleanedNotice(`Pasta "${folder.name}" vinculada com sucesso!`);
-        setTimeout(() => setUrlCleanedNotice(''), 4500);
+        setUrlCleanedNotice(`Pasta "${cleanName}" vinculada com sucesso pelo ID imutável (${folder.id})!`);
+        setTimeout(() => setUrlCleanedNotice(''), 5000);
     };
 
     const handleSelectCurrentBreadcrumb = () => {
@@ -389,17 +436,16 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
             setUrlCleanedNotice('Selecionada a raiz da biblioteca de documentos.');
         } else {
             const currentItem = folderBreadcrumbs[folderBreadcrumbs.length - 1];
-            const fullPath = folderBreadcrumbs.filter(b => b.id !== 'root').map(b => b.name).join('/');
             setCredentials(prev => ({
                 ...prev,
                 folderId: currentItem.id,
-                folderPath: fullPath,
-                folderUrl: fullPath
+                folderPath: currentItem.name,
+                folderUrl: currentItem.name
             }));
-            setUrlCleanedNotice(`Pasta "${currentItem.name}" vinculada com sucesso!`);
+            setUrlCleanedNotice(`Pasta "${currentItem.name}" vinculada por ID imutável (${currentItem.id})!`);
         }
         setIsExploringFolders(false);
-        setTimeout(() => setUrlCleanedNotice(''), 4500);
+        setTimeout(() => setUrlCleanedNotice(''), 5000);
     };
 
     const handleCreateFolderInPicker = async () => {
@@ -955,6 +1001,16 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                             </div>
                                             <button
                                                 type="button"
+                                                onClick={() => handleValidateAndResolveFolder()}
+                                                disabled={isLoadingFolders}
+                                                className="px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-100 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer shadow-sm"
+                                                title="Validar e obter ID imutável da pasta"
+                                            >
+                                                <Sparkles size={14} />
+                                                <span>Validar</span>
+                                            </button>
+                                            <button
+                                                type="button"
                                                 onClick={() => {
                                                     const willOpen = !isExploringFolders;
                                                     setIsExploringFolders(willOpen);
@@ -969,6 +1025,21 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                                 <span>{isExploringFolders ? 'Fechar Explorador' : 'Explorar Pastas'}</span>
                                             </button>
                                         </div>
+
+                                        {/* Linked Folder Immutable ID Badge */}
+                                        {credentials.folderId && credentials.folderId !== 'root' && (
+                                            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs mt-2">
+                                                <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-semibold truncate">
+                                                        Pasta vinculada por ID imutável: <span className="underline">{credentials.folderPath}</span>
+                                                    </p>
+                                                    <p className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 font-mono truncate">
+                                                        ID Graph: {credentials.folderId} (permanecerá ligada mesmo que seja movida ou alterado o nome no SharePoint)
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {/* Quick Shortcut Pills */}
                                         <div className="flex flex-wrap items-center gap-1.5 mt-2">

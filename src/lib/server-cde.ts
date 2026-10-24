@@ -128,6 +128,34 @@ export async function saveProjectCdeConfig(id: string, incoming: Record<string, 
         accessToken: finalAccessToken ? encryptSecret(finalAccessToken) : '',
     };
 
+    // If SharePoint/OneDrive and folderId not provided or root, attempt automatic server-side resolution
+    if (encryptedConfig.provider === 'onedrive' && (!encryptedConfig.folderId || encryptedConfig.folderId === 'root')) {
+        const rawToResolve = encryptedConfig.folderPath || encryptedConfig.folderUrl;
+        if (rawToResolve && finalClientSecret && encryptedConfig.clientId && encryptedConfig.tenantId && encryptedConfig.siteUrl) {
+            try {
+                const res: any = await executeSharePointServerAction({
+                    provider: 'onedrive',
+                    connected: true,
+                    clientId: encryptedConfig.clientId,
+                    clientSecret: finalClientSecret,
+                    tenantId: encryptedConfig.tenantId,
+                    siteUrl: encryptedConfig.siteUrl,
+                    folderUrl: encryptedConfig.folderUrl,
+                    folderPath: encryptedConfig.folderPath,
+                    folderId: encryptedConfig.folderId
+                }, 'resolve_folder', {});
+                if (res?.folderId && res.folderId !== 'root') {
+                    encryptedConfig.folderId = res.folderId;
+                    if (res.folderName) {
+                        encryptedConfig.folderPath = res.folderName;
+                    }
+                }
+            } catch (e) {
+                console.warn('[SharePoint] Auto-resolution on save warning:', e);
+            }
+        }
+    }
+
     // Helper to get or create a default tenant in PostgreSQL if none exists yet
     const getOrCreateDefaultTenantId = async (): Promise<string> => {
         let tenant = await prisma.tenant.findFirst().catch(() => null);
@@ -318,7 +346,16 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
     // Check if user accidentally pasted URL with query parameter ?id= or ?RootFolder=
     const queryFolder = parsedUrl.searchParams.get('id') || parsedUrl.searchParams.get('RootFolder') || parsedUrl.searchParams.get('rootfolder');
+
+    // Helper: Base64Url encode for Graph shares API
+    const encodeSharePointUrlForGraph = (url: string): string => {
+        const b64 = Buffer.from(url.trim()).toString('base64');
+        return 'u!' + b64.replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+    };
+
+    // Clean raw path and strip sharing prefixes like /:f:/r/ or /:f:/s/
     let rawPath = queryFolder ? decodeURIComponent(queryFolder) : decodeURIComponent(parsedUrl.pathname);
+    rawPath = rawPath.replace(/^\/:(?:[a-z]):\/[a-z]\//i, '/');
 
     let smartPath = rawPath.replace(/\/$/, '');
     const commonJunk = ['/shared documents', '/documentos partilhados', '/documentos', '/forms', '/lists', '/_layouts', '/sitepages'];
@@ -345,12 +382,31 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     const siteData = await siteRes.json();
     const siteId = siteData.id;
 
+    // Helper: Get all Document Libraries (drives) for this site
+    let siteDrivesCache: any[] | null = null;
+    const getSiteDrives = async (): Promise<any[]> => {
+        if (siteDrivesCache) return siteDrivesCache;
+        try {
+            const res = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drives`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                siteDrivesCache = data.value || [];
+                return siteDrivesCache || [];
+            }
+        } catch (e) {
+            console.warn('[SharePoint] getSiteDrives error:', e);
+        }
+        return [];
+    };
+
     // Helper: Ensure/Create folder in SharePoint
-    const ensureSharePointFolder = async (parentId: string, folderName: string) => {
+    const ensureSharePointFolder = async (parentId: string, folderName: string, driveId?: string) => {
         const isRoot = !parentId || parentId === 'root';
         const childrenUrl = isRoot
-            ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`
-            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`;
+            ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
+            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${parentId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`);
 
         try {
             const listRes = await fetch(childrenUrl, {
@@ -362,7 +418,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                     item.folder && item.name.toLowerCase() === folderName.toLowerCase()
                 );
                 if (existing) {
-                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl };
+                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId };
                 }
             }
         } catch (e) {
@@ -384,7 +440,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
         if (createRes.ok) {
             const item = await createRes.json();
-            return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl };
+            return { id: item.id, name: item.name, exists: false, webViewLink: item.webUrl, driveId };
         }
 
         if (createRes.status === 409) {
@@ -397,7 +453,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                     item.folder && item.name.toLowerCase() === folderName.toLowerCase()
                 );
                 if (existing) {
-                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl };
+                    return { id: existing.id, name: existing.name, exists: true, webViewLink: existing.webUrl, driveId };
                 }
             }
         }
@@ -406,59 +462,127 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         throw new Error(`Falha ao criar pasta "${folderName}" no SharePoint: ${errText}`);
     };
 
-    // Helper: Resolves the base root folder ID configured for this project or company
-    const resolveBaseFolderId = async (): Promise<string> => {
-        // 1. If explicit valid folderId is provided, verify it exists
-        if (config.folderId && config.folderId !== 'root') {
+    // Helper: Resolves base folder (immutable ID, driveId, name, webUrl)
+    const resolveBaseFolder = async (): Promise<{ id: string; name?: string; driveId?: string; webUrl?: string }> => {
+        // 1. Explicit folderId (and not 'root')
+        const explicitId = config.folderId;
+        if (explicitId && explicitId !== 'root') {
             try {
-                const checkRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${config.folderId}`, {
+                const checkRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${explicitId}`, {
                     headers: { Authorization: `Bearer ${accessToken}` }
                 });
                 if (checkRes.ok) {
-                    return config.folderId;
+                    const data = await checkRes.json();
+                    return { id: data.id, name: data.name, webUrl: data.webUrl };
                 }
-            } catch (e) {
-                console.warn('[SharePoint] Base folderId validation warning, trying folderPath fallback:', e);
+            } catch (e) { }
+
+            const drives = await getSiteDrives();
+            for (const d of drives) {
+                try {
+                    const dRes = await fetch(`https://graph.microsoft.com/v1.0/drives/${d.id}/items/${explicitId}`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    if (dRes.ok) {
+                        const data = await dRes.json();
+                        return { id: data.id, name: data.name, driveId: d.id, webUrl: data.webUrl };
+                    }
+                } catch (e) { }
             }
         }
 
-        // 2. If folderPath or folderUrl is provided, ensure segments exist and return leaf folder ID
-        const rawPath = (config.folderPath || config.folderUrl || '').trim();
-        if (!rawPath || rawPath === '/' || rawPath.toLowerCase() === 'root') {
-            return 'root';
+        // 2. Check if folderUrl or folderPath has a full HTTP/HTTPS SharePoint link
+        const candidateUrl = (config.folderUrl || config.folderPath || '').trim();
+        if (candidateUrl.startsWith('http://') || candidateUrl.startsWith('https://')) {
+            try {
+                const shareToken = encodeSharePointUrlForGraph(candidateUrl);
+                const shareRes = await fetch(`https://graph.microsoft.com/v1.0/shares/${shareToken}/driveItem`, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                if (shareRes.ok) {
+                    const item = await shareRes.json();
+                    return {
+                        id: item.id,
+                        name: item.name,
+                        driveId: item.parentReference?.driveId,
+                        webUrl: item.webUrl
+                    };
+                }
+            } catch (e) {
+                console.warn('[SharePoint] Graph Sharing API resolve warning:', e);
+            }
         }
 
-        // Clean path and split segments: e.g. "SafeSite/Obras/Edificio Alpha"
-        const segments = rawPath
-            .replace(/^[/\\]+|[/\\]+$/g, '')
-            .split(/[/\\]+/)
-            .filter(Boolean);
-
-        if (segments.length === 0) {
-            return 'root';
+        // 3. Check path segments (e.g. "Obras/Edificio Alpha" or "MinhaPasta")
+        let raw = candidateUrl;
+        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+            try {
+                const u = new URL(raw);
+                const qId = u.searchParams.get('id') || u.searchParams.get('RootFolder') || u.searchParams.get('rootfolder');
+                raw = qId ? decodeURIComponent(qId) : decodeURIComponent(u.pathname);
+                raw = raw.replace(/^\/:(?:[a-z]):\/[a-z]\//i, '/');
+                const sMatch = raw.match(/^(\/(?:sites|teams)\/[^/]+)/i);
+                if (sMatch) raw = raw.substring(sMatch[1].length);
+                raw = raw.replace(/\/Forms\/[a-zA-Z0-9_\.]+/i, '').replace(/\/[a-zA-Z0-9_]+\.aspx$/i, '');
+            } catch (e) { }
         }
+
+        raw = raw.trim();
+        if (!raw || raw === '/' || raw.toLowerCase() === 'root') {
+            return { id: 'root' };
+        }
+
+        const segments = raw.replace(/^[/\\]+|[/\\]+$/g, '').split(/[/\\]+/).filter(Boolean);
+        if (segments.length === 0) return { id: 'root' };
+
+        const drives = await getSiteDrives();
+        let targetDriveId: string | undefined = undefined;
+        let pathSegments = segments;
+
+        const matchedDrive = drives.find((d: any) => 
+            d.name?.toLowerCase() === segments[0].toLowerCase() ||
+            d.webUrl?.toLowerCase().endsWith('/' + segments[0].toLowerCase())
+        );
+        if (matchedDrive) {
+            targetDriveId = matchedDrive.id;
+            pathSegments = segments.slice(1);
+        }
+
+        if (pathSegments.length === 0) {
+            return { id: 'root', driveId: targetDriveId, name: matchedDrive?.name };
+        }
+
+        const relPath = pathSegments.join('/');
+        const directPathUrl = targetDriveId
+            ? `https://graph.microsoft.com/v1.0/drives/${targetDriveId}/root:/${encodeURIComponent(relPath)}`
+            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(relPath)}`;
+
+        try {
+            const directRes = await fetch(directPathUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (directRes.ok) {
+                const item = await directRes.json();
+                return { id: item.id, name: item.name, driveId: targetDriveId, webUrl: item.webUrl };
+            }
+        } catch (e) { }
 
         let currentParentId = 'root';
-        for (const segment of segments) {
-            const res = await ensureSharePointFolder(currentParentId, segment);
-            currentParentId = res.id;
+        let lastRes: any = null;
+        for (const segment of pathSegments) {
+            lastRes = await ensureSharePointFolder(currentParentId, segment, targetDriveId);
+            currentParentId = lastRes.id;
         }
 
-        return currentParentId;
+        return { id: lastRes ? lastRes.id : 'root', name: lastRes?.name, driveId: targetDriveId, webUrl: lastRes?.webViewLink };
     };
 
     if (action === 'test_connection') {
         let baseFolderInfo: any = null;
         try {
-            const baseFolderId = await resolveBaseFolderId();
-            if (baseFolderId !== 'root') {
-                const baseRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${baseFolderId}`, {
-                    headers: { Authorization: `Bearer ${accessToken}` }
-                });
-                if (baseRes.ok) {
-                    const baseData = await baseRes.json();
-                    baseFolderInfo = { id: baseData.id, name: baseData.name, webViewLink: baseData.webUrl };
-                }
+            const baseFolder = await resolveBaseFolder();
+            if (baseFolder.id !== 'root') {
+                baseFolderInfo = { id: baseFolder.id, name: baseFolder.name, webViewLink: baseFolder.webUrl };
             }
         } catch (e) {
             console.warn('[SharePoint] Base folder check warning during test_connection:', e);
@@ -474,17 +598,25 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     }
 
     if (action === 'list') {
-        const baseFolderId = await resolveBaseFolderId();
+        const baseFolder = await resolveBaseFolder();
         const reqFolderId = payload.folderId;
-        const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolderId : reqFolderId;
+        const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolder.id : reqFolderId;
+        const driveId = baseFolder.driveId;
 
-        const queryUrl = (!targetFolderId || targetFolderId === 'root')
-            ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`
-            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`;
+        const isRoot = !targetFolderId || targetFolderId === 'root';
+        const queryUrl = isRoot
+            ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`)
+            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}/children` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`);
 
-        const driveRes = await fetch(queryUrl, {
+        let driveRes = await fetch(queryUrl, {
             headers: { Authorization: `Bearer ${accessToken}` }
         });
+
+        if (!driveRes.ok && !isRoot) {
+            const fallbackUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}/children`;
+            const fbRes = await fetch(fallbackUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+            if (fbRes.ok) driveRes = fbRes;
+        }
 
         if (!driveRes.ok) {
             const err = await driveRes.text();
@@ -495,59 +627,124 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const files = (driveData.value || []).map((item: any) => ({
             id: item.id,
             name: item.name,
-            mimeType: item.folder ? 'application/vnd.google-apps.folder' : item.file?.mimeType,
+            mimeType: item.folder ? 'application/vnd.google-apps.folder' : (item.file?.mimeType || 'application/octet-stream'),
             webViewLink: item.webUrl,
             size: item.size
         }));
 
-        return { files, siteId, baseFolderId };
+        return { 
+            files, 
+            siteId, 
+            baseFolderId: baseFolder.id, 
+            baseFolderName: baseFolder.name, 
+            driveId: baseFolder.driveId 
+        };
     }
 
     if (action === 'list_folders') {
         const parentId = payload.parentId || 'root';
-        const queryUrl = (!parentId || parentId === 'root')
-            ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`
-            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`;
+        const drives = await getSiteDrives();
 
-        const driveRes = await fetch(queryUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        if (parentId === 'root') {
+            const folders: any[] = [];
+            try {
+                const defRes = await fetch(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root/children`, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                if (defRes.ok) {
+                    const data = await defRes.json();
+                    (data.value || []).filter((i: any) => Boolean(i.folder)).forEach((i: any) => {
+                        folders.push({
+                            id: i.id,
+                            name: i.name,
+                            childCount: i.folder?.childCount || 0,
+                            webViewLink: i.webUrl
+                        });
+                    });
+                }
+            } catch (e) { }
 
-        if (!driveRes.ok) {
-            const err = await driveRes.text();
-            throw new Error(`Falha ao listar pastas do SharePoint: ${err}`);
+            for (const d of drives) {
+                if (!folders.some(f => f.name.toLowerCase() === d.name.toLowerCase())) {
+                    folders.unshift({
+                        id: d.id,
+                        name: `📚 [Biblioteca] ${d.name}`,
+                        childCount: 0,
+                        webViewLink: d.webUrl,
+                        isDrive: true
+                    });
+                }
+            }
+
+            return { success: true, folders, parentId, siteId, siteName: siteData.displayName };
+        } else {
+            const isDrive = drives.some((d: any) => d.id === parentId);
+            const queryUrl = isDrive
+                ? `https://graph.microsoft.com/v1.0/drives/${parentId}/root/children`
+                : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${parentId}/children`;
+
+            let driveRes = await fetch(queryUrl, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (!driveRes.ok && !isDrive) {
+                for (const d of drives) {
+                    const dRes = await fetch(`https://graph.microsoft.com/v1.0/drives/${d.id}/items/${parentId}/children`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    if (dRes.ok) {
+                        driveRes = dRes;
+                        break;
+                    }
+                }
+            }
+
+            if (!driveRes.ok) {
+                const err = await driveRes.text();
+                throw new Error(`Falha ao listar pastas do SharePoint: ${err}`);
+            }
+
+            const driveData = await driveRes.json();
+            const folders = (driveData.value || [])
+                .filter((item: any) => Boolean(item.folder))
+                .map((item: any) => ({
+                    id: item.id,
+                    name: item.name,
+                    childCount: item.folder?.childCount || 0,
+                    webViewLink: item.webUrl
+                }));
+
+            return { success: true, folders, parentId, siteId, siteName: siteData.displayName };
         }
-
-        const driveData = await driveRes.json();
-        const folders = (driveData.value || [])
-            .filter((item: any) => Boolean(item.folder))
-            .map((item: any) => ({
-                id: item.id,
-                name: item.name,
-                childCount: item.folder?.childCount || 0,
-                webViewLink: item.webUrl
-            }));
-
-        return { success: true, folders, parentId, siteId, siteName: siteData.displayName };
     }
 
     if (action === 'resolve_folder') {
-        const baseFolderId = await resolveBaseFolderId();
-        return { success: true, folderId: baseFolderId, folderPath: config.folderPath };
+        const baseFolder = await resolveBaseFolder();
+        return { 
+            success: true, 
+            folderId: baseFolder.id, 
+            folderName: baseFolder.name, 
+            folderPath: baseFolder.name || config.folderPath,
+            driveId: baseFolder.driveId,
+            webUrl: baseFolder.webUrl
+        };
     }
 
     if (action === 'create_folder') {
         const folderName = payload.folderName || payload.name;
         if (!folderName) throw new Error('Nome da pasta obrigatório.');
-        const baseFolderId = await resolveBaseFolderId();
-        const parentId = (!payload.parentId || payload.parentId === 'root') ? baseFolderId : payload.parentId;
-        return await ensureSharePointFolder(parentId, folderName);
+        const baseFolder = await resolveBaseFolder();
+        const parentId = (!payload.parentId || payload.parentId === 'root') ? baseFolder.id : payload.parentId;
+        const driveId = baseFolder.driveId;
+
+        return await ensureSharePointFolder(parentId, folderName, driveId);
     }
 
     if (action === 'initialize_company_structure') {
         const { company, workers = [], equipment = [] } = payload;
         const logs: string[] = [];
-        const baseFolderId = await resolveBaseFolderId();
+        const baseFolder = await resolveBaseFolder();
+        const baseFolderId = baseFolder.id;
+        const driveId = baseFolder.driveId;
 
         const COMPANY_STANDARD_FOLDERS = [
             '01-Empresa',
@@ -573,7 +770,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         // 1. Criar Pastas Principais da Empresa dentro da pasta base configurada
         for (const folderName of COMPANY_STANDARD_FOLDERS) {
             try {
-                const result = await ensureSharePointFolder(baseFolderId, folderName);
+                const result = await ensureSharePointFolder(baseFolderId, folderName, driveId);
                 createdFolders[folderName] = result.id;
                 logs.push(result.exists ? `Existente no SharePoint: ${folderName}` : `Criada no SharePoint: ${folderName}`);
 
@@ -581,7 +778,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                 if (COMPANY_SPECIAL_SUBFOLDERS[folderName]) {
                     for (const sub of COMPANY_SPECIAL_SUBFOLDERS[folderName]) {
                         try {
-                            const subRes = await ensureSharePointFolder(result.id, sub);
+                            const subRes = await ensureSharePointFolder(result.id, sub, driveId);
                             logs.push(subRes.exists ? `  └─ Existente: ${sub}` : `  └─ Criada: ${sub}`);
                         } catch (subErr: any) {
                             logs.push(`  └─ Erro ao criar ${sub}: ${subErr.message}`);
@@ -600,8 +797,8 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                 try {
                     const idTag = worker.idNumber || worker.nif || (worker.id ? worker.id.slice(0, 8) : 'COLAB');
                     const workerFolderName = `${idTag}-${(worker.name || 'Colaborador').trim()}`;
-                    const wRes = await ensureSharePointFolder(workersParentId, workerFolderName);
-                    await ensureSharePointFolder(wRes.id, 'Arquivo');
+                    const wRes = await ensureSharePointFolder(workersParentId, workerFolderName, driveId);
+                    await ensureSharePointFolder(wRes.id, 'Arquivo', driveId);
                     logs.push(`SharePoint: Pasta Colaborador "${workerFolderName}"`);
                 } catch (err: any) {
                     logs.push(`Erro no colaborador ${worker.name}: ${err.message}`);
@@ -616,8 +813,8 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                 try {
                     const idTag = equip.licensePlate || equip.serialNumber || (equip.id ? equip.id.slice(0, 8) : 'EQUIP');
                     const equipFolderName = `${idTag}-${(equip.name || 'Equipamento').trim()}`;
-                    const eqRes = await ensureSharePointFolder(equipParentId, equipFolderName);
-                    await ensureSharePointFolder(eqRes.id, 'Arquivo');
+                    const eqRes = await ensureSharePointFolder(equipParentId, equipFolderName, driveId);
+                    await ensureSharePointFolder(eqRes.id, 'Arquivo', driveId);
                     logs.push(`SharePoint: Pasta Equipamento "${equipFolderName}"`);
                 } catch (err: any) {
                     logs.push(`Erro no equipamento ${equip.name}: ${err.message}`);
@@ -630,7 +827,9 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
     if (action === 'initialize_project_structure') {
         const logs: string[] = [];
-        const baseFolderId = await resolveBaseFolderId();
+        const baseFolder = await resolveBaseFolder();
+        const baseFolderId = baseFolder.id;
+        const driveId = baseFolder.driveId;
 
         const STANDARD_FOLDERS = [
             '01-Empresas',
@@ -647,13 +846,13 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
         for (const folderName of STANDARD_FOLDERS) {
             try {
-                const result = await ensureSharePointFolder(baseFolderId, folderName);
+                const result = await ensureSharePointFolder(baseFolderId, folderName, driveId);
                 createdFolders[folderName] = result.id;
                 logs.push(result.exists ? `Existente no SharePoint: ${folderName}` : `Criada no SharePoint: ${folderName}`);
 
                 if (SPECIAL_SUBFOLDERS[folderName]) {
                     for (const sub of SPECIAL_SUBFOLDERS[folderName]) {
-                        await ensureSharePointFolder(result.id, sub);
+                        await ensureSharePointFolder(result.id, sub, driveId);
                     }
                 }
             } catch (err: any) {
@@ -669,15 +868,18 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         if (!fileName) throw new Error('Nome do ficheiro obrigatório.');
         if (!fileBase64) throw new Error('Conteúdo do ficheiro obrigatório.');
 
-        const baseFolderId = await resolveBaseFolderId();
+        const baseFolder = await resolveBaseFolder();
+        const baseFolderId = baseFolder.id;
+        const driveId = baseFolder.driveId;
+
         const reqFolderId = payload.folderId || payload.parentId;
         const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolderId : reqFolderId;
 
         const fileBuffer = Buffer.from(fileBase64, 'base64');
         const isRoot = !targetFolderId || targetFolderId === 'root';
         const uploadUrl = isRoot
-            ? `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(fileName)}:/content`
-            : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content`;
+            ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(fileName)}:/content`)
+            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content`);
 
         const uploadRes = await fetch(uploadUrl, {
             method: 'PUT',
