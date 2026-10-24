@@ -177,8 +177,7 @@ export default function ManualPage() {
                     </div>
 
                     <div className="mt-16 text-center text-gray-400 text-sm">
-                        <p>SafetyFirst © 2026. Todos os direitos reservados.</p>
-                        <p>www.safesite-app.com</p>
+                        <p>Safety1irst © 2026. Todos os direitos reservados.</p>
                     </div>
                 </div>
             </div>

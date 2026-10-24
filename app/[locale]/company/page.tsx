@@ -1889,15 +1889,6 @@ export default function MyCompanyPage() {
 
                                 {/* Action Buttons based on Tab */}
                                 <div className="flex items-center gap-2 self-start sm:self-auto">
-                                    <button
-                                        type="button"
-                                        onClick={() => setIsCdeModalOpen(true)}
-                                        className="px-3.5 py-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border border-[var(--border)]"
-                                        title="Configurar Ambiente Comum de Dados (CDE) da Empresa"
-                                    >
-                                        <Cloud size={14} className="text-primary" />
-                                        <span>CDE da Empresa</span>
-                                    </button>
                                     {activeTab === 'organization' && (
                                         <>
                                             <button
@@ -3125,23 +3116,6 @@ export default function MyCompanyPage() {
                                                 </div>
 
                                                 <div className="p-6 space-y-6">
-                                                    {/* Security Badge */}
-                                                    <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-800/60 rounded-xl flex items-center justify-between gap-3">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-                                                                <ShieldCheck size={20} />
-                                                            </div>
-                                                            <div className="text-xs">
-                                                                <span className="font-bold text-emerald-900 dark:text-emerald-200 block">
-                                                                    Cifra AES-256-GCM Ativa (Backend BFF)
-                                                                </span>
-                                                                <span className="text-emerald-800/80 dark:text-emerald-300/80">
-                                                                    Credenciais de acesso e segredos são protegidos no servidor PostgreSQL. O cliente navegador não armazena chaves privadas.
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
                                                     {/* Status Summary & Details */}
                                                     {companyCdeConfig?.connected ? (
                                                         <div className="p-5 rounded-2xl bg-[var(--bg-input)]/40 border border-[var(--border)] space-y-4">
@@ -3228,82 +3202,27 @@ export default function MyCompanyPage() {
                                                         </div>
                                                     )}
 
-                                                    {/* Providers Quick Grid */}
-                                                    <div>
-                                                        <label className="block text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-                                                            Provedores Suportados pelo SafeSite
-                                                        </label>
-                                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                                                            <div 
-                                                                onClick={() => setIsCdeModalOpen(true)}
-                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
-                                                            >
-                                                                <div className="flex items-center gap-2.5">
-                                                                    <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
-                                                                        <Cloud size={20} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-primary transition-colors">SharePoint / M365</h5>
-                                                                        <span className="text-[10px] text-[var(--text-muted)]">Azure Entra ID</span>
-                                                                    </div>
-                                                                </div>
-                                                                <span className="text-[11px] font-bold text-primary flex items-center gap-1">
-                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
-                                                                </span>
+                                                    {/* Supported Providers Simplified */}
+                                                    <div className="pt-2 border-t border-[var(--border)]">
+                                                        <span className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-2.5">
+                                                            Provedores Suportados pelo Safety1irst
+                                                        </span>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 text-xs text-[var(--text)] font-medium">
+                                                                <Cloud size={14} className="text-primary" />
+                                                                <span>Microsoft SharePoint / OneDrive</span>
                                                             </div>
-
-                                                            <div 
-                                                                onClick={() => setIsCdeModalOpen(true)}
-                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
-                                                            >
-                                                                <div className="flex items-center gap-2.5">
-                                                                    <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                                                                        <GoogleDriveIcon type="folder" size={20} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-emerald-600 transition-colors">Google Drive</h5>
-                                                                        <span className="text-[10px] text-[var(--text-muted)]">Google Workspace</span>
-                                                                    </div>
-                                                                </div>
-                                                                <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
-                                                                </span>
+                                                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 text-xs text-[var(--text)] font-medium">
+                                                                <GoogleDriveIcon type="folder" size={14} />
+                                                                <span>Google Drive</span>
                                                             </div>
-
-                                                            <div 
-                                                                onClick={() => setIsCdeModalOpen(true)}
-                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
-                                                            >
-                                                                <div className="flex items-center gap-2.5">
-                                                                    <div className="w-9 h-9 rounded-lg bg-indigo-500/10 text-indigo-600 flex items-center justify-center shrink-0">
-                                                                        <Cloud size={20} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-indigo-600 transition-colors">Dropbox</h5>
-                                                                        <span className="text-[10px] text-[var(--text-muted)]">Dropbox Business</span>
-                                                                    </div>
-                                                                </div>
-                                                                <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-1">
-                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
-                                                                </span>
+                                                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 text-xs text-[var(--text)] font-medium">
+                                                                <Cloud size={14} className="text-indigo-500" />
+                                                                <span>Dropbox Business</span>
                                                             </div>
-
-                                                            <div 
-                                                                onClick={() => setIsCdeModalOpen(true)}
-                                                                className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 hover:bg-[var(--bg-input)]/60 transition-all cursor-pointer flex flex-col justify-between gap-3 group"
-                                                            >
-                                                                <div className="flex items-center gap-2.5">
-                                                                    <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-600 flex items-center justify-center shrink-0">
-                                                                        <Server size={20} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <h5 className="text-xs font-bold text-[var(--text)] group-hover:text-purple-600 transition-colors">Servidor Próprio</h5>
-                                                                        <span className="text-[10px] text-[var(--text-muted)]">Nextcloud / MinIO</span>
-                                                                    </div>
-                                                                </div>
-                                                                <span className="text-[11px] font-bold text-purple-600 flex items-center gap-1">
-                                                                    Configurar <ArrowLeft size={11} className="rotate-180" />
-                                                                </span>
+                                                            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 text-xs text-[var(--text)] font-medium">
+                                                                <Server size={14} className="text-purple-500" />
+                                                                <span>Servidor Próprio (WebDAV / Nextcloud / S3)</span>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -5381,7 +5300,7 @@ export default function MyCompanyPage() {
                             <div className="text-[11px] text-[var(--text-muted)] flex items-start gap-2 bg-primary/5 p-3 rounded-xl border border-primary/10">
                                 <CheckCircle2 size={15} className="text-primary shrink-0 mt-0.5" />
                                 <span>
-                                    Ao colocar o documento, o SafeSite sincroniza automaticamente as datas correspondentes no perfil da entidade (apólices de seguros, data da FAT médica ou inspeção) e versiona o ficheiro de acordo com a ISO 19650.
+                                    Ao colocar o documento, o Safety1irst sincroniza automaticamente as datas correspondentes no perfil da entidade (apólices de seguros, data da FAT médica ou inspeção) e versiona o ficheiro de acordo com a ISO 19650.
                                 </span>
                             </div>
 

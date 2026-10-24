@@ -687,7 +687,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                 setServerCdeConfig(savedConfig);
                 setIsAuthenticating(false);
                 onClose();
-                alert('Configuração SharePoint/OneDrive guardada com sucesso e cifrada com AES-256-GCM no servidor!');
+                alert('Configuração SharePoint/OneDrive guardada com sucesso no servidor!');
 
             } else if (provider === 'local') {
                 const targetUrl = credentials.siteUrl || credentials.folderUrl;
@@ -853,26 +853,11 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                     {activeModalTab === 'config' && (
                         <div className="space-y-5 animate-in fade-in duration-200">
                             
-                            {/* Security & Status Banner */}
-                            <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/20 dark:to-teal-950/20 border border-emerald-200 dark:border-emerald-800/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                                <div className="flex items-start gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20 mt-0.5">
-                                        <ShieldCheck size={20} />
-                                    </div>
-                                    <div className="text-xs">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-emerald-900 dark:text-emerald-200">
-                                                Cifra AES-256-GCM Ativa (Backend BFF)
-                                            </span>
-                                            <span className="px-1.5 py-0.2 text-[10px] rounded bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 font-mono">
-                                                Zero-Knowledge Client
-                                            </span>
-                                        </div>
-                                        <p className="text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
-                                            Credenciais e tokens são cifrados com chaves únicas de servidor e nunca transmitidos desprotegidos.
-                                        </p>
-                                    </div>
-                                </div>
+                            {/* Status Banner */}
+                            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-[#444746]">
+                                <span className="text-xs text-[var(--text-muted)]">
+                                    Ambiente Comum de Dados (CDE ISO 19650)
+                                </span>
                                 <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border self-start sm:self-auto shrink-0 ${
                                     isConnected 
                                         ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30' 
@@ -1026,7 +1011,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                             placeholder="https://empresa.sharepoint.com/sites/NomeObra"
                                         />
                                         <p className="text-[10px] text-gray-500 mt-1">
-                                            Pode colar o link direto do navegador; o SafeSite limpa os parâmetros estranhos e extrai o site e a pasta automaticamente.
+                                            Pode colar o link direto do navegador; o Safety1irst limpa os parâmetros estranhos e extrai o site e a pasta automaticamente.
                                         </p>
                                     </div>
 
@@ -1049,7 +1034,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                                     value={credentials.folderPath}
                                                     onChange={e => handleFolderPathChange(e.target.value)}
                                                     className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 text-xs bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-primary/20 outline-none"
-                                                    placeholder="Ex: SafeSite ou Obras/Edificio (deixe vazio para usar a raiz)"
+                                                    placeholder="Ex: Safety1irst ou Obras/Edificio (deixe vazio para usar a raiz)"
                                                 />
                                                 <Folder size={15} className="absolute left-3 top-3 text-gray-400" />
                                             </div>
@@ -1101,26 +1086,26 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    setCredentials(prev => ({ ...prev, folderPath: 'SafeSite', folderUrl: 'SafeSite', folderId: '' }));
-                                                    setUrlCleanedNotice('Pasta definida como "SafeSite"');
+                                                    setCredentials(prev => ({ ...prev, folderPath: 'Safety1irst', folderUrl: 'Safety1irst', folderId: '' }));
+                                                    setUrlCleanedNotice('Pasta definida como "Safety1irst"');
                                                     setTimeout(() => setUrlCleanedNotice(''), 3000);
                                                 }}
                                                 className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#1f2022] border border-gray-200 dark:border-gray-700 hover:border-primary text-[11px] font-medium text-gray-700 dark:text-gray-300 transition-all cursor-pointer flex items-center gap-1"
                                             >
-                                                📁 Pasta "SafeSite"
+                                                📁 Pasta "Safety1irst"
                                             </button>
                                             {project?.name && (
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        const pName = `SafeSite/${project.name.trim()}`;
+                                                        const pName = `Safety1irst/${project.name.trim()}`;
                                                         setCredentials(prev => ({ ...prev, folderPath: pName, folderUrl: pName, folderId: '' }));
                                                         setUrlCleanedNotice(`Pasta definida como "${pName}"`);
                                                         setTimeout(() => setUrlCleanedNotice(''), 3000);
                                                     }}
                                                     className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#1f2022] border border-gray-200 dark:border-gray-700 hover:border-primary text-[11px] font-medium text-gray-700 dark:text-gray-300 transition-all cursor-pointer flex items-center gap-1"
                                                 >
-                                                    🏢 SafeSite/{project.name.length > 15 ? project.name.slice(0, 15) + '...' : project.name}
+                                                    🏢 Safety1irst/{project.name.length > 15 ? project.name.slice(0, 15) + '...' : project.name}
                                                 </button>
                                             )}
                                             <button
@@ -1541,7 +1526,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                 <Building2 size={24} className="text-primary shrink-0 mt-0.5" />
                                 <div>
                                     <h4 className="font-bold text-sm text-blue-950 dark:text-blue-100">
-                                        Como Ligar o SharePoint / OneDrive da Empresa ao SafeSite
+                                        Como Ligar o SharePoint / OneDrive da Empresa ao Safety1irst
                                     </h4>
                                     <p className="text-[11px] text-blue-900/80 dark:text-blue-200/80 mt-1">
                                         Para ligar o seu Microsoft 365 de forma autónoma (sem logins repetitivos de utilizador), utilizamos o <strong>Microsoft Entra ID</strong> (anterior Azure AD) com permissões seguras ao nível da API Microsoft Graph.
@@ -1574,7 +1559,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                     <div className="pl-8 space-y-1.5 text-gray-600 dark:text-gray-400">
                                         <p>Clique no botão <strong>"New registration"</strong> no topo da página e preencha:</p>
                                         <ul className="list-disc list-inside space-y-1 ml-2">
-                                            <li><strong>Name:</strong> <code>SafeSite CDE - Obras</code></li>
+                                            <li><strong>Name:</strong> <code>Safety1irst CDE - Obras</code></li>
                                             <li><strong>Supported account types:</strong> Selecione a 1ª opção: <em>"Accounts in this organizational directory only (Single tenant)"</em></li>
                                         </ul>
                                         <p>Clique em <strong>Register</strong> no fundo da página.</p>
@@ -1592,8 +1577,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                     <div className="pl-8 space-y-1.5 text-gray-600 dark:text-gray-400">
                                         <p>Na página principal da aplicação recém-criada (ecrã <em>Overview</em>), copie dois valores:</p>
                                         <ul className="list-disc list-inside space-y-1 ml-2">
-                                            <li><strong>Application (client) ID:</strong> Cole no campo <em>Application (Client) ID</em> no SafeSite.</li>
-                                            <li><strong>Directory (tenant) ID:</strong> Cole no campo <em>Directory (Tenant) ID</em> no SafeSite.</li>
+                                            <li><strong>Application (client) ID:</strong> Cole no campo <em>Application (Client) ID</em> no Safety1irst.</li>
+                                            <li><strong>Directory (tenant) ID:</strong> Cole no campo <em>Directory (Tenant) ID</em> no Safety1irst.</li>
                                         </ul>
                                     </div>
                                 </div>
@@ -1609,7 +1594,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                     <div className="pl-8 space-y-1.5 text-gray-600 dark:text-gray-400">
                                         <p>No menu lateral esquerdo, clique em <strong>Certificates &amp; secrets</strong> &rarr; aba <strong>Client secrets</strong> &rarr; <strong>New client secret</strong>.</p>
                                         <ul className="list-disc list-inside space-y-1 ml-2">
-                                            <li>Descrição: <code>SafeSite CDE Secret</code></li>
+                                            <li>Descrição: <code>Safety1irst CDE Secret</code></li>
                                             <li>Validade: <em>24 months</em> (recomendado)</li>
                                         </ul>
                                         <p className="font-bold text-amber-700 dark:text-amber-400">
@@ -1677,7 +1662,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                         Servidor Próprio On-Premise, Nextcloud ou MinIO S3
                                     </h4>
                                     <p className="text-[11px] text-purple-900/80 dark:text-purple-200/80 mt-1">
-                                        O SafeSite suporta infraestrutura 100% privada da sua empresa. Todos os documentos de segurança, planos de prevenção e relatórios são enviados diretamente para o vosso data center privado via WebDAV HTTPS ou S3 Object Storage.
+                                        O Safety1irst suporta infraestrutura 100% privada da sua empresa. Todos os documentos de segurança, planos de prevenção e relatórios são enviados diretamente para o vosso data center privado via WebDAV HTTPS ou S3 Object Storage.
                                     </p>
                                 </div>
                             </div>
@@ -1701,8 +1686,8 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                             https://cloud.suaempresa.pt/remote.php/dav/files/UTILIZADOR/Obras/
                                         </code>
                                     </li>
-                                    <li>Nas <strong>Definições Pessoais &rarr; Segurança</strong> do seu utilizador no Nextcloud, crie uma <strong>"Palavra-passe de aplicação" (App Password)</strong> chamada <code>SafeSite</code>.</li>
-                                    <li>Cole o URL, o seu Utilizador e a Palavra-passe de aplicação gerada no SafeSite.</li>
+                                    <li>Nas <strong>Definições Pessoais &rarr; Segurança</strong> do seu utilizador no Nextcloud, crie uma <strong>"Palavra-passe de aplicação" (App Password)</strong> chamada <code>Safety1irst</code>.</li>
+                                    <li>Cole o URL, o seu Utilizador e a Palavra-passe de aplicação gerada no Safety1irst.</li>
                                 </ol>
                             </div>
 
@@ -1715,9 +1700,9 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                 <div className="space-y-1.5 text-gray-600 dark:text-gray-400 pl-2">
                                     <p>Para empresas com cluster MinIO ou armazenamento compatível com S3:</p>
                                     <ul className="list-disc list-inside space-y-1 ml-2">
-                                        <li>Crie um Bucket dedicado com o identificador da obra (ex: <code>cde-safesite-obra</code>).</li>
+                                        <li>Crie um Bucket dedicado com o identificador da obra (ex: <code>cde-safety1irst-obra</code>).</li>
                                         <li>Gere um par <strong>Access Key</strong> e <strong>Secret Key</strong> com políticas de leitura e gravação no bucket.</li>
-                                        <li>No SafeSite, insira o endpoint HTTPS do MinIO no campo de URL e as chaves nos campos respetivos.</li>
+                                        <li>No Safety1irst, insira o endpoint HTTPS do MinIO no campo de URL e as chaves nos campos respetivos.</li>
                                     </ul>
                                 </div>
                             </div>
@@ -1781,7 +1766,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                     <li>Registe uma conta gratuita em <a href="https://www.dropbox.com" target="_blank" rel="noopener noreferrer" className="text-primary font-bold underline">dropbox.com</a> (ex: com o email da obra).</li>
                                     <li>Aceda à consola de developers: <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-primary font-bold underline">dropbox.com/developers/apps</a>.</li>
                                     <li>Clique em <strong>"Create app"</strong> &rarr; escolha <em>"Scoped access"</em> &rarr; <em>"Full Dropbox"</em>.</li>
-                                    <li>Dê um nome à app (ex: <code>SafeSite-Obra-{projectId.slice(0, 5)}</code>).</li>
+                                    <li>Dê um nome à app (ex: <code>Safety1irst-Obra-{projectId.slice(0, 5)}</code>).</li>
                                     <li>Na aba <strong>"Permissions"</strong>, assinale: <code>files.metadata.write</code>, <code>files.metadata.read</code>, <code>files.content.write</code>, <code>files.content.read</code>.</li>
                                     <li>Na aba <strong>"Settings"</strong>, adicione em <em>"Redirect URIs"</em> o endereço copiado da aba de configuração:
                                         <code className="block mt-1 p-1.5 bg-gray-100 dark:bg-gray-800 rounded font-mono text-[10px] text-gray-800 dark:text-gray-200">
@@ -1804,7 +1789,7 @@ export const CDESettingsModal: React.FC<CDESettingsModalProps> = ({ isOpen, onCl
                                     </span>
                                 </div>
                                 <ol className="list-decimal list-inside space-y-2 text-gray-600 dark:text-gray-400 pl-2">
-                                    <li>Crie uma conta Google gratuita para a obra (ex: <code>obra.safesite@gmail.com</code>).</li>
+                                    <li>Crie uma conta Google gratuita para a obra (ex: <code>obra.safety1irst@gmail.com</code>).</li>
                                     <li>Aceda à <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="text-primary font-bold underline">Google Cloud Console</a> e crie um projeto com o nome da obra.</li>
                                     <li>Em <strong>APIs e Serviços &rarr; Biblioteca</strong>, pesquise e ative a <strong>Google Drive API</strong>.</li>
                                     <li>Em <strong>Ecrã de consentimento OAuth</strong>, selecione <em>Externo</em>, preencha o nome da app e adicione o seu email como utilizador de teste.</li>

@@ -202,7 +202,7 @@ export default function TrainingReportPage() {
                 <section className="mt-12 pt-6 border-t border-gray-300">
                     <p className="text-xs text-gray-500 text-center leading-relaxed">
                         O presente registo certifica que a formação indicada foi realizada na data descrita, com as presenças e assinaturas constantes neste documento.<br />
-                        Documento gerado pela plataforma SafeSite · {printDate}
+                        Documento gerado pela plataforma Safety1irst · {printDate}
                     </p>
                     <div className="mt-8 grid grid-cols-2 gap-8">
                         <div className="border-t border-gray-400 pt-3 text-center">
