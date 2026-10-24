@@ -253,7 +253,9 @@ export async function createOneDriveFolder(config: CDEConfig, parentId: string, 
             siteUrl: config.siteUrl,
             parentId,
             folderName: name,
-            projectId: compOrProjId
+            projectId: compOrProjId,
+            folderPath: config.folderPath,
+            folderId: config.folderId
         })
     });
 

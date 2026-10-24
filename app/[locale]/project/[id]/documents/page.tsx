@@ -183,7 +183,7 @@ const Documents = () => {
 
     const handleCreateFolderAction = async () => {
         if (!project?.cdeConfig?.connected) return;
-        const name = prompt('Folder Name:');
+        const name = prompt('Nome da Pasta:');
         if (!name) return;
 
         setIsLoadingDrive(true);
@@ -198,17 +198,26 @@ const Documents = () => {
                 await createGoogleDriveFolder(project.cdeConfig.accessToken!, folderId, name);
                 const items = await fetchGoogleDriveContent(project.cdeConfig.accessToken!, folderId);
                 setDriveItems(items);
+                setTreeData(prev => ({ ...prev, [folderId]: items }));
             } else if (provider === 'dropbox') {
                 await createDropboxFolder(project.cdeConfig.accessToken!, folderId === 'root' ? '' : folderId, name);
                 const items = await fetchDropboxContent(project.cdeConfig, folderId === 'root' ? '' : folderId);
                 setDriveItems(items);
+                setTreeData(prev => ({ ...prev, [folderId]: items }));
             } else if (provider === 'onedrive') {
-                await createOneDriveFolder({ ...project.cdeConfig, projectId: project.id } as any, folderId === 'root' ? '' : folderId, name);
+                await createOneDriveFolder({ ...project.cdeConfig, projectId: project.id } as any, folderId, name);
                 const items = await fetchSharePointContent(project.cdeConfig, folderId);
                 setDriveItems(items);
+                const rootId = project.cdeConfig.folderId || 'root';
+                setTreeData(prev => ({ 
+                    ...prev, 
+                    [folderId]: items,
+                    [rootId]: (!currentPath.length || folderId === rootId || folderId === 'root') ? items : (prev[rootId] || items),
+                    'root': (!currentPath.length || folderId === 'root') ? items : (prev['root'] || items)
+                }));
             }
         } catch (e: any) {
-            alert(`Failed to create folder (${provider}): ` + e.message);
+            alert(`Falha ao criar pasta (${provider}): ` + e.message);
         } finally {
             setIsLoadingDrive(false);
         }
@@ -276,7 +285,7 @@ const Documents = () => {
             const logs = await initializeProjectStructure(project.cdeConfig, async (token, expiresAt) => {
                 updateProjectCDE(project.id, { ...project.cdeConfig, accessToken: token } as any);
             });
-            alert('Pastas tipo criadas:\\n' + logs.filter(l => l.includes('Created')).join('\\n'));
+            alert('Pastas tipo criadas:\n' + logs.filter(l => l.includes('Created') || l.includes('Criada')).join('\n'));
 
             // Refresh main view
             const rootId = project.cdeConfig.provider === 'dropbox' ? (project.cdeConfig.folderPath || '') : (project.cdeConfig.folderId || 'root');
@@ -285,10 +294,13 @@ const Documents = () => {
             let items: any[] = [];
             if (project.cdeConfig.provider === 'gdrive' && project.cdeConfig.accessToken) {
                 items = await fetchGoogleDriveContent(project.cdeConfig.accessToken, targetId);
+            } else if (project.cdeConfig.provider === 'onedrive') {
+                items = await fetchSharePointContent(project.cdeConfig, targetId);
             } else if (project.cdeConfig.provider === 'dropbox') {
                 items = await fetchDropboxContent(project.cdeConfig, targetId);
             }
             setDriveItems(items);
+            setTreeData(prev => ({ ...prev, [targetId]: items, [rootId]: items, 'root': items }));
         } catch (e: any) {
             alert('Erro ao criar pastas tipo: ' + e.message);
         } finally {
@@ -298,7 +310,26 @@ const Documents = () => {
 
     const fetchSharePointContent = async (config: any, folderId: string) => {
         try {
-            const res = await fetch('/api/integration/sharepoint', {
+            // 1. Tentar via endpoint de ação CDE no servidor (que tem credenciais desencriptadas)
+            try {
+                const res = await fetch(`/api/projects/${projectId}/cde/action`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'list',
+                        payload: { folderId }
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.result?.files) {
+                        return data.result.files;
+                    }
+                }
+            } catch (_) { }
+
+            // 2. Fallback via /api/integration/sharepoint
+            const res2 = await fetch('/api/integration/sharepoint', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -307,16 +338,17 @@ const Documents = () => {
                     clientId: config.clientId,
                     clientSecret: config.clientSecret,
                     siteUrl: config.siteUrl,
-                    folderPath: config.folderPath, // Send the configured path
-                    folderId: folderId
+                    folderPath: config.folderPath,
+                    folderId: folderId,
+                    projectId: projectId
                 })
             });
-            if (!res.ok) {
-                const err = await res.json();
+            if (!res2.ok) {
+                const err = await res2.json();
                 throw new Error(err.error || 'SharePoint Error');
             }
-            const data = await res.json();
-            return data.files || [];
+            const data2 = await res2.json();
+            return data2.files || [];
         } catch (error) {
             console.error('SharePoint Fetch Error:', error);
             throw error;
@@ -496,6 +528,19 @@ const Documents = () => {
 
                     } else if (project.cdeConfig!.provider === 'onedrive') {
                         items = await fetchSharePointContent(project.cdeConfig, targetId);
+                        const rootId = project.cdeConfig!.folderId || 'root';
+                        const currentId = targetId || rootId;
+                        setTreeData(prev => ({
+                            ...prev,
+                            [currentId]: items,
+                            ...(targetId === 'root' || targetId === rootId ? { [rootId]: items, 'root': items } : {})
+                        }));
+
+                        const newExpanded = new Set(expandedFolders);
+                        newExpanded.add(rootId);
+                        newExpanded.add('root');
+                        currentPath.forEach(p => newExpanded.add(p.id));
+                        setExpandedFolders(newExpanded);
                     } else if (project.cdeConfig!.provider === 'dropbox') {
                         let initialPath = targetId === 'root' ? '' : targetId;
                         if (targetId === 'root' && project.cdeConfig!.folderPath) {
@@ -541,13 +586,18 @@ const Documents = () => {
             // If opening and not in treeData, fetch
             if (!treeData[folderId]) {
                 if (project?.cdeConfig?.provider === 'gdrive' && project.cdeConfig.accessToken) {
-                    // Fetch for tree (silent background fetch?)
-                    // We can show small loader in tree item if needed
                     fetchGenericDriveContent(project.cdeConfig.accessToken, folderId).then(items => {
                         setTreeData(prev => ({ ...prev, [folderId]: items }));
                     });
+                } else if (project?.cdeConfig?.provider === 'onedrive') {
+                    fetchSharePointContent(project.cdeConfig, folderId).then(items => {
+                        setTreeData(prev => ({ ...prev, [folderId]: items }));
+                    });
+                } else if (project?.cdeConfig?.provider === 'dropbox') {
+                    fetchDropboxContent(project.cdeConfig, folderId).then(items => {
+                        setTreeData(prev => ({ ...prev, [folderId]: items }));
+                    });
                 }
-                // TODO: support dropbox
             }
         }
         setExpandedFolders(newExpanded);
@@ -643,13 +693,16 @@ const Documents = () => {
         level: number,
         ancestors: { id: string, name: string }[]
     }) => {
-        const isExpanded = expandedFolders.has(item.id);
-        const children = treeData[item.id]?.filter((i: any) => i.mimeType === 'application/vnd.google-apps.folder') || [];
-        const isLoaded = !!treeData[item.id];
+        const isRoot = level === 0 || item.id === (project?.cdeConfig?.folderId || 'root') || item.name === 'Root';
+        const isExpanded = expandedFolders.has(item.id) || (isRoot && (expandedFolders.has('root') || expandedFolders.has(project?.cdeConfig?.folderId || 'root')));
+        const folderItems = treeData[item.id] || (isRoot ? (treeData['root'] || treeData[project?.cdeConfig?.folderId || 'root']) : undefined);
+        const children = folderItems?.filter((i: any) => i.mimeType === 'application/vnd.google-apps.folder') || [];
+        const isLoaded = !!folderItems;
 
-        const isSelected = currentPath.length > 0 && currentPath[currentPath.length - 1].id === item.id;
-        // Root check
-        const isRoot = item.id === (project?.cdeConfig?.folderId || 'root') || item.name === 'Root';
+        const isSelected = isRoot 
+            ? currentPath.length === 0 
+            : (currentPath.length > 0 && currentPath[currentPath.length - 1].id === item.id);
+        const rootDisplayName = project?.cdeConfig?.folderPath || (project?.cdeConfig?.provider === 'onedrive' ? 'SharePoint' : 'CDE');
 
         return (
             <div>
@@ -670,13 +723,16 @@ const Documents = () => {
                     <div
                         className="flex-1 flex items-center gap-2 overflow-hidden"
                         onClick={() => {
-                            // Construct path: Ancestors + Me
-                            setCurrentPath([...ancestors, { id: item.id, name: item.name }]);
+                            if (isRoot) {
+                                setCurrentPath([]);
+                            } else {
+                                setCurrentPath([...ancestors, { id: item.id, name: item.name }]);
+                            }
                         }}
                     >
                         <GoogleDriveIcon type="folder" size={18} customColor={folderColor} />
                         <span className={`truncate text-[13px] ${isSelected ? 'text-primary-hover font-medium' : 'text-gray-700 dark:text-gray-200'}`}>
-                            {isRoot ? 'CDE' : item.name}
+                            {isRoot ? rootDisplayName : item.name}
                         </span>
                     </div>
                 </div>
@@ -693,7 +749,7 @@ const Documents = () => {
                                 key={child.id}
                                 item={{ id: child.id, name: child.name }}
                                 level={level + 1}
-                                ancestors={[...ancestors, { id: item.id, name: item.name }]}
+                                ancestors={isRoot ? [] : [...ancestors, { id: item.id, name: item.name }]}
                             />
                         ))}
                     </div>
@@ -711,7 +767,10 @@ const Documents = () => {
                 <div className="flex-1 overflow-y-auto min-h-0 mb-4 px-0 pt-2 custom-scrollbar">
                     {project?.cdeConfig?.connected && (
                         <FolderTreeItem
-                            item={{ id: project.cdeConfig.folderId || 'root', name: 'CDE' }}
+                            item={{ 
+                                id: project.cdeConfig.folderId || 'root', 
+                                name: project.cdeConfig.folderPath || (project.cdeConfig.provider === 'onedrive' ? 'SharePoint' : 'CDE') 
+                            }}
                             level={0}
                             ancestors={[]}
                         />
@@ -728,11 +787,17 @@ const Documents = () => {
                         <h2 className="text-xl font-normal text-google-text">Documents</h2>
                         {/* Breadcrumbs */}
                         <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+                            <span
+                                className={`hover:underline cursor-pointer ${currentPath.length === 0 ? 'font-semibold text-primary' : 'hover:text-primary'}`}
+                                onClick={() => setCurrentPath([])}
+                            >
+                                {project?.cdeConfig?.folderPath || (project?.cdeConfig?.provider === 'onedrive' ? 'SharePoint' : 'CDE')}
+                            </span>
                             {currentPath.map((p, idx) => (
                                 <span key={p.id} className="flex items-center gap-1">
-                                    {idx > 0 && <span>/</span>}
+                                    <span>/</span>
                                     <span
-                                        className="hover:underline cursor-pointer hover:text-primary"
+                                        className={`hover:underline cursor-pointer ${idx === currentPath.length - 1 ? 'font-semibold text-gray-800 dark:text-gray-200' : 'hover:text-primary'}`}
                                         onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
                                     >
                                         {p.name}
@@ -878,7 +943,7 @@ const Documents = () => {
                             </thead>
                             <tbody className={isLoadingDrive ? 'opacity-50 pointer-events-none' : ''}>
                                 {/* Back Navigation */}
-                                {currentPath.length > 1 && (
+                                {currentPath.length > 0 && (
                                     <tr className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-50 cursor-pointer group"
                                         onClick={() => setCurrentPath(currentPath.slice(0, currentPath.length - 1))}
                                     >
