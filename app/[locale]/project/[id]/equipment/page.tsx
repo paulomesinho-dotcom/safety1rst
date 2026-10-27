@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { LayoutGrid, List as ListIcon, HardHat, Plus, Search, Check, AlertTriangle, FileText, Wrench, Gauge, Save, Download, MoreVertical, Settings, Shield, X, CheckCircle, MessageSquare, Unlock, Lock, Edit2, ChevronDown, Eye, Clock } from 'lucide-react';
+import { LayoutGrid, List as ListIcon, HardHat, Plus, Search, Check, AlertTriangle, FileText, Wrench, Gauge, Save, Download, MoreVertical, Settings, Shield, X, CheckCircle, MessageSquare, Unlock, Lock, Edit2, ChevronDown, Eye, Clock, ArrowLeft } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/lib/utils';
 import type { Equipment, Company, Ticket } from '@/types';
@@ -249,6 +249,96 @@ const DocumentRow: React.FC<{
         );
     };
 
+// Custom Full-Page View (Drawer / In-Flow View matching project organizations layout)
+const Drawer = ({
+    isOpen,
+    onClose,
+    title,
+    children,
+    headerContent,
+    actions,
+    footerContent,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    title: React.ReactNode;
+    children: React.ReactNode;
+    headerContent?: React.ReactNode;
+    actions?: React.ReactNode;
+    footerContent?: React.ReactNode;
+}) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="absolute inset-0 w-full h-full bg-[var(--bg-card)] flex flex-col z-50">
+            {/* Clean Header */}
+            <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-10 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <button
+                            onClick={onClose}
+                            className="p-1.5 -ml-1 text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] rounded-lg transition-colors shrink-0 cursor-pointer"
+                            title="Voltar"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+                        <div className="min-w-0">
+                            {title}
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>
+                </div>
+                {/* Extended Header Content (Tabs/Status) */}
+                {headerContent && <div className="px-6">{headerContent}</div>}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto bg-white dark:bg-surface">
+                <div className="max-w-7xl mx-auto p-6 min-h-full">{children}</div>
+            </div>
+
+            {/* Sticky Footer */}
+            {footerContent && (
+                <div className="border-t border-gray-200 dark:border-[#444746] bg-white dark:bg-surface p-4 sticky bottom-0 z-20 shadow-xs">
+                    {footerContent}
+                </div>
+            )}
+        </div>
+    );
+};
+
+
+// Helper: Render Status Badge for 3-Column Table
+const renderFieldStatusBadge = (fieldKey: string, isFilled: boolean, currentEq: Partial<Equipment>) => {
+    const isFieldValidated = !!currentEq.fieldValidations?.[fieldKey];
+    if (isFieldValidated) {
+        return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                <Check size={11} strokeWidth={3} /> VALIDADO
+            </span>
+        );
+    }
+    if (currentEq.workflowStatus === 'approved') {
+        return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200">
+                <Shield size={11} strokeWidth={3} /> APROVADO
+            </span>
+        );
+    }
+    if (isFilled) {
+        return (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200">
+                <Clock size={11} /> PREENCHIDO
+            </span>
+        );
+    }
+    return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-surface dark:text-gray-400 border border-gray-200 dark:border-gray-700">
+            PENDENTE
+        </span>
+    );
+};
+
 const EquipmentPage: React.FC = () => {
     const params = useParams();
     const projectId = params?.id as string;
@@ -321,7 +411,7 @@ const EquipmentPage: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentEq, setCurrentEq] = useState<Partial<Equipment>>({});
     const [mode, setMode] = useState<'create' | 'edit'>('create');
-    const [activeTab, setActiveTab] = useState<'id' | 'tech' | 'maint' | 'docs'>('id');
+    const [activeTab, setActiveTab] = useState<'id' | 'safety' | 'docs'>('id');
     const [cardEq, setCardEq] = useState<Equipment | null>(null);
 
     const canEdit = access === 'manager' || access === 'editor' || currentUser?.role === 'admin' || (isDataUser && (!currentEq.id || ['draft', 'incomplete', 'data_requested'].includes(currentEq.workflowStatus || 'draft')));
@@ -842,22 +932,61 @@ const EquipmentPage: React.FC = () => {
                     )}
             </div>
 
-            <Modal
-                title={mode === 'create' ? "Registar Equipamento" : (currentEq.name || "Equipamento")}
+            <Drawer
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                resizable={true}
-                headerAction={
+                onClose={() => {
+                    if (reviewModalOpen) return;
+                    setIsModalOpen(false);
+                    if (mode === 'create') setIsEditing(false);
+                }}
+                title={
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-sm shrink-0 border border-blue-500/20 shadow-2xs">
+                            <Wrench size={20} />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2.5">
+                                <h2 className="text-base font-bold text-[var(--text)] tracking-tight truncate">
+                                    {mode === 'create' ? "Registar Equipamento" : (currentEq.name || "Detalhes do Equipamento")}
+                                </h2>
+                                {(() => {
+                                    const st = getEquipmentDisplayStatus(currentEq);
+                                    return (
+                                        <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs", st.color)}>
+                                            {st.icon === 'check' && <CheckCircle size={12} />}
+                                            {st.icon === 'alert' && <AlertTriangle size={12} />}
+                                            {st.icon === 'clock' && <Clock size={12} />}
+                                            {st.icon === 'file' && <FileText size={12} />}
+                                            {st.label}
+                                        </span>
+                                    );
+                                })()}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                <span className="truncate">N.º Série: {currentEq.serialNumber || '---'}</span>
+                                <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                <span className="truncate">Tipo: {currentEq.equipmentTypeCustom || currentEq.type || 'Equipamento'}</span>
+                                {currentEq.manufacturer && (
+                                    <>
+                                        <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                        <span className="truncate">Marca: {currentEq.manufacturer} {currentEq.model || ''}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                }
+                actions={
                     <div className="flex items-center gap-2">
                         {/* Mode Badge */}
                         {!isEditing && mode !== 'create' && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-surface border border-gray-200 dark:border-[#444746] rounded shrink-0">
-                                <Eye size={10} className="text-gray-400" /> Visualização
+                            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-md shrink-0">
+                                <Eye size={12} className="text-gray-400" /> Visualização
                             </span>
                         )}
                         {isEditing && mode !== 'create' && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded shrink-0">
-                                <Edit2 size={10} /> Edição
+                            <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-md shrink-0">
+                                <Edit2 size={12} /> Edição
                             </span>
                         )}
 
@@ -875,7 +1004,7 @@ const EquipmentPage: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => { submitEquipment(currentEq.id!); setIsModalOpen(false); }}
-                                            className="px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5"
+                                            className="px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
                                         >
                                             <CheckCircle size={13} /> Submeter
                                         </button>
@@ -890,7 +1019,7 @@ const EquipmentPage: React.FC = () => {
                                                     updateEquipment(currentEq.id!, { ...currentEq, workflowStatus: 'incomplete' });
                                                     setIsModalOpen(false);
                                                 }}
-                                                className="px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-xs flex items-center gap-1.5"
+                                                className="px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
                                             >
                                                 <AlertTriangle size={13} /> Rever
                                             </button>
@@ -904,7 +1033,7 @@ const EquipmentPage: React.FC = () => {
                                                         disabled={!isAllValidated}
                                                         onClick={() => { validateEquipment(currentEq.id!); setIsModalOpen(false); }}
                                                         className={cn(
-                                                            "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5",
+                                                            "px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer",
                                                             !isAllValidated && "opacity-50 cursor-not-allowed"
                                                         )}
                                                     >
@@ -920,7 +1049,7 @@ const EquipmentPage: React.FC = () => {
                                         <button
                                             type="button"
                                             onClick={() => { approveEquipment(currentEq.id!); setIsModalOpen(false); }}
-                                            className="px-3 py-1.5 text-xs font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-xs flex items-center gap-1.5"
+                                            className="px-3 py-1.5 text-xs font-semibold text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
                                         >
                                             <CheckCircle size={13} /> Aprovar
                                         </button>
@@ -937,11 +1066,11 @@ const EquipmentPage: React.FC = () => {
                                 onClick={() => setIsEditing(true)}
                                 className="px-3 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] hover:text-white rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
                             >
-                                <Edit2 size={13} className="text-white" /> Editar
+                                <Edit2 size={13} className="text-white" /> Editar Equipamento
                             </button>
                         )}
                         {/* Botão Cancelar — só em modo de edição (sai do modo, não fecha a janela) */}
-                        {isEditing && (
+                        {isEditing && mode !== 'create' && (
                             <button
                                 type="button"
                                 onClick={() => setIsEditing(false)}
@@ -961,282 +1090,575 @@ const EquipmentPage: React.FC = () => {
                                     <span className="text-[11px] font-medium text-green-200 animate-in fade-in slide-in-from-right-2">✓ Guardado</span>
                                 )}
                                 {mode === 'create' ? <Plus size={13} /> : <Save size={13} />}
-                                {mode === 'create' ? 'Criar' : 'Guardar'}
+                                {mode === 'create' ? 'Criar Equipamento' : 'Guardar Alterações'}
                             </button>
                         )}
                     </div>
                 }
-            >
-                <div className="min-h-[400px]">
-                    <div className="flex items-center justify-between mb-4 bg-gray-50 dark:bg-[#131314] p-3 rounded-lg border border-gray-200 dark:border-[#444746]">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold uppercase text-gray-500 tracking-wider">Status:</span>
-                            {(() => {
-                                const st = getEquipmentDisplayStatus(currentEq);
-                                return (
-                                    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border shadow-2xs", st.color)}>
-                                        {st.icon === 'check' && <CheckCircle size={12} />}
-                                        {st.icon === 'alert' && <AlertTriangle size={12} />}
-                                        {st.icon === 'clock' && <Clock size={12} />}
-                                        {st.icon === 'file' && <FileText size={12} />}
-                                        {st.label}
-                                    </span>
-                                );
-                            })()}
+                headerContent={
+                    <div className="flex items-center border-t border-[var(--border)] overflow-x-auto no-scrollbar">
+                        {[
+                            { id: "id", label: "1. Identificação & Características" },
+                            { id: "safety", label: "2. Requisitos Legais & Segurança" },
+                            { id: "docs", label: "3. Ficheiros & Documentos" },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveTab(tab.id as any)}
+                                className={cn(
+                                    "flex items-center gap-2 py-2.5 px-4 border-b-2 transition-colors text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer",
+                                    activeTab === tab.id
+                                        ? "border-[#4285F4] text-[#4285F4] font-semibold"
+                                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
+                                )}
+                            >
+                                <span>{tab.label}</span>
+                            </button>
+                        ))}
+                    </div>
+                }
+                footerContent={
+                    (isEditing || mode === 'create') ? (
+                        <div className="max-w-7xl mx-auto flex items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (mode === 'create') setIsModalOpen(false);
+                                    else setIsEditing(false);
+                                }}
+                                className="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-xs cursor-pointer"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="submit"
+                                form="eq-form"
+                                className="px-4 py-2 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <Save size={14} /> {mode === 'create' ? 'Adicionar Equipamento' : 'Guardar Alterações'}
+                            </button>
                         </div>
-                    </div>
+                    ) : undefined
+                }
+            >
+                <form id="eq-form" onSubmit={handleSave} className="space-y-4">
+                    {/* ════════ TAB 1: IDENTIFICAÇÃO & CARACTERÍSTICAS ════════ */}
+                    {activeTab === 'id' && (
+                        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs text-left">
+                                    <thead className="bg-gray-50/75 dark:bg-surface/50 text-[var(--text-muted)] font-semibold text-[11px] border-b border-[var(--border)]">
+                                        <tr>
+                                            <th className="px-4 py-3 w-1/3">Campo</th>
+                                            <th className="px-4 py-3 w-1/2">Valor Registado</th>
+                                            <th className="px-4 py-3 text-center">Estado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-[var(--border)]">
+                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                            <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                Identificação e Características Técnicas (Norma IFC: IfcConstructionEquipmentResource)
+                                            </td>
+                                        </tr>
 
-                    <div className="flex border-b border-gray-200 dark:border-[#444746] mb-4 overflow-x-auto">
-                        <button onClick={() => setActiveTab('id')} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap", activeTab === 'id' ? "border-primary text-primary" : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>
-                            <HardHat size={16} /> Identificação
-                        </button>
-                        <button onClick={() => setActiveTab('tech')} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap", activeTab === 'tech' ? "border-primary text-primary" : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>
-                            <Gauge size={16} /> Dados Técnicos
-                        </button>
-                        <button onClick={() => setActiveTab('maint')} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap", activeTab === 'maint' ? "border-primary text-primary" : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>
-                            <Wrench size={16} /> Manutenção e Seguros
-                        </button>
-                        <button onClick={() => setActiveTab('docs')} className={cn("px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap", activeTab === 'docs' ? "border-primary text-primary" : "border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-200")}>
-                            <FileText size={16} /> Documentação
-                        </button>
-                    </div>
-
-                    <div className="px-1">
-                        <form id="eq-form" onSubmit={handleSave}>
-                            {activeTab === 'id' && (
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center bg-gray-50 dark:bg-[#131314] p-3 rounded-lg mb-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">Equipment Profile</label>
-                                            <p className="text-xs text-gray-500">Determines required documents & maintenance checks.</p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <select
-                                                value={currentEq.profileId || ''}
-                                                onChange={(e) => setCurrentEq({ ...currentEq, profileId: e.target.value })}
-                                                className="text-sm border-gray-300 dark:border-[#444746] rounded-md shadow-sm focus:border-blue-500 focus:ring-primary p-2 border"
-                                                disabled={!isManager}
-                                            >
-                                                <option value="">Select Profile</option>
-                                                {equipmentProfiles.filter(p => p.projectId === projectId).map(p => (
-                                                    <option key={p.id} value={p.id}>
-                                                        {p.name} {p.isSystem ? '(Default)' : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <FieldControl {...getFieldProps('name', 'Equipment Name')}>
-                                        <input
-                                            required
-                                            disabled={getFieldProps('name', '').isDisabled}
-                                            className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                            value={currentEq.name || ''}
-                                            onChange={e => setCurrentEq({ ...currentEq, name: e.target.value })}
-                                        />
-                                    </FieldControl>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <FieldControl {...getFieldProps('equipmentType', 'Tipo / Categoria')}>
-                                            <div className="relative">
-                                                <select
-                                                    disabled={getFieldProps('equipmentType', '').isDisabled}
-                                                    className="w-full p-2.5 pl-3 pr-10 border border-gray-300 dark:border-[#444746] rounded-lg outline-none disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500 appearance-none bg-white dark:bg-surface text-gray-900 dark:text-gray-100"
-                                                    value={currentEq.equipmentType || ''}
-                                                    onChange={(e) => {
-                                                        const val = e.target.value;
-                                                        const opt = EQUIPMENT_TYPE_OPTIONS.find(o => o.value === val);
-                                                        setCurrentEq(prev => ({
-                                                            ...prev,
-                                                            equipmentType: val,
-                                                            equipmentTypeCustom: opt?.label,
-                                                            ifcElementType: opt?.ifcType,
-                                                            type: opt?.label 
-                                                        }));
-                                                    }}
-                                                >
-                                                    <option value="" disabled>Selecione o tipo de equipamento...</option>
-                                                    {EQUIPMENT_TYPE_GROUPS.map(group => (
-                                                        <optgroup key={group} label={group}>
-                                                            {EQUIPMENT_TYPE_OPTIONS.filter(o => o.group === group).map(o => (
-                                                                <option key={o.value} value={o.value}>
-                                                                    {o.icon} {o.label}
-                                                                </option>
-                                                            ))}
-                                                        </optgroup>
-                                                    ))}
-                                                </select>
-                                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                                            </div>
-                                        </FieldControl>
-                                        <FieldControl {...getFieldProps('serialNumber', 'Serial Number')}>
-                                            <input
-                                                type="text"
-                                                disabled={getFieldProps('serialNumber', '').isDisabled}
-                                                className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.serialNumber || ''}
-                                                onChange={e => setCurrentEq({ ...currentEq, serialNumber: e.target.value })}
-                                            />
-                                        </FieldControl>
-                                    </div>
-
-                                    <FieldControl {...getFieldProps('companyId', 'Owner Company')}>
-                                        <select
-                                            disabled={getFieldProps('companyId', '').isDisabled}
-                                            className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                            value={currentEq.companyId || ''}
-                                            onChange={e => setCurrentEq({ ...currentEq, companyId: e.target.value })}
-                                        >
-                                            <option value="">Select Company...</option>
-                                            {filteredCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                        </select>
-                                    </FieldControl>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <FieldControl {...getFieldProps('entryDate', 'Entry Date')}>
-                                            <input type="date" disabled={true} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:disabled:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.entryDate || ''} onChange={e => setCurrentEq({ ...currentEq, entryDate: e.target.value })} />
-                                        </FieldControl>
-                                        <FieldControl {...getFieldProps('exitDate', 'Exit Date')}>
-                                            <input type="date" disabled={getFieldProps('exitDate', '').isLocked} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.exitDate || ''} onChange={e => setCurrentEq({ ...currentEq, exitDate: e.target.value })} />
-                                        </FieldControl>
-                                    </div>
-                                    <div className="hidden">
-                                        <FieldControl {...getFieldProps('ifcGlobalId', 'GUID IFC (Opcional)')}>
-                                            <input type="text" disabled={getFieldProps('ifcGlobalId', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500 font-mono text-sm"
-                                                value={currentEq.ifcGlobalId || ''} onChange={e => setCurrentEq({ ...currentEq, ifcGlobalId: e.target.value })} placeholder="Automático se vazio" />
-                                        </FieldControl>
-                                    </div>
-
-                                    {selectedProfile?.customDocuments?.map((doc) => (
-                                        <FieldControl key={doc.id} {...getFieldProps(doc.id, doc.name)}>
-                                            <input
-                                                type={doc.dataType === 'date' ? 'date' : doc.dataType === 'number' ? 'number' : 'text'}
-                                                disabled={getFieldProps(doc.id, '').isLocked}
-                                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-blue-500 outline-none transition-all disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.customDocuments?.[doc.id] || ''}
-                                                onChange={(e) => {
-                                                    setCurrentEq({
-                                                        ...currentEq,
-                                                        customDocuments: {
-                                                            ...currentEq.customDocuments,
-                                                            [doc.id]: e.target.value
-                                                        }
-                                                    })
-                                                }}
-                                            />
-                                        </FieldControl>
-                                    ))}
-                                </div>
-                            )}
-
-                            {activeTab === 'tech' && (
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <FieldControl {...getFieldProps('manufacturer', 'Fabricante / Marca')}>
-                                            <input type="text" disabled={getFieldProps('manufacturer', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.manufacturer || ''} onChange={e => setCurrentEq({ ...currentEq, manufacturer: e.target.value })} />
-                                        </FieldControl>
-                                        <FieldControl {...getFieldProps('model', 'Model')}>
-                                            <input type="text" disabled={getFieldProps('model', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.model || ''} onChange={e => setCurrentEq({ ...currentEq, model: e.target.value })} />
-                                        </FieldControl>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <FieldControl {...getFieldProps('manufacturingYear', 'Manufacturing Year')}>
-                                            <input type="number" disabled={getFieldProps('manufacturingYear', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.manufacturingYear || ''} onChange={e => setCurrentEq({ ...currentEq, manufacturingYear: e.target.value })} />
-                                        </FieldControl>
-                                        <FieldControl {...getFieldProps('workingHoursOrKm', 'Horas de Trabalho / Km')}>
-                                            <input type="text" disabled={getFieldProps('workingHoursOrKm', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.workingHoursOrKm || ''} onChange={e => setCurrentEq({ ...currentEq, workingHoursOrKm: e.target.value })} />
-                                        </FieldControl>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <FieldControl {...getFieldProps('noiseLevelDb', 'Nível Ruído dB(A)')}>
-                                            <input type="number" step="0.1" disabled={getFieldProps('noiseLevelDb', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.noiseLevelDb || ''} onChange={e => setCurrentEq({ ...currentEq, noiseLevelDb: parseFloat(e.target.value) })} />
-                                        </FieldControl>
-                                        <FieldControl {...getFieldProps('riskNature', 'Natureza de Risco')}>
-                                            <select disabled={getFieldProps('riskNature', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.riskNature || ''} onChange={e => setCurrentEq({ ...currentEq, riskNature: e.target.value })}>
-                                                <option value="">Selecione...</option>
-                                                <option value="elevated">Elevado (Segurança)</option>
-                                                <option value="standard">Normal</option>
-                                                <option value="minimal">Mínimo</option>
-                                            </select>
-                                        </FieldControl>
-                                    </div>
-                                </div>
-                            )}
-
-                            {activeTab === 'maint' && (
-                                <div className="space-y-4">
-                                    <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 mb-2">
-                                        <FieldControl {...getFieldProps('status', 'Operational Status')}>
-                                            <select disabled={getFieldProps('status', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                value={currentEq.status || 'operational'} onChange={e => setCurrentEq({ ...currentEq, status: e.target.value as any })}>
-                                                <option value="operational">Operational</option>
-                                                <option value="maintenance">Maintenance</option>
-                                                <option value="out_of_service">Out of Service</option>
-                                            </select>
-                                        </FieldControl>
-                                    </div>
-
-                                    {isVisible('maintenance') && (
-                                        <div className="grid grid-cols-1 gap-4">
-                                            <DocumentRow
-                                                entityId={currentEq.id!}
-                                                projectId={projectId}
-                                                category="maintenance_log"
-                                                isUploadVisible={isUploadVisible('maintenance_log')}
-                                                {...getFieldProps('nextMaintenanceDate', 'Maintenance Log (Registro Manutenção)')}
-                                                onToggleValidation={getFieldProps('nextMaintenanceDate', '').onValidate}
-                                                canValidate={isManager && mode !== 'create'}
-                                                isManager={isManager}
-                                                isDataUser={isDataUser}
-                                                isApprovalUser={isApprovalUser}
-                                                approvalStatus={currentEq.approvalStatus}
-                                                canApprove={isApprovalUser && currentEq.workflowStatus === 'validated'}
-                                                onApprove={() => approveEquipment(currentEq.id!)}
-                                                isEditing={canEdit}
-                                            >
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <FieldControl {...getFieldProps('lastMaintenanceDate', 'Last Maintenance')}>
-                                                        <input type="date" disabled={getFieldProps('lastMaintenanceDate', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                            value={currentEq.lastMaintenanceDate || ''} onChange={e => setCurrentEq({ ...currentEq, lastMaintenanceDate: e.target.value })} />
-                                                    </FieldControl>
-                                                    <FieldControl {...getFieldProps('nextMaintenanceDate', 'Next Maintenance')}>
-                                                        <input type="date" disabled={getFieldProps('nextMaintenanceDate', '').isDisabled} className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-primary disabled:bg-gray-50 dark:bg-[#131314] disabled:text-gray-500"
-                                                            value={currentEq.nextMaintenanceDate || ''} onChange={e => setCurrentEq({ ...currentEq, nextMaintenanceDate: e.target.value })} />
-                                                    </FieldControl>
-                                                </div>
-                                            </DocumentRow>
-                                        </div>
-                                    )}
-
-                                    {isVisible('inspection') && (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 bg-gray-50 dark:bg-[#131314] p-3 rounded">
-                                            <p className="md:col-span-2 text-xs font-semibold text-gray-500 uppercase">Inspections & Certifications</p>
-                                            <div className="bg-white dark:bg-surface p-2 border rounded text-sm text-gray-500 flex items-center justify-between">
-                                                <span>Inspections Required (Upload in Docs)</span>
-                                                {isUploadVisible('inspection_cert') && currentEq.id && (
-                                                    <DocumentUpload entityId={currentEq.id} projectId={projectId} category="inspection_cert" layout="button" label="Carregar Certificado" />
+                                        {/* Designação */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Designação do Equipamento / Máquina <span className="text-red-500">*</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        disabled={getFieldProps('name', '').isDisabled}
+                                                        placeholder="ex: Retroescavadora JCB 3CX"
+                                                        value={currentEq.name || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, name: e.target.value })}
+                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                                    />
+                                                ) : (
+                                                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                        {currentEq.name || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                    </span>
                                                 )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('name', !!currentEq.name, currentEq)}
+                                            </td>
+                                        </tr>
 
-                            {activeTab === 'docs' && mode !== 'create' && (
+                                        {/* N.º Série */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                N.º de Série / Matrícula / Chassis
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        disabled={getFieldProps('serialNumber', '').isDisabled}
+                                                        placeholder="ex: SN-998822 / 00-AA-00"
+                                                        value={currentEq.serialNumber || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, serialNumber: e.target.value })}
+                                                        className="w-full sm:w-64 px-2.5 py-1.5 text-xs font-mono bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                                    />
+                                                ) : (
+                                                    <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                                                        {currentEq.serialNumber || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('serialNumber', !!currentEq.serialNumber, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Tipo de Equipamento */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Tipo de Equipamento (Classificação Técnica)
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <select
+                                                        disabled={getFieldProps('equipmentType', '').isDisabled}
+                                                        value={currentEq.equipmentType || ''}
+                                                        onChange={e => {
+                                                            const val = e.target.value;
+                                                            const opt = EQUIPMENT_TYPE_OPTIONS.find(o => o.value === val);
+                                                            setCurrentEq(prev => ({
+                                                                ...prev,
+                                                                equipmentType: val,
+                                                                equipmentTypeCustom: opt?.label,
+                                                                ifcElementType: opt?.ifcType,
+                                                                type: opt?.label
+                                                            }));
+                                                        }}
+                                                        className="w-full sm:w-72 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-60"
+                                                    >
+                                                        <option value="" disabled>Selecione o tipo de equipamento...</option>
+                                                        {EQUIPMENT_TYPE_GROUPS.map(group => (
+                                                            <optgroup key={group} label={group}>
+                                                                {EQUIPMENT_TYPE_OPTIONS.filter(o => o.group === group).map(o => (
+                                                                    <option key={o.value} value={o.value}>
+                                                                        {o.icon} {o.label}
+                                                                    </option>
+                                                                ))}
+                                                            </optgroup>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                                                        {currentEq.equipmentTypeCustom || currentEq.type || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('equipmentType', !!currentEq.equipmentType, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Marca */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Marca do Fabricante
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        disabled={getFieldProps('manufacturer', '').isDisabled}
+                                                        placeholder="ex: Caterpillar, JCB, Bosch..."
+                                                        value={currentEq.manufacturer || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, manufacturer: e.target.value })}
+                                                        className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                                    />
+                                                ) : (
+                                                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                                                        {currentEq.manufacturer || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('manufacturer', !!currentEq.manufacturer, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Modelo */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Modelo / Versão
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        disabled={getFieldProps('model', '').isDisabled}
+                                                        placeholder="ex: 3CX Eco Turbo"
+                                                        value={currentEq.model || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, model: e.target.value })}
+                                                        className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                                    />
+                                                ) : (
+                                                    <span className="font-medium text-gray-900 dark:text-gray-100">
+                                                        {currentEq.model || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('model', !!currentEq.model, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Empresa Vinculada */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Subempreiteiro / Empresa Vinculada <span className="text-red-500">*</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <select
+                                                        disabled={getFieldProps('companyId', '').isDisabled}
+                                                        value={currentEq.companyId || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, companyId: e.target.value })}
+                                                        className="w-full sm:w-72 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary cursor-pointer disabled:opacity-60"
+                                                    >
+                                                        <option value="">Selecione a empresa...</option>
+                                                        {filteredCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                                    </select>
+                                                ) : (
+                                                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                        {filteredCompanies.find(c => c.id === currentEq.companyId)?.name || '—'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('companyId', !!currentEq.companyId, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Data de Entrada em Obra */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Data de Entrada em Obra
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        value={currentEq.entryDate || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, entryDate: e.target.value })}
+                                                        className="w-full sm:w-48 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">
+                                                        {currentEq.entryDate ? new Date(currentEq.entryDate).toLocaleDateString() : '—'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('entryDate', !!currentEq.entryDate, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Data Prevista de Saída */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Data Prevista de Saída
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        value={currentEq.exitDate || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, exitDate: e.target.value })}
+                                                        className="w-full sm:w-48 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">
+                                                        {currentEq.exitDate ? new Date(currentEq.exitDate).toLocaleDateString() : '—'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('exitDate', !!currentEq.exitDate, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Ano de Fabrico */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Ano de Fabrico
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="number"
+                                                        value={currentEq.manufacturingYear || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, manufacturingYear: e.target.value })}
+                                                        className="w-full sm:w-36 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">{currentEq.manufacturingYear || '—'}</span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('manufacturingYear', !!currentEq.manufacturingYear, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Horas / Km */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Horas de Trabalho / Quilómetros
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="text"
+                                                        value={currentEq.workingHoursOrKm || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, workingHoursOrKm: e.target.value })}
+                                                        className="w-full sm:w-48 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">{currentEq.workingHoursOrKm || '—'}</span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('workingHoursOrKm', !!currentEq.workingHoursOrKm, currentEq)}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ════════ TAB 2: REQUISITOS LEGAIS & SEGURANÇA ════════ */}
+                    {activeTab === 'safety' && (
+                        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs text-left">
+                                    <thead className="bg-gray-50/75 dark:bg-surface/50 text-[var(--text-muted)] font-semibold text-[11px] border-b border-[var(--border)]">
+                                        <tr>
+                                            <th className="px-4 py-3 w-1/3">Campo</th>
+                                            <th className="px-4 py-3 w-1/2">Valor Registado</th>
+                                            <th className="px-4 py-3 text-center">Estado</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-[var(--border)]">
+                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                            <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                Segurança, Marcação CE e Inspeções Periódicas (DL 50/2005)
+                                            </td>
+                                        </tr>
+
+                                        {/* Marcação CE */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Marcação CE / Declaração de Conformidade
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text)] cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={currentEq.ceMarking ?? true}
+                                                            onChange={e => setCurrentEq({ ...currentEq, ceMarking: e.target.checked })}
+                                                            className="rounded text-primary cursor-pointer w-4 h-4"
+                                                        />
+                                                        <span>Possui Declaração de Conformidade CE e Marcação CE válida</span>
+                                                    </label>
+                                                ) : (
+                                                    currentEq.ceMarking ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                                            <Check size={12} /> Conforme CE (Diretiva Máquinas)
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                                            <AlertTriangle size={12} /> Sem Declaração CE Registada
+                                                        </span>
+                                                    )
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('ceMarking', !!currentEq.ceMarking, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Próxima Inspeção Periódica */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Data da Próxima Inspeção Periódica / Manutenção
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        value={currentEq.nextMaintenanceDate || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, nextMaintenanceDate: e.target.value })}
+                                                        className="w-full sm:w-48 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    currentEq.nextMaintenanceDate ? (
+                                                        <span className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                                            <span>{new Date(currentEq.nextMaintenanceDate).toLocaleDateString()}</span>
+                                                            {new Date(currentEq.nextMaintenanceDate) < new Date() ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                                                                    Expirada
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                                                    Válida
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-gray-400 italic font-normal text-xs">Sem data agendada</span>
+                                                    )
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('nextMaintenanceDate', !!currentEq.nextMaintenanceDate, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Última Manutenção */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Data da Última Manutenção Registada
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="date"
+                                                        value={currentEq.lastMaintenanceDate || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, lastMaintenanceDate: e.target.value })}
+                                                        className="w-full sm:w-48 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">
+                                                        {currentEq.lastMaintenanceDate ? new Date(currentEq.lastMaintenanceDate).toLocaleDateString() : '—'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('lastMaintenanceDate', !!currentEq.lastMaintenanceDate, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Estado Operacional */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Estado Operacional do Equipamento
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <select
+                                                        value={currentEq.status || 'operational'}
+                                                        onChange={e => setCurrentEq({ ...currentEq, status: e.target.value as any })}
+                                                        className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                                                    >
+                                                        <option value="operational">Operacional (Em Serviço)</option>
+                                                        <option value="maintenance">Em Manutenção / Revisão</option>
+                                                        <option value="out_of_service">Fora de Serviço / Avariado</option>
+                                                    </select>
+                                                ) : (
+                                                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                        {currentEq.status === 'operational' ? 'Operacional (Em Serviço)' :
+                                                         currentEq.status === 'maintenance' ? 'Em Manutenção' :
+                                                         'Fora de Serviço'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('status', !!currentEq.status, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Natureza de Risco */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Natureza do Risco / Categoria de Risco
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <select
+                                                        value={currentEq.riskNature || 'standard'}
+                                                        onChange={e => setCurrentEq({ ...currentEq, riskNature: e.target.value })}
+                                                        className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                                                    >
+                                                        <option value="elevated">Elevado (Requer Plano de Prevenção Específico)</option>
+                                                        <option value="standard">Normal / Padrão da Atividade</option>
+                                                        <option value="minimal">Mínimo / Equipamento Portátil Leve</option>
+                                                    </select>
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">
+                                                        {currentEq.riskNature === 'elevated' ? 'Elevado' :
+                                                         currentEq.riskNature === 'minimal' ? 'Mínimo' : 'Normal'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('riskNature', !!currentEq.riskNature, currentEq)}
+                                            </td>
+                                        </tr>
+
+                                        {/* Nível de Ruído dB(A) */}
+                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                Nível de Emissão Sonora dB(A)
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                {isEditing ? (
+                                                    <input
+                                                        type="number"
+                                                        step="0.1"
+                                                        placeholder="ex: 85.0"
+                                                        value={currentEq.noiseLevelDb || ''}
+                                                        onChange={e => setCurrentEq({ ...currentEq, noiseLevelDb: parseFloat(e.target.value) })}
+                                                        className="w-full sm:w-36 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                ) : (
+                                                    <span className="text-gray-900 dark:text-gray-100">
+                                                        {currentEq.noiseLevelDb ? `${currentEq.noiseLevelDb} dB(A)` : '—'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                {renderFieldStatusBadge('noiseLevelDb', !!currentEq.noiseLevelDb, currentEq)}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ════════ TAB 3: FICHEIROS & DOCUMENTOS ════════ */}
+                    {activeTab === 'docs' && (
+                        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm p-5 space-y-4">
+                            <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
+                                <div>
+                                    <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2">
+                                        <FileText className="text-[#4285F4]" size={16} /> Ficheiros e Documentos Comprovativos do Equipamento
+                                    </h3>
+                                    <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                        Declarações de conformidade CE, relatórios de inspeção periódica e documentação do perfil de obra.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {mode === 'create' ? (
+                                <div className="p-8 text-center text-[var(--text-muted)] text-xs border border-dashed border-[var(--border)] rounded-xl">
+                                    Guarde o equipamento primeiro para anexar documentação técnica e relatórios de inspeção.
+                                </div>
+                            ) : (
                                 <div className="space-y-4">
                                     <DocumentRow
-                                        label="Technical Documentation (Manuals/CE)"
+                                        label="Declaração de Conformidade CE / Manual de Instruções"
                                         entityId={currentEq.id!}
                                         projectId={projectId}
                                         category="technical_doc"
@@ -1251,11 +1673,26 @@ const EquipmentPage: React.FC = () => {
                                     />
 
                                     <DocumentRow
-                                        label="Inspection Certificates"
+                                        label="Relatório de Inspeção Periódica Oficial (DL 50/2005)"
                                         entityId={currentEq.id!}
                                         projectId={projectId}
                                         category="inspection_cert"
                                         isUploadVisible={isUploadVisible('inspection_cert')}
+                                        isManager={isManager}
+                                        isDataUser={isDataUser}
+                                        isApprovalUser={isApprovalUser}
+                                        approvalStatus={currentEq.approvalStatus}
+                                        canApprove={isApprovalUser && currentEq.workflowStatus === 'validated'}
+                                        onApprove={() => approveEquipment(currentEq.id!)}
+                                        isEditing={canEdit}
+                                    />
+
+                                    <DocumentRow
+                                        label="Registo e Relatório de Manutenção Preventiva"
+                                        entityId={currentEq.id!}
+                                        projectId={projectId}
+                                        category="maintenance_log"
+                                        isUploadVisible={isUploadVisible('maintenance_log')}
                                         isManager={isManager}
                                         isDataUser={isDataUser}
                                         isApprovalUser={isApprovalUser}
@@ -1280,40 +1717,14 @@ const EquipmentPage: React.FC = () => {
                                             canApprove={isApprovalUser && currentEq.workflowStatus === 'validated'}
                                             onApprove={() => approveEquipment(currentEq.id!)}
                                             isEditing={canEdit}
-                                        >
-                                            <div className="text-[11px] text-gray-400 mb-1 uppercase tracking-tighter">
-                                                {doc.dataType ? doc.dataType.replace('_', ' ') : 'DOCUMENTO'}
-                                            </div>
-                                            <input
-                                                type={doc.dataType === 'date' ? 'date' : doc.dataType === 'number' ? 'number' : 'text'}
-                                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-blue-500 outline-none transition-all"
-                                                value={currentEq.customDocuments?.[doc.id] || ''}
-                                                onChange={(e) => {
-                                                    setCurrentEq({
-                                                        ...currentEq,
-                                                        customDocuments: {
-                                                            ...currentEq.customDocuments,
-                                                            [doc.id]: e.target.value
-                                                        }
-                                                    })
-                                                }}
-                                            />
-                                        </DocumentRow>
+                                        />
                                     ))}
                                 </div>
                             )}
-                            {activeTab === 'docs' && mode === 'create' && (
-                                <div className="flex flex-col items-center justify-center h-40 text-gray-400">
-                                    <FileText size={48} className="mb-2 opacity-50" />
-                                    <p>Save equipment first to upload documents.</p>
-                                </div>
-                            )}
-                        </form>
-                    </div>
-
-
-                </div>
-            </Modal>
+                        </div>
+                    )}
+                </form>
+            </Drawer>
 
             <ReviewModal
                 isOpen={reviewModalOpen}
