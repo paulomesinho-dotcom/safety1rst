@@ -1678,6 +1678,88 @@ export default function MyCompanyPage() {
         setIsCompanyModalOpen(false);
     };
 
+    const renderFieldStatus = (isValid: boolean) => {
+        if (isValid) {
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">
+                    <Check size={12} strokeWidth={3} /> VALIDADO
+                </span>
+            );
+        }
+        return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase font-bold bg-gray-100 dark:bg-[#131314] text-gray-500 dark:text-gray-400">
+                PENDENTE
+            </span>
+        );
+    };
+
+    const renderDateStatus = (dateStr?: string) => {
+        if (!dateStr) {
+            return (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase font-bold bg-gray-100 dark:bg-[#131314] text-gray-500 dark:text-gray-400">
+                    PENDENTE
+                </span>
+            );
+        }
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) {
+            return (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase font-bold bg-gray-100 dark:bg-[#131314] text-gray-500 dark:text-gray-400">
+                    PENDENTE
+                </span>
+            );
+        }
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (d < today) {
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400">
+                    <AlertCircle size={12} strokeWidth={2.5} /> EXPIRADO
+                </span>
+            );
+        }
+        return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">
+                <Check size={12} strokeWidth={3} /> VALIDADO
+            </span>
+        );
+    };
+
+    const renderFileCell = (category: string) => {
+        const hasDoc = documents.some(d => d.entityId === corporateEntityId && d.category === category && !d.archived);
+        return (
+            <div className="flex items-center justify-center gap-2">
+                {hasDoc ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setCompanyModalTab('documents');
+                        }}
+                        className="inline-flex items-center justify-center p-1.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-md border border-green-200 dark:border-green-500/30 hover:scale-105 transition-transform cursor-pointer"
+                        title="Ver no Dossier Documental"
+                    >
+                        <FileText size={16} />
+                    </button>
+                ) : (
+                    <div
+                        className="inline-flex items-center justify-center p-1.5 bg-gray-50 dark:bg-[#131314] text-gray-400 dark:text-gray-600 rounded-md border border-gray-200 dark:border-[#444746]"
+                        title="Sem Documento"
+                    >
+                        <FileText size={16} />
+                    </div>
+                )}
+                <DocumentUpload
+                    entityId={corporateEntityId}
+                    projectId={corporateEntityId}
+                    category={category}
+                    layout="button"
+                    label=""
+                />
+            </div>
+        );
+    };
+
     // Save Worker (IFC Standardized ISO 16739)
     const handleSaveWorker = (e: React.FormEvent) => {
         e.preventDefault();
@@ -3552,455 +3634,665 @@ export default function MyCompanyPage() {
                             >
                                 {/* TAB 1: IDENTIFICAÇÃO */}
                                 {companyModalTab === 'identification' && (
-                                    companyModalMode === 'view' ? (
-                                        <div className="space-y-6">
-                                            {/* Top overview card */}
-                                            <div className="p-4 rounded-2xl bg-gradient-to-r from-primary/10 via-primary/5 to-transparent border border-primary/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                                <div className="flex items-center gap-3.5">
-                                                    <div className="w-12 h-12 rounded-2xl bg-primary text-white flex items-center justify-center font-extrabold text-base shadow-sm shrink-0">
-                                                        {getInitials(companyForm.name)}
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <h3 className="text-base font-bold text-[var(--text)]">{companyForm.name || 'A Minha Empresa'}</h3>
-                                                            <span className={cn(
-                                                                "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase",
-                                                                companyForm.status === 'inactive' ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                                            )}>
-                                                                {companyForm.status === 'inactive' ? 'Inativa' : 'Ativa'}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-xs text-[var(--text-muted)] font-mono">
-                                                            NIF: {companyForm.nif || 'Não definido'} • Natureza: {companyForm.legalForm?.toUpperCase() || 'LDA'}
-                                                        </p>
-                                                    </div>
-                                                </div>
+                                    <div className="space-y-6">
+                                        <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-left text-[13px]">
+                                                    <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                                                        <tr>
+                                                            <th className="px-4 py-3 min-w-[220px]">Campo</th>
+                                                            <th className="px-4 py-3 min-w-[280px]">Valor Registado</th>
+                                                            <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                                        {/* Grupo: Identificação */}
+                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                            <td
+                                                                colSpan={3}
+                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                                            >
+                                                                Identificação e Dados Fiscais
+                                                            </td>
+                                                        </tr>
 
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setCompanyModalMode('edit')}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-[#4285F4] hover:bg-[#3367D6] transition-all cursor-pointer"
-                                                    >
-                                                        <Pencil size={13} className="text-white" /> Editar Dados
-                                                    </button>
-                                                </div>
-                                            </div>
+                                                        {/* Nome Oficial */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Nome Oficial da Empresa <span className="text-red-500">*</span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        required
+                                                                        value={companyForm.name}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, name: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                                        {companyForm.name || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.name?.trim())}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Section 1: Identificação */}
-                                            <div className="space-y-3">
-                                                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
-                                                    <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
-                                                </h4>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Nome Oficial</div>
-                                                        <div className="text-xs font-bold text-[var(--text)] mt-0.5">{companyForm.name || '—'}</div>
-                                                    </div>
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">NIF / NIPC</div>
-                                                        <div className="text-xs font-mono font-bold text-[var(--text)] mt-0.5">{companyForm.nif || '—'}</div>
-                                                    </div>
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Tipo de Empresa</div>
-                                                        <div className="text-xs font-bold text-[var(--text)] mt-0.5">
-                                                            {getCompanyRoleLabel(companyForm.companyRole)}
-                                                            {companyForm.companyRole === 'outro' && companyForm.companyRoleCustom ? ` (${companyForm.companyRoleCustom})` : ''}
-                                                        </div>
-                                                    </div>
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Natureza Jurídica</div>
-                                                        <div className="text-xs font-medium text-[var(--text)] mt-0.5">
-                                                            {companyForm.legalForm === 'lda' ? 'Lda. (Sociedade por Quotas)' :
-                                                             companyForm.legalForm === 'sa' ? 'S.A. (Sociedade Anónima)' :
-                                                             companyForm.legalForm === 'unipessoal' ? 'Unipessoal Lda.' :
-                                                             companyForm.legalForm === 'eni' ? 'ENI (Empresário em Nome Individual)' :
-                                                             companyForm.legalForm === 'ace' ? 'ACE' : 'Outra'}
-                                                        </div>
-                                                    </div>
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Código CAE</div>
-                                                        <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.caeCode || '—'}</div>
-                                                    </div>
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Alvará / Título IMPIC</div>
-                                                        <div className="text-xs font-mono font-medium text-[var(--text)] mt-0.5">{companyForm.impic || '—'}</div>
-                                                    </div>
-                                                    <div className="sm:col-span-2 md:col-span-3 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Atividade Principal</div>
-                                                        <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.activity || '—'}</div>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                                        {/* NIF / NIPC */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                NIF / NIPC <span className="text-red-500">*</span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        required
+                                                                        value={companyForm.nif}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, nif: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                                        placeholder="500000000"
+                                                                    />
+                                                                ) : (
+                                                                    <span className="font-mono font-medium">
+                                                                        {companyForm.nif || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.nif?.trim())}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Section 2: Contactos & Sede */}
-                                            <div className="space-y-3">
-                                                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
-                                                    <MapPin size={14} className="text-primary" /> Contactos e Localização
-                                                </h4>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Email Geral</div>
-                                                        <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.email || '—'}</div>
-                                                    </div>
-                                                    <div className="p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Telefone Geral</div>
-                                                        <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.phone || '—'}</div>
-                                                    </div>
-                                                    <div className="sm:col-span-2 p-3 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
-                                                        <div className="text-[10px] text-[var(--text-muted)] uppercase font-semibold">Sede / Morada Oficial</div>
-                                                        <div className="text-xs font-medium text-[var(--text)] mt-0.5">{companyForm.address || '—'}</div>
-                                                    </div>
-                                                </div>
+                                                        {/* Tipo de Empresa */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Tipo de Empresa <span className="text-red-500">*</span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <select
+                                                                        value={companyForm.companyRole}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, companyRole: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    >
+                                                                        {COMPANY_ROLE_OPTIONS.map(opt => (
+                                                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                ) : (
+                                                                    <span>
+                                                                        {getCompanyRoleLabel(companyForm.companyRole)}
+                                                                        {companyForm.companyRole === 'outro' && companyForm.companyRoleCustom ? ` (${companyForm.companyRoleCustom})` : ''}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.companyRole)}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Natureza Jurídica */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Natureza Jurídica
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <select
+                                                                        value={companyForm.legalForm}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    >
+                                                                        <option value="lda">Lda. (Sociedade por Quotas)</option>
+                                                                        <option value="sa">S.A. (Sociedade Anónima)</option>
+                                                                        <option value="unipessoal">Unipessoal Lda.</option>
+                                                                        <option value="eni">ENI (Empresário em Nome Individual)</option>
+                                                                        <option value="ace">ACE</option>
+                                                                        <option value="outra">Outra</option>
+                                                                    </select>
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.legalForm === 'lda' ? 'Lda. (Sociedade por Quotas)' :
+                                                                         companyForm.legalForm === 'sa' ? 'S.A. (Sociedade Anónima)' :
+                                                                         companyForm.legalForm === 'unipessoal' ? 'Unipessoal Lda.' :
+                                                                         companyForm.legalForm === 'eni' ? 'ENI (Empresário em Nome Individual)' :
+                                                                         companyForm.legalForm === 'ace' ? 'ACE' :
+                                                                         companyForm.legalForm === 'outra' ? 'Outra' : (companyForm.legalForm || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>)}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.legalForm)}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Código CAE Principal */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Código CAE Principal
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.caeCode}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, caeCode: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                                        placeholder="ex: 41200"
+                                                                    />
+                                                                ) : (
+                                                                    <span className="font-mono">
+                                                                        {companyForm.caeCode || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.caeCode?.trim())}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Alvará / Título IMPIC */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Alvará / Título IMPIC
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.impic}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, impic: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                        placeholder="ex: IMPIC 12345"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.impic || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.impic?.trim())}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Atividade Principal */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Atividade Principal
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.activity}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, activity: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                        placeholder="ex: Construção de Edifícios Residenciais"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.activity || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.activity?.trim())}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Grupo: Contactos e Localização */}
+                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                            <td
+                                                                colSpan={3}
+                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                                            >
+                                                                Contactos e Localização
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Email Geral */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Email Geral
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="email"
+                                                                        value={companyForm.email}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, email: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.email || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.email?.trim())}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Telefone Geral */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Telefone Geral
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.phone}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, phone: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.phone || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.phone?.trim())}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Sede / Morada */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Sede / Morada Oficial
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.address}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, address: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.address || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.address?.trim())}
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
-                                    ) : (
-                                        <form onSubmit={(e) => { handleSaveCompany(e); setCompanyModalMode('view'); }} className="space-y-5">
-                                            <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
-                                                <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
-                                                    <Building2 size={14} className="text-primary" /> Identificação e Dados Fiscais
-                                                </h4>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                                                    <InputGroup label="Nome Oficial da Empresa *">
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            value={companyForm.name}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, name: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        />
-                                                    </InputGroup>
-                                                    <InputGroup label="NIF / NIPC *">
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            value={companyForm.nif}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, nif: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                            placeholder="500000000"
-                                                        />
-                                                    </InputGroup>
-                                                    <InputGroup label="Tipo de Empresa *">
-                                                        <select
-                                                            value={companyForm.companyRole}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, companyRole: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        >
-                                                            {COMPANY_ROLE_OPTIONS.map(opt => (
-                                                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                            ))}
-                                                        </select>
-                                                    </InputGroup>
-                                                    <InputGroup label="Natureza Jurídica">
-                                                        <select
-                                                            value={companyForm.legalForm}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, legalForm: e.target.value as any });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        >
-                                                            <option value="lda">Lda. (Sociedade por Quotas)</option>
-                                                            <option value="sa">S.A. (Sociedade Anónima)</option>
-                                                            <option value="unipessoal">Unipessoal Lda.</option>
-                                                            <option value="eni">ENI (Empresário em Nome Individual)</option>
-                                                            <option value="ace">ACE</option>
-                                                            <option value="outra">Outra</option>
-                                                        </select>
-                                                    </InputGroup>
-                                                    <InputGroup label="Código CAE Principal">
-                                                        <input
-                                                            type="text"
-                                                            value={companyForm.caeCode}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, caeCode: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                            placeholder="ex: 41200"
-                                                        />
-                                                    </InputGroup>
-                                                    <InputGroup label="Alvará / Título IMPIC">
-                                                        <input
-                                                            type="text"
-                                                            value={companyForm.impic}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, impic: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                            placeholder="ex: IMPIC 12345"
-                                                        />
-                                                    </InputGroup>
-                                                    <div className="sm:col-span-2 md:col-span-3">
-                                                        <InputGroup label="Atividade Principal">
-                                                            <input
-                                                                type="text"
-                                                                value={companyForm.activity}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, activity: e.target.value });
-                                                                }}
-                                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                                placeholder="ex: Construção de Edifícios Residenciais"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <div className="bg-[var(--bg-input)]/30 border border-[var(--border)] rounded-2xl p-5 space-y-4">
-                                                <h4 className="font-bold text-xs text-[var(--text)] flex items-center gap-2 pb-2 border-b border-[var(--border)]">
-                                                    <MapPin size={14} className="text-primary" /> Contactos e Sede
-                                                </h4>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    <InputGroup label="Email Geral">
-                                                        <input
-                                                            type="email"
-                                                            value={companyForm.email}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, email: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        />
-                                                    </InputGroup>
-                                                    <InputGroup label="Telefone Geral">
-                                                        <input
-                                                            type="text"
-                                                            value={companyForm.phone}
-                                                            onChange={e => {
-                                                                isFormEditedRef.current = true;
-                                                                setCompanyForm({ ...companyForm, phone: e.target.value });
-                                                            }}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        />
-                                                    </InputGroup>
-                                                    <div className="sm:col-span-2">
-                                                        <InputGroup label="Sede / Morada">
-                                                            <input
-                                                                type="text"
-                                                                value={companyForm.address}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, address: e.target.value });
-                                                                }}
-                                                                className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </form>
-                                    )
+                                    </div>
                                 )}
 
                                 {/* TAB 2: REQUISITOS LEGAIS (DL 273/2003) */}
                                 {companyModalTab === 'legal' && (
-                                    <div className="space-y-4">
+                                    <div className="space-y-6">
                                         <div className="p-3.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-xs text-[var(--text)] flex items-start gap-2.5">
                                             <Shield size={18} className="text-primary shrink-0 mt-0.5" />
                                             <div>
                                                 <span className="font-bold block">Conformidade Legal & Documentação Obrigatória (DL 273/2003)</span>
                                                 <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                                                    Os documentos são anexados diretamente em cada requisito, com controlo de versões, datas de validade e arquivo nas pastas da empresa.
+                                                    Consulte o estado de validação de cada requisito legal, respetivos valores registados (apólices e datas de validade) e os comprovativos documentais anexados.
                                                 </p>
                                             </div>
                                         </div>
 
-                                        <div className="space-y-3">
-                                            {/* Seguro Acidentes Trabalho */}
-                                            <RequirementCard
-                                                label="Seguro de Acidentes de Trabalho (Apólice e Recibo)"
-                                                category="insurance_work_accident"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                expiryDate={companyForm.insuranceWorkAccDate}
-                                                policyNumber={companyForm.insuranceWorkAccPolicy}
-                                                isEditing={companyModalMode === 'edit'}
-                                            >
-                                                {companyModalMode === 'edit' && (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                                                        <InputGroup label="N.º de Apólice">
-                                                            <input
-                                                                type="text"
-                                                                value={companyForm.insuranceWorkAccPolicy}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
-                                                                }}
-                                                                placeholder="ex: AP-123456"
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
-                                                            />
-                                                        </InputGroup>
-                                                        <InputGroup label="Data de Validade">
-                                                            <input
-                                                                type="date"
-                                                                value={companyForm.insuranceWorkAccDate}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
-                                                                }}
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                )}
-                                            </RequirementCard>
+                                        <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-left text-[13px]">
+                                                    <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                                                        <tr>
+                                                            <th className="px-4 py-3 min-w-[280px]">Documento</th>
+                                                            <th className="px-4 py-3 min-w-[220px]">Valor Registado</th>
+                                                            <th className="px-4 py-3 w-[150px] text-center">Ficheiro</th>
+                                                            <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                                        {/* Grupo: Apólices e Seguros */}
+                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                            <td
+                                                                colSpan={4}
+                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                                            >
+                                                                Apólices e Seguros Obrigatórios
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Seguro Responsabilidade Civil */}
-                                            <RequirementCard
-                                                label="Seguro de Responsabilidade Civil"
-                                                category="insurance_civil_liability"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                expiryDate={companyForm.insuranceCivilDate}
-                                                policyNumber={companyForm.insuranceCivilPolicy}
-                                                isEditing={companyModalMode === 'edit'}
-                                            >
-                                                {companyModalMode === 'edit' && (
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                                                        <InputGroup label="N.º de Apólice">
-                                                            <input
-                                                                type="text"
-                                                                value={companyForm.insuranceCivilPolicy}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
-                                                                }}
-                                                                placeholder="ex: RC-789012"
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
-                                                            />
-                                                        </InputGroup>
-                                                        <InputGroup label="Data de Validade">
-                                                            <input
-                                                                type="date"
-                                                                value={companyForm.insuranceCivilDate}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
-                                                                }}
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                )}
-                                            </RequirementCard>
+                                                        {/* Seguro Acidentes Trabalho — Apólice */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Seguro Ac. Trabalho — Apólice
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.insuranceWorkAccPolicy}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
+                                                                        }}
+                                                                        placeholder="ex: AP-123456"
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                                    />
+                                                                ) : (
+                                                                    <span className="font-mono">
+                                                                        {companyForm.insuranceWorkAccPolicy || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("insurance_work_accident")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.insuranceWorkAccPolicy?.trim())}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Certidão Não Dívida Finanças */}
-                                            <RequirementCard
-                                                label="Certidão de Não Dívida da Autoridade Tributária (Finanças)"
-                                                category="non_debt_tax"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                expiryDate={companyForm.cleanFinDate}
-                                                isEditing={companyModalMode === 'edit'}
-                                            >
-                                                {companyModalMode === 'edit' && (
-                                                    <div className="pt-2">
-                                                        <InputGroup label="Data de Validade da Certidão">
-                                                            <input
-                                                                type="date"
-                                                                value={companyForm.cleanFinDate}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
-                                                                }}
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                )}
-                                            </RequirementCard>
+                                                        {/* Seguro Acidentes Trabalho — Validade */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Seguro Ac. Trabalho — Data de Validade
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="date"
+                                                                        value={companyForm.insuranceWorkAccDate}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.insuranceWorkAccDate ? new Date(companyForm.insuranceWorkAccDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("insurance_work_accident")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderDateStatus(companyForm.insuranceWorkAccDate)}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Certidão Não Dívida Segurança Social */}
-                                            <RequirementCard
-                                                label="Certidão de Não Dívida da Segurança Social"
-                                                category="non_debt_ss"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                expiryDate={companyForm.cleanSSDate}
-                                                isEditing={companyModalMode === 'edit'}
-                                            >
-                                                {companyModalMode === 'edit' && (
-                                                    <div className="pt-2">
-                                                        <InputGroup label="Data de Validade da Certidão">
-                                                            <input
-                                                                type="date"
-                                                                value={companyForm.cleanSSDate}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
-                                                                }}
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                )}
-                                            </RequirementCard>
+                                                        {/* Seguro Responsabilidade Civil — Apólice */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Seguro Responsabilidade Civil — Apólice
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.insuranceCivilPolicy}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
+                                                                        }}
+                                                                        placeholder="ex: RC-789012"
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                                    />
+                                                                ) : (
+                                                                    <span className="font-mono">
+                                                                        {companyForm.insuranceCivilPolicy || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("insurance_civil_liability")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.insuranceCivilPolicy?.trim())}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Alvará IMPIC */}
-                                            <RequirementCard
-                                                label="Alvará de Construção / Título de Registo IMPIC"
-                                                category="alvara_impic"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                policyNumber={companyForm.impic}
-                                                isEditing={companyModalMode === 'edit'}
-                                            >
-                                                {companyModalMode === 'edit' && (
-                                                    <div className="pt-2">
-                                                        <InputGroup label="N.º Alvará / Título IMPIC">
-                                                            <input
-                                                                type="text"
-                                                                value={companyForm.impic}
-                                                                onChange={e => {
-                                                                    isFormEditedRef.current = true;
-                                                                    setCompanyForm({ ...companyForm, impic: e.target.value });
-                                                                }}
-                                                                placeholder="ex: Alvará n.º 12345-PUB"
-                                                                className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                            />
-                                                        </InputGroup>
-                                                    </div>
-                                                )}
-                                            </RequirementCard>
+                                                        {/* Seguro Responsabilidade Civil — Validade */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Seguro Responsabilidade Civil — Data de Validade
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="date"
+                                                                        value={companyForm.insuranceCivilDate}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.insuranceCivilDate ? new Date(companyForm.insuranceCivilDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("insurance_civil_liability")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderDateStatus(companyForm.insuranceCivilDate)}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Certidão Comercial / Permanente */}
-                                            <RequirementCard
-                                                label="Certidão Comercial / Código Certidão Permanente"
-                                                category="certidao_comercial"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                isEditing={companyModalMode === 'edit'}
-                                            />
+                                                        {/* Grupo: Regularidade Fiscal e Segurança Social */}
+                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                            <td
+                                                                colSpan={4}
+                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                                            >
+                                                                Regularidade Fiscal e Segurança Social
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Medicina no Trabalho */}
-                                            <RequirementCard
-                                                label="Medicina no Trabalho (Contrato ou Comprovativo de Prestador SST)"
-                                                category="medicina_trabalho"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                isEditing={companyModalMode === 'edit'}
-                                            />
+                                                        {/* Certidão Não Dívida Finanças */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Certidão de Não Dívida da AT (Finanças)
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="date"
+                                                                        value={companyForm.cleanFinDate}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.cleanFinDate ? new Date(companyForm.cleanFinDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("non_debt_tax")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderDateStatus(companyForm.cleanFinDate)}
+                                                            </td>
+                                                        </tr>
 
-                                            {/* Folhas de Remuneração */}
-                                            <RequirementCard
-                                                label="Folhas de Remunerações / Declaração DRI (Segurança Social)"
-                                                category="folhas_remuneracao"
-                                                entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
-                                                isEditing={companyModalMode === 'edit'}
-                                            />
+                                                        {/* Certidão Não Dívida Segurança Social */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Certidão de Não Dívida da Segurança Social
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="date"
+                                                                        value={companyForm.cleanSSDate}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
+                                                                        }}
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.cleanSSDate ? new Date(companyForm.cleanSSDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("non_debt_ss")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderDateStatus(companyForm.cleanSSDate)}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Folhas de Remuneração */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Folhas de Remunerações / Declaração DRI
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {documents.some(d => d.entityId === corporateEntityId && d.category === 'folhas_remuneracao' && !d.archived) ? (
+                                                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Documento Carregado</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("folhas_remuneracao")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(documents.some(d => d.entityId === corporateEntityId && d.category === 'folhas_remuneracao' && !d.archived))}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Grupo: Habilitação e Saúde no Trabalho */}
+                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                            <td
+                                                                colSpan={4}
+                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                                            >
+                                                                Habilitação e Saúde no Trabalho
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Alvará IMPIC */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Alvará de Construção / Título de Registo IMPIC
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {companyModalMode === 'edit' ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={companyForm.impic}
+                                                                        onChange={e => {
+                                                                            isFormEditedRef.current = true;
+                                                                            setCompanyForm({ ...companyForm, impic: e.target.value });
+                                                                        }}
+                                                                        placeholder="ex: Alvará n.º 12345-PUB"
+                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                    />
+                                                                ) : (
+                                                                    <span>
+                                                                        {companyForm.impic || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("alvara_impic")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(!!companyForm.impic?.trim() || documents.some(d => d.entityId === corporateEntityId && d.category === 'alvara_impic' && !d.archived))}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Certidão Comercial / Permanente */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Certidão Comercial / Código Certidão Permanente
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {documents.some(d => d.entityId === corporateEntityId && d.category === 'certidao_comercial' && !d.archived) ? (
+                                                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Certidão Carregada</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("certidao_comercial")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(documents.some(d => d.entityId === corporateEntityId && d.category === 'certidao_comercial' && !d.archived))}
+                                                            </td>
+                                                        </tr>
+
+                                                        {/* Medicina no Trabalho */}
+                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                Medicina no Trabalho (Contrato / Comprovativo SST)
+                                                            </td>
+                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                {documents.some(d => d.entityId === corporateEntityId && d.category === 'medicina_trabalho' && !d.archived) ? (
+                                                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Contrato SST Carregado</span>
+                                                                ) : (
+                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFileCell("medicina_trabalho")}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {renderFieldStatus(documents.some(d => d.entityId === corporateEntityId && d.category === 'medicina_trabalho' && !d.archived))}
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
