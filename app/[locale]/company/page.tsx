@@ -1989,11 +1989,19 @@ export default function MyCompanyPage() {
                         />
                         <main className="flex-1 bg-[var(--bg-card)] ml-3 mt-3 mr-4 mb-4 rounded-lg shadow-sm border border-[var(--border)] overflow-hidden relative flex flex-col">
                             {/* Header Action Bar */}
-                            {activeTab === 'organization' ? (
+                            {activeTab === 'organization' && isCompanyModalOpen ? (
                                 /* Clean Organization Header (Matching Project Organization layout) */
                                 <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-10 shadow-xs">
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3.5 gap-3">
                                         <div className="flex items-center gap-3 min-w-0">
+                                            <button
+                                                type="button"
+                                                onClick={handleCloseCompanyView}
+                                                className="p-1.5 -ml-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] transition-colors cursor-pointer shrink-0"
+                                                title="Voltar à lista de organizações"
+                                            >
+                                                <ArrowLeft size={18} />
+                                            </button>
                                             <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-sm shrink-0 border border-blue-500/20 shadow-2xs">
                                                 {companyForm.name ? companyForm.name.slice(0, 2).toUpperCase() : 'ORG'}
                                             </div>
@@ -2103,9 +2111,10 @@ export default function MyCompanyPage() {
                                         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-1">
                                             <span className="font-semibold text-primary">A Minha Empresa</span>
                                             <span>•</span>
-                                            <span className="capitalize">{activeTab === 'settings' ? 'Configurações' : activeTab}</span>
+                                            <span className="capitalize">{activeTab === 'organization' ? 'Organizações' : activeTab === 'settings' ? 'Configurações' : activeTab}</span>
                                         </div>
                                         <h1 className="text-xl font-extrabold text-[var(--text)]">
+                                            {activeTab === 'organization' && 'Dados e Documentos da Organização'}
                                             {activeTab === 'workers' && `Colaboradores da Empresa (${companyWorkers.length})`}
                                             {activeTab === 'equipment' && `Equipamentos e Máquinas (${companyEquipment.length})`}
                                             {activeTab === 'training' && 'Matriz e Cursos de Formação'}
@@ -2116,6 +2125,31 @@ export default function MyCompanyPage() {
 
                                     {/* Action Buttons based on Tab */}
                                     <div className="flex items-center gap-2 self-start sm:self-auto">
+                                        {activeTab === 'organization' && (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setExportEntityType('company');
+                                                        setExportTargetProjectId(userProjects[0]?.id || '');
+                                                        setIsExportModalOpen(true);
+                                                    }}
+                                                    className="px-3.5 py-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-bold transition-all flex items-center gap-2 cursor-pointer border border-[var(--border)]"
+                                                    title="Sincronizar dados desta empresa com uma das suas obras"
+                                                >
+                                                    <Share2 size={14} className="text-primary" /> Sincronizar com Obra
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setCompanyModalMode('edit');
+                                                        setIsCompanyModalOpen(true);
+                                                    }}
+                                                    className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
+                                                >
+                                                    <Edit2 size={14} /> Editar Empresa
+                                                </button>
+                                            </>
+                                        )}
                                         {activeTab === 'workers' && (
                                             <button
                                                 onClick={handleOpenCreateWorker}
@@ -2150,10 +2184,246 @@ export default function MyCompanyPage() {
                                 </div>
                             )}
 
-                            {/* ════════ TAB: ORGANIZAÇÃO (Listagem) ════════ */}
+                            {/* ════════ TAB: ORGANIZAÇÃO ════════ */}
                             {activeTab === 'organization' && (
                                 <div className="space-y-6">
-                                    {/* TAB 1: IDENTIFICAÇÃO */}
+                                    {!isCompanyModalOpen ? (
+                                        /* ── Tabela com a linha da empresa e Projetos Sincronizados ── */
+                                        <>
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                                <div className="p-4 border-b border-[var(--border)] flex items-center justify-between gap-3">
+                                                    <div className="relative flex-1 max-w-sm">
+                                                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Pesquisar organização por nome ou NIF..."
+                                                            className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
+                                                            value={companySearchTerm}
+                                                            onChange={e => setCompanySearchTerm(e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-xs text-[var(--text-muted)] font-medium">
+                                                            {displayedCompanies.length} organização(ões) registada(s)
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setCompanyModalMode('edit');
+                                                                setIsCompanyModalOpen(true);
+                                                            }}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                                        >
+                                                            <Edit2 size={13} /> Editar Empresa
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-xs text-left min-w-[700px]">
+                                                        <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
+                                                            <tr>
+                                                                <th className="px-5 py-3.5">Organização</th>
+                                                                <th className="px-5 py-3.5">Tipo / Função</th>
+                                                                <th className="px-5 py-3.5">Contacto</th>
+                                                                <th className="px-5 py-3.5">Seguros & Conformidade</th>
+                                                                <th className="px-5 py-3.5 text-right">Ação</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-[var(--border)]">
+                                                            {displayedCompanies.length === 0 ? (
+                                                                <tr>
+                                                                    <td colSpan={5} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                                        Nenhuma organização registada nesta conta.
+                                                                    </td>
+                                                                </tr>
+                                                            ) : (
+                                                                displayedCompanies.map(comp => (
+                                                                    <tr 
+                                                                        key={comp.id || 'master'} 
+                                                                        onClick={() => {
+                                                                            setCompanyModalMode('view');
+                                                                            setIsCompanyModalOpen(true);
+                                                                        }}
+                                                                        className="hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group"
+                                                                    >
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                            <div className="flex items-center gap-3">
+                                                                                <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-xs shrink-0">
+                                                                                    <Building2 size={16} />
+                                                                                </div>
+                                                                                <div>
+                                                                                    <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
+                                                                                        {comp.name}
+                                                                                        <span className={cn(
+                                                                                            "text-[10px] px-1.5 py-0.5 rounded-md font-semibold",
+                                                                                            comp.status === 'inactive' ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                                                                        )}>
+                                                                                            {comp.status === 'inactive' ? 'Inativa' : 'Ativa'}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    <div className="text-[10px] font-mono text-[var(--text-muted)]">
+                                                                                        NIF: {comp.nif || 'Não indicado'} {comp.caeCode ? `• CAE ${comp.caeCode}` : ''}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
+                                                                            <span className="font-medium">{getCompanyRoleLabel(comp.companyRole || 'empresa_construcao')}</span>
+                                                                            {comp.activity && (
+                                                                                <div className="text-[10px] text-[var(--text-muted)] truncate max-w-[200px]">
+                                                                                    {comp.activity}
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap text-[11px] text-[var(--text-muted)]">
+                                                                            <div>{comp.email || userAccount?.contactEmail || '—'}</div>
+                                                                            <div className="text-[10px]">{comp.phone || userAccount?.contactPhone || ''}</div>
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                {comp.insuranceWorkAccDate ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro AT válido até ${new Date(comp.insuranceWorkAccDate).toLocaleDateString()}`}>
+                                                                                        <Check size={10} /> AT Válido
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                                        AT Pendente
+                                                                                    </span>
+                                                                                )}
+                                                                                {comp.insuranceCivilDate ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro RC válido até ${new Date(comp.insuranceCivilDate).toLocaleDateString()}`}>
+                                                                                        <Check size={10} /> RC Válido
+                                                                                    </span>
+                                                                                ) : null}
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                                                                            <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setCompanyModalMode('view');
+                                                                                        setIsCompanyModalOpen(true);
+                                                                                    }}
+                                                                                    className="p-1.5 rounded-lg hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-primary transition-colors cursor-pointer"
+                                                                                    title="Ver Ficha da Empresa"
+                                                                                >
+                                                                                    <Eye size={15} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setCompanyModalMode('edit');
+                                                                                        setIsCompanyModalOpen(true);
+                                                                                    }}
+                                                                                    className="p-1.5 rounded-lg hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-primary transition-colors cursor-pointer"
+                                                                                    title="Editar Dados da Empresa"
+                                                                                >
+                                                                                    <Edit2 size={15} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+
+                                            {/* Card: Obras e Projetos Sincronizados com a Organização */}
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                            <Share2 size={16} />
+                                                        </div>
+                                                        <div>
+                                                            <h3 className="text-sm font-bold text-[var(--text)]">
+                                                                Obras e Projetos Sincronizados ({syncedCompanyProjects.length})
+                                                            </h3>
+                                                            <p className="text-[11px] text-[var(--text-muted)]">
+                                                                Estaleiros onde esta organização está integrada com conformidade DL 273/2003 e CDE.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setExportEntityType('company');
+                                                            setExportTargetProjectId(userProjects[0]?.id || '');
+                                                            setIsExportModalOpen(true);
+                                                        }}
+                                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer self-start sm:self-auto"
+                                                    >
+                                                        <Share2 size={13} /> Sincronizar com Obra
+                                                    </button>
+                                                </div>
+
+                                                {syncedCompanyProjects.length === 0 ? (
+                                                    <div className="p-6 text-center rounded-xl bg-[var(--bg-input)]/30 border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)]">
+                                                        Esta organização ainda não está sincronizada com nenhuma das suas obras.
+                                                        Utilize o botão <strong className="text-[var(--text)]">"Sincronizar com Obra"</strong> para disponibilizar a empresa e a sua documentação nos estaleiros.
+                                                    </div>
+                                                ) : (
+                                                    <div className="overflow-x-auto border border-[var(--border)] rounded-xl">
+                                                        <table className="w-full text-left text-xs border-collapse">
+                                                            <thead>
+                                                                <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
+                                                                    <th className="py-2.5 px-3">Obra / Estaleiro</th>
+                                                                    <th className="py-2.5 px-3">Localização</th>
+                                                                    <th className="py-2.5 px-3">Função na Obra</th>
+                                                                    <th className="py-2.5 px-3">Estado</th>
+                                                                    <th className="py-2.5 px-3 text-right">Ação</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-[var(--border)]">
+                                                                {syncedCompanyProjects.map(proj => (
+                                                                    <tr key={proj.projectId} className="hover:bg-primary/5 transition-colors">
+                                                                        <td className="py-3 px-3 font-semibold text-[var(--text)]">
+                                                                            <div className="flex items-center gap-2.5">
+                                                                                <div className="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-primary flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900/50">
+                                                                                    <Folder size={14} />
+                                                                                </div>
+                                                                                <div>
+                                                                                    <span className="block font-bold text-xs">{proj.projectName}</span>
+                                                                                    <span className="text-[10px] font-mono text-[var(--text-muted)]">ID: {proj.projectId.slice(0, 8)}</span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="py-3 px-3 text-[var(--text-muted)]">
+                                                                            <span className="truncate max-w-[200px] block">{proj.projectAddress || '—'}</span>
+                                                                        </td>
+                                                                        <td className="py-3 px-3">
+                                                                            <span className="font-medium text-[var(--text)]">{getCompanyRoleLabel(proj.companyRole)}</span>
+                                                                        </td>
+                                                                        <td className="py-3 px-3">
+                                                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1">
+                                                                                <Check size={11} /> Sincronizada
+                                                                            </span>
+                                                                        </td>
+                                                                        <td className="py-3 px-3 text-right">
+                                                                            <Link
+                                                                                href={`/project/${proj.projectId}/dashboard`}
+                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                                                            >
+                                                                                <span>Abrir Obra</span>
+                                                                                <ArrowRight size={12} />
+                                                                            </Link>
+                                                                        </td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        /* ── Detalhes da Organização (3 Sub-tabs) ── */
+                                        <>
+                                            {/* TAB 1: IDENTIFICAÇÃO */}
                                 {companyModalTab === 'identification' && (
                                     <div className="space-y-6">
                                         <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
@@ -2846,94 +3116,8 @@ export default function MyCompanyPage() {
                                         />
                                     </div>
                                 )}
-
-                                {/* Obras / Projetos Sincronizados com a Organização */}
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden p-5 space-y-4">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                                                <Share2 size={16} />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-sm font-bold text-[var(--text)]">
-                                                    Obras e Projetos Sincronizados ({syncedCompanyProjects.length})
-                                                </h3>
-                                                <p className="text-[11px] text-[var(--text-muted)]">
-                                                    Estaleiros onde esta organização está integrada com conformidade DL 273/2003 e CDE.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setExportEntityType('company');
-                                                setExportTargetProjectId(userProjects[0]?.id || '');
-                                                setIsExportModalOpen(true);
-                                            }}
-                                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer self-start sm:self-auto"
-                                        >
-                                            <Share2 size={13} /> Sincronizar com Obra
-                                        </button>
-                                    </div>
-
-                                    {syncedCompanyProjects.length === 0 ? (
-                                        <div className="p-6 text-center rounded-xl bg-[var(--bg-input)]/30 border border-dashed border-[var(--border)] text-xs text-[var(--text-muted)]">
-                                            Esta organização ainda não está sincronizada com nenhuma das suas obras.
-                                            Utilize o botão <strong className="text-[var(--text)]">"Sincronizar com Obra"</strong> para disponibilizar a empresa e a sua documentação nos estaleiros.
-                                        </div>
-                                    ) : (
-                                        <div className="overflow-x-auto border border-[var(--border)] rounded-xl">
-                                            <table className="w-full text-left text-xs border-collapse">
-                                                <thead>
-                                                    <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
-                                                        <th className="py-2.5 px-3">Obra / Estaleiro</th>
-                                                        <th className="py-2.5 px-3">Localização</th>
-                                                        <th className="py-2.5 px-3">Função na Obra</th>
-                                                        <th className="py-2.5 px-3">Estado</th>
-                                                        <th className="py-2.5 px-3 text-right">Ação</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-[var(--border)]">
-                                                    {syncedCompanyProjects.map(proj => (
-                                                        <tr key={proj.projectId} className="hover:bg-primary/5 transition-colors">
-                                                            <td className="py-3 px-3 font-semibold text-[var(--text)]">
-                                                                <div className="flex items-center gap-2.5">
-                                                                    <div className="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/40 text-primary flex items-center justify-center shrink-0 border border-blue-100 dark:border-blue-900/50">
-                                                                        <Folder size={14} />
-                                                                    </div>
-                                                                    <div>
-                                                                        <span className="block font-bold text-xs">{proj.projectName}</span>
-                                                                        <span className="text-[10px] font-mono text-[var(--text-muted)]">ID: {proj.projectId.slice(0, 8)}</span>
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-3 px-3 text-[var(--text-muted)]">
-                                                                <span className="truncate max-w-[200px] block">{proj.projectAddress || '—'}</span>
-                                                            </td>
-                                                            <td className="py-3 px-3">
-                                                                <span className="font-medium text-[var(--text)]">{getCompanyRoleLabel(proj.companyRole)}</span>
-                                                            </td>
-                                                            <td className="py-3 px-3">
-                                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1">
-                                                                    <Check size={11} /> Sincronizada
-                                                                </span>
-                                                            </td>
-                                                            <td className="py-3 px-3 text-right">
-                                                                <Link
-                                                                    href={`/project/${proj.projectId}/dashboard`}
-                                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
-                                                                >
-                                                                    <span>Abrir Obra</span>
-                                                                    <ArrowRight size={12} />
-                                                                </Link>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                        </>
                                     )}
-                                </div>
                                 </div>
                             )}
 
@@ -4060,7 +4244,7 @@ export default function MyCompanyPage() {
                             </div>
 
                             {/* Sticky Footer when editing in Organization tab */}
-                            {activeTab === 'organization' && companyModalMode === 'edit' && (
+                            {activeTab === 'organization' && isCompanyModalOpen && companyModalMode === 'edit' && (
                                 <div className="border-t border-gray-200 dark:border-[#444746] bg-white dark:bg-surface p-4 sticky bottom-0 z-20 shadow-xs">
                                     <div className="max-w-7xl mx-auto flex items-center justify-end gap-3">
                                         <button
