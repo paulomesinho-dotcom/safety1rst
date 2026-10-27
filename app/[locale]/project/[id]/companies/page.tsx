@@ -875,6 +875,7 @@ export default function CompaniesPage() {
     phone: "",
     address: "",
     activity: "",
+    caeCode: "",
     impic: "",
     entryDate: "",
     workSchedule: "",
@@ -4209,6 +4210,15 @@ export default function CompaniesPage() {
                                     ),
                                   },
                                   {
+                                    id: "caeCode",
+                                    ...getFieldProps(
+                                      "caeCode",
+                                      "Código CAE (Rev. 3 / NACE)",
+                                    ),
+                                    value: newItem.caeCode || undefined,
+                                    type: "text",
+                                  },
+                                  {
                                     id: "companyRole",
                                     ...getFieldProps(
                                       "companyRole",
@@ -6691,6 +6701,22 @@ function TabEditModal({
                     value={newItem.activity || ""}
                     onChange={(e) =>
                       setNewItem({ ...newItem, activity: e.target.value })
+                    }
+                  />
+                </FieldControl>
+
+                <FieldControl
+                  {...getFieldProps("caeCode", "Código CAE (Rev. 3 / NACE)")}
+                  isEditing={isEditing}
+                >
+                  <input
+                    type="text"
+                    placeholder="ex: 41200"
+                    maxLength={5}
+                    className="w-full p-2 text-[13px] font-mono border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-blue-500 transition-colors"
+                    value={newItem.caeCode || ""}
+                    onChange={(e) =>
+                      setNewItem({ ...newItem, caeCode: e.target.value })
                     }
                   />
                 </FieldControl>
