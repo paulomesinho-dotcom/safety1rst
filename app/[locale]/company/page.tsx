@@ -1534,9 +1534,12 @@ export default function MyCompanyPage() {
         setWorkerModalMode('edit');
     };
 
-    // Modal state for Equipment
+    // Modal/Detail state for Equipment
     const [isEquipModalOpen, setIsEquipModalOpen] = useState(false);
+    const [equipModalMode, setEquipModalMode] = useState<'view' | 'edit'>('view');
+    const [equipModalTab, setEquipModalTab] = useState<'identification' | 'safety' | 'documents'>('identification');
     const [editingEquipId, setEditingEquipId] = useState<string | null>(null);
+    const [selectedEquip, setSelectedEquip] = useState<Equipment | null>(null);
     const [equipForm, setEquipForm] = useState({
         name: '',
         type: 'vehicle' as const,
@@ -1546,6 +1549,46 @@ export default function MyCompanyPage() {
         inspectionDate: '',
         ceCertified: true
     });
+
+    const handleOpenViewEquip = (eq: Equipment) => {
+        setSelectedEquip(eq);
+        setEditingEquipId(eq.id);
+        setEquipForm({
+            name: eq.name,
+            type: (eq.type as any) || 'vehicle',
+            serialNumber: eq.serialNumber || '',
+            brand: eq.brand || '',
+            model: eq.model || '',
+            inspectionDate: eq.inspectionDueDate || '',
+            ceCertified: eq.ceMarking ?? true
+        });
+        setEquipModalTab('identification');
+        setEquipModalMode('view');
+        setIsEquipModalOpen(true);
+    };
+
+    const handleOpenCreateEquip = () => {
+        setSelectedEquip(null);
+        setEditingEquipId(null);
+        setEquipForm({
+            name: '',
+            type: 'vehicle',
+            serialNumber: '',
+            brand: '',
+            model: '',
+            inspectionDate: '',
+            ceCertified: true
+        });
+        setEquipModalTab('identification');
+        setEquipModalMode('edit');
+        setIsEquipModalOpen(true);
+    };
+
+    const handleOpenEditEquip = (eq: Equipment) => {
+        handleOpenViewEquip(eq);
+        setEquipModalTab('identification');
+        setEquipModalMode('edit');
+    };
 
     // Save Master Company details
     const handleSaveCompany = (e?: React.FormEvent) => {
@@ -1791,12 +1834,12 @@ export default function MyCompanyPage() {
     };
 
     // Save Equipment
-    const handleSaveEquipment = (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSaveEquipment = (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!equipForm.name.trim()) return;
 
         if (editingEquipId) {
-            updateEquipment(editingEquipId, {
+            const updatedPayload = {
                 name: equipForm.name.trim(),
                 type: equipForm.type,
                 serialNumber: equipForm.serialNumber.trim(),
@@ -1804,10 +1847,15 @@ export default function MyCompanyPage() {
                 model: equipForm.model.trim(),
                 inspectionDueDate: equipForm.inspectionDate || undefined,
                 ceMarking: equipForm.ceCertified
-            });
+            };
+            updateEquipment(editingEquipId, updatedPayload);
             addNotification('success', 'Equipamento atualizado com sucesso!');
+            setSelectedEquip(prev => prev ? ({ ...prev, ...updatedPayload } as Equipment) : null);
+            setEquipModalMode('view');
         } else {
-            addEquipment({
+            const newEquipId = `eq_corp_${nanoid(8)}`;
+            const newEquip: Equipment = {
+                id: newEquipId,
                 name: equipForm.name.trim(),
                 type: equipForm.type,
                 companyId: corporateEntityId,
@@ -1819,11 +1867,13 @@ export default function MyCompanyPage() {
                 inspectionDueDate: equipForm.inspectionDate || undefined,
                 ceMarking: equipForm.ceCertified,
                 workflowStatus: 'validated'
-            });
+            } as Equipment;
+            addEquipment(newEquip);
             addNotification('success', 'Equipamento adicionado à sua empresa!');
+            setSelectedEquip(newEquip);
+            setEditingEquipId(newEquipId);
+            setEquipModalMode('view');
         }
-        setIsEquipModalOpen(false);
-        setEditingEquipId(null);
     };
 
     return (
@@ -1912,9 +1962,11 @@ export default function MyCompanyPage() {
                                                 onClick={() => {
                                                     setActiveTab(item.id as CompanyTab);
                                                     setIsCompanyModalOpen(false);
-                                                    if (item.id !== 'organization') {
-                                                        setCompanyModalMode('view');
-                                                    }
+                                                    setIsWorkerModalOpen(false);
+                                                    setIsEquipModalOpen(false);
+                                                    setCompanyModalMode('view');
+                                                    setWorkerModalMode('view');
+                                                    setEquipModalMode('view');
                                                 }}
                                                 className={cn(
                                                     "fjm-nav-item w-full text-left bg-transparent border-0 outline-none",
@@ -2105,6 +2157,257 @@ export default function MyCompanyPage() {
                                         ))}
                                     </div>
                                 </div>
+                            ) : activeTab === 'workers' && isWorkerModalOpen ? (
+                                /* Clean Worker Detail Header (Matching Organization layout) */
+                                <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-10 shadow-xs">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3.5 gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsWorkerModalOpen(false);
+                                                    setWorkerModalMode('view');
+                                                }}
+                                                className="p-1.5 -ml-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] transition-colors cursor-pointer shrink-0"
+                                                title="Voltar à lista de colaboradores"
+                                            >
+                                                <ArrowLeft size={18} />
+                                            </button>
+                                            <div className="w-10 h-10 rounded-full bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-sm shrink-0 border border-blue-500/20 shadow-2xs">
+                                                {getInitials(selectedWorker?.name || workerForm.name)}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2.5">
+                                                    <h2 className="text-base font-bold text-[var(--text)] tracking-tight truncate">
+                                                        {selectedWorker?.name || workerForm.name || "Novo Colaborador"}
+                                                    </h2>
+                                                    {(() => {
+                                                        const badge = getMedicalFitnessBadge(workerForm.medicalFitness, workerForm.medicalExpiry);
+                                                        return (
+                                                            <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border", badge.color)}>
+                                                                {badge.label}
+                                                            </span>
+                                                        );
+                                                    })()}
+                                                </div>
+                                                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                                    <span className="truncate">NIF: {workerForm.nif || '---'}</span>
+                                                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                                    <span className="truncate">Função: {workerForm.role || 'Colaborador'}</span>
+                                                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                                    <span className="truncate">Empresa: {companyForm.name || 'A Minha Empresa'}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                            {/* Sincronizar com Obra */}
+                                            {selectedWorker && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedWorkerForExport(selectedWorker);
+                                                        setExportEntityType('worker');
+                                                        setExportTargetProjectId(userProjects[0]?.id || '');
+                                                        setIsExportModalOpen(true);
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border border-[var(--border)]"
+                                                    title="Sincronizar este colaborador com uma das suas obras"
+                                                >
+                                                    <Share2 size={13} className="text-[#4285F4]" />
+                                                    <span>Sincronizar com Obra</span>
+                                                </button>
+                                            )}
+
+                                            <div className="h-6 w-px bg-[var(--border)] mx-1" />
+
+                                            {/* Botão Editar / Salvar */}
+                                            {workerModalMode === 'view' ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setWorkerModalMode('edit')}
+                                                    className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Pencil size={13} /> Editar Colaborador
+                                                </button>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (selectedWorker) {
+                                                                handleOpenViewWorker(selectedWorker);
+                                                            } else {
+                                                                setIsWorkerModalOpen(false);
+                                                            }
+                                                        }}
+                                                        className="px-3 py-1.5 text-xs font-medium text-[var(--text)] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-input)] transition-colors shadow-xs cursor-pointer"
+                                                    >
+                                                        Cancelar
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => handleSaveWorker(e)}
+                                                        className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Save size={13} /> Guardar
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Extended Sub-Tabs for Worker */}
+                                    <div className="flex items-center px-6 border-t border-[var(--border)] overflow-x-auto no-scrollbar">
+                                        {[
+                                            { id: "identification", label: "1. Identificação & Contactos" },
+                                            { id: "labor", label: "2. Dados Laborais & Função" },
+                                            { id: "safety", label: "3. Requisitos Legais & Médicos" },
+                                            { id: "documents", label: "4. Ficheiros & Documentos" },
+                                        ].map((tab) => (
+                                            <button
+                                                key={tab.id}
+                                                type="button"
+                                                onClick={() => setWorkerModalTab(tab.id as any)}
+                                                className={cn(
+                                                    "flex items-center gap-2 py-2.5 px-4 border-b-2 transition-colors text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer",
+                                                    workerModalTab === tab.id
+                                                        ? "border-[#4285F4] text-[#4285F4] font-semibold"
+                                                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                )}
+                                            >
+                                                <span>{tab.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : activeTab === 'equipment' && isEquipModalOpen ? (
+                                /* Clean Equipment Detail Header (Matching Organization layout) */
+                                <div className="bg-[var(--bg-card)] border-b border-[var(--border)] sticky top-0 z-10 shadow-xs">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-3.5 gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsEquipModalOpen(false);
+                                                    setEquipModalMode('view');
+                                                }}
+                                                className="p-1.5 -ml-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--bg-input)] transition-colors cursor-pointer shrink-0"
+                                                title="Voltar à lista de equipamentos"
+                                            >
+                                                <ArrowLeft size={18} />
+                                            </button>
+                                            <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-sm shrink-0 border border-blue-500/20 shadow-2xs">
+                                                <Wrench size={20} />
+                                            </div>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2.5">
+                                                    <h2 className="text-base font-bold text-[var(--text)] tracking-tight truncate">
+                                                        {equipForm.name || "Novo Equipamento"}
+                                                    </h2>
+                                                    <span className={cn(
+                                                        "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase",
+                                                        equipForm.ceCertified
+                                                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                            : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                                                    )}>
+                                                        {equipForm.ceCertified ? 'Conforme CE' : 'Sem Certificado'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mt-0.5 truncate">
+                                                    <span className="truncate">N.º Série: {equipForm.serialNumber || '---'}</span>
+                                                    <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                                    <span className="truncate">Tipo: {equipForm.type}</span>
+                                                    {equipForm.brand && (
+                                                        <>
+                                                            <span className="w-1 h-1 rounded-full bg-[var(--border)] shrink-0"></span>
+                                                            <span className="truncate">Marca: {equipForm.brand} {equipForm.model || ''}</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                            {/* Sincronizar com Obra */}
+                                            {selectedEquip && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedEquipForExport(selectedEquip);
+                                                        setExportEntityType('equipment');
+                                                        setExportTargetProjectId(userProjects[0]?.id || '');
+                                                        setIsExportModalOpen(true);
+                                                    }}
+                                                    className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border border-[var(--border)]"
+                                                    title="Sincronizar este equipamento com uma das suas obras"
+                                                >
+                                                    <Share2 size={13} className="text-[#4285F4]" />
+                                                    <span>Sincronizar com Obra</span>
+                                                </button>
+                                            )}
+
+                                            <div className="h-6 w-px bg-[var(--border)] mx-1" />
+
+                                            {/* Botão Editar / Salvar */}
+                                            {equipModalMode === 'view' ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setEquipModalMode('edit')}
+                                                    className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Pencil size={13} /> Editar Equipamento
+                                                </button>
+                                            ) : (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (selectedEquip) {
+                                                                handleOpenViewEquip(selectedEquip);
+                                                            } else {
+                                                                setIsEquipModalOpen(false);
+                                                            }
+                                                        }}
+                                                        className="px-3 py-1.5 text-xs font-medium text-[var(--text)] bg-[var(--bg-card)] border border-[var(--border)] rounded-lg hover:bg-[var(--bg-input)] transition-colors shadow-xs cursor-pointer"
+                                                    >
+                                                        Cancelar
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => handleSaveEquipment(e)}
+                                                        className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Save size={13} /> Guardar
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Extended Sub-Tabs for Equipment */}
+                                    <div className="flex items-center px-6 border-t border-[var(--border)] overflow-x-auto no-scrollbar">
+                                        {[
+                                            { id: "identification", label: "1. Identificação & Características" },
+                                            { id: "safety", label: "2. Requisitos Legais & Segurança" },
+                                            { id: "documents", label: "3. Ficheiros & Documentos" },
+                                        ].map((tab) => (
+                                            <button
+                                                key={tab.id}
+                                                type="button"
+                                                onClick={() => setEquipModalTab(tab.id as any)}
+                                                className={cn(
+                                                    "flex items-center gap-2 py-2.5 px-4 border-b-2 transition-colors text-xs font-medium whitespace-nowrap shrink-0 cursor-pointer",
+                                                    equipModalTab === tab.id
+                                                        ? "border-[#4285F4] text-[#4285F4] font-semibold"
+                                                        : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
+                                                )}
+                                            >
+                                                <span>{tab.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             ) : (
                                 <header className="p-5 border-b border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-sm sticky top-0 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                                     <div>
@@ -2160,11 +2463,7 @@ export default function MyCompanyPage() {
                                         )}
                                         {activeTab === 'equipment' && (
                                             <button
-                                                onClick={() => {
-                                                    setEditingEquipId(null);
-                                                    setEquipForm({ name: '', type: 'vehicle', serialNumber: '', brand: '', model: '', inspectionDate: '', ceCertified: true });
-                                                    setIsEquipModalOpen(true);
-                                                }}
+                                                onClick={handleOpenCreateEquip}
                                                 className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 cursor-pointer"
                                             >
                                                 <Plus size={14} /> Adicionar Equipamento
@@ -3123,408 +3422,1570 @@ export default function MyCompanyPage() {
 
                             {/* ════════ TAB: PESSOAS ════════ */}
                             {activeTab === 'workers' && (
-                                <div className="space-y-4">
-                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
-                                        <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                                            <div className="relative flex-1 max-w-sm">
-                                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-                                                <input
-                                                    type="text"
-                                                    placeholder="Pesquisar colaborador por nome, email ou NIF..."
-                                                    className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
-                                                    value={searchTerm}
-                                                    onChange={e => setSearchTerm(e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="flex items-center gap-2.5">
-                                                <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-2.5 py-1.5">
-                                                    <Filter size={13} className="text-primary shrink-0" />
-                                                    <select
-                                                        value={workerProjectFilter}
-                                                        onChange={e => setWorkerProjectFilter(e.target.value)}
-                                                        className="bg-transparent text-xs text-[var(--text)] outline-none cursor-pointer"
-                                                    >
-                                                        <option value="all">Todas as Obras ({companyWorkers.length})</option>
-                                                        <option value="unsynced">Não Sincronizados</option>
-                                                        {userProjects.map(p => (
-                                                            <option key={p.id} value={p.id}>Obra: {p.name}</option>
-                                                        ))}
-                                                    </select>
+                                <div className="space-y-6">
+                                    {!isWorkerModalOpen ? (
+                                        <div className="space-y-4">
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                                <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                                    <div className="relative flex-1 max-w-sm">
+                                                        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Pesquisar colaborador por nome, email ou NIF..."
+                                                            className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
+                                                            value={searchTerm}
+                                                            onChange={e => setSearchTerm(e.target.value)}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-2.5 py-1.5">
+                                                            <Filter size={13} className="text-primary shrink-0" />
+                                                            <select
+                                                                value={workerProjectFilter}
+                                                                onChange={e => setWorkerProjectFilter(e.target.value)}
+                                                                className="bg-transparent text-xs text-[var(--text)] outline-none cursor-pointer"
+                                                            >
+                                                                <option value="all">Todas as Obras ({companyWorkers.length})</option>
+                                                                <option value="unsynced">Não Sincronizados</option>
+                                                                {userProjects.map(p => (
+                                                                    <option key={p.id} value={p.id}>Obra: {p.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <span className="text-xs text-[var(--text-muted)] font-medium hidden sm:inline">
+                                                            {filteredWorkers.length} colaborador(es)
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <span className="text-xs text-[var(--text-muted)] font-medium hidden sm:inline">
-                                                    {filteredWorkers.length} colaborador(es)
-                                                </span>
+
+                                                {/* Batch Actions Bar */}
+                                                {selectedWorkerIds.length > 0 && (
+                                                    <div className="mx-4 my-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
+                                                        <div className="flex items-center gap-2 text-xs font-bold text-primary">
+                                                            <CheckCircle2 size={16} />
+                                                            <span>{selectedWorkerIds.length} colaborador(es) selecionado(s)</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={toggleSelectAllWorkers}
+                                                                className="px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] font-medium cursor-pointer"
+                                                            >
+                                                                Desmarcar todos
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setExportEntityType('worker');
+                                                                    setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                    setIsExportModalOpen(true);
+                                                                }}
+                                                                className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                                                            >
+                                                                <Share2 size={13} /> Sincronizar Selecionados com Obra
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-xs text-left min-w-[760px]">
+                                                        <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
+                                                            <tr>
+                                                                <th className="w-10 px-4 py-3.5 text-center">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedWorkerIds.length === filteredWorkers.length && filteredWorkers.length > 0}
+                                                                        onChange={toggleSelectAllWorkers}
+                                                                        className="rounded text-primary cursor-pointer"
+                                                                        title="Selecionar todos"
+                                                                    />
+                                                                </th>
+                                                                <th className="px-5 py-3.5">Colaborador</th>
+                                                                <th className="px-5 py-3.5">Função (Norma IFC)</th>
+                                                                <th className="px-5 py-3.5">Vínculo / Categoria</th>
+                                                                <th className="px-5 py-3.5">Aptidão Médica (FAT)</th>
+                                                                <th className="px-5 py-3.5">Sincronização</th>
+                                                                <th className="px-5 py-3.5 text-right">Ação</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-[var(--border)]">
+                                                            {filteredWorkers.length === 0 ? (
+                                                                <tr>
+                                                                    <td colSpan={7} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                                        Nenhum colaborador encontrado com os filtros atuais.
+                                                                    </td>
+                                                                </tr>
+                                                            ) : (
+                                                                filteredWorkers.map(w => {
+                                                                    const syncedPrjs = getWorkerSyncedProjects(w.id, w.nif);
+                                                                    const isSelected = selectedWorkerIds.includes(w.id);
+                                                                    return (
+                                                                        <tr 
+                                                                            key={w.id} 
+                                                                            onClick={() => handleOpenViewWorker(w)}
+                                                                            className={cn(
+                                                                                "hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group",
+                                                                                isSelected && "bg-primary/5"
+                                                                            )}
+                                                                        >
+                                                                            <td className="w-10 px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={isSelected}
+                                                                                    onChange={() => toggleSelectWorker(w.id)}
+                                                                                    className="rounded text-primary cursor-pointer"
+                                                                                />
+                                                                            </td>
+                                                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                                <div className="flex items-center gap-3">
+                                                                                    <div className="w-8 h-8 rounded-full bg-blue-500/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                                                        {getInitials(w.name)}
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
+                                                                                            {w.name}
+                                                                                            {w.isForeign && (
+                                                                                                <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                                                                                    {w.foreignCountry || 'Estrangeiro'}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                        {w.nif && <div className="text-[10px] font-mono text-[var(--text-muted)]">NIF: {w.nif}</div>}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </td>
+                                                                            <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
+                                                                                <span className="font-medium">{w.role || 'Colaborador'}</span>
+                                                                                <div className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
+                                                                                    <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary font-semibold">IFC:</span> 
+                                                                                    {w.ifcLaborType || w.ifcActorRole || w.occupation || 'IfcLaborResource'}
+                                                                                </div>
+                                                                            </td>
+                                                                            <td className="px-5 py-3.5 whitespace-nowrap text-xs">
+                                                                                <div className="font-medium text-[var(--text)]">{getContractTypeLabel(w.contractType)}</div>
+                                                                                <div className="text-[10px] text-[var(--text-muted)]">{getProfessionCategoryLabel(w.professionCategory)}</div>
+                                                                            </td>
+                                                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                                {(() => {
+                                                                                    const badge = getMedicalFitnessBadge(w.medicalFitness, w.medicalExpiry);
+                                                                                    return (
+                                                                                        <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border", badge.color)}>
+                                                                                            <Check size={10} /> {badge.label}
+                                                                                            {w.medicalExpiry && <span className="opacity-80">({new Date(w.medicalExpiry).toLocaleDateString()})</span>}
+                                                                                        </span>
+                                                                                    );
+                                                                                })()}
+                                                                            </td>
+                                                                            <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                                {syncedPrjs.length > 0 ? (
+                                                                                    <span
+                                                                                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                                                        title={`Sincronizado com: ${syncedPrjs.map(p => p.projectName).join(', ')}`}
+                                                                                    >
+                                                                                        <Share2 size={11} className="text-emerald-600" />
+                                                                                        <span>{syncedPrjs.length} {syncedPrjs.length === 1 ? 'Obra' : 'Obras'}</span>
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)]">
+                                                                                        Não sincronizado
+                                                                                    </span>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                                                                                <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
+                                                                                    <button
+                                                                                        onClick={() => {
+                                                                                            setSelectedWorkerForExport(w);
+                                                                                            setExportEntityType('worker');
+                                                                                            setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                                            setIsExportModalOpen(true);
+                                                                                        }}
+                                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                        title="Sincronizar com Obra"
+                                                                                    >
+                                                                                        <Share2 size={14} />
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={() => handleOpenViewWorker(w)}
+                                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                        title="Ver Ficha do Colaborador"
+                                                                                    >
+                                                                                        <Eye size={14} />
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={() => handleOpenEditWorker(w)}
+                                                                                        className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                        title="Editar Dados"
+                                                                                    >
+                                                                                        <Edit2 size={14} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            </td>
+                                                                        </tr>
+                                                                    );
+                                                                })
+                                                            )}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
                                             </div>
                                         </div>
+                                    ) : (
+                                        /* ── Detalhes do Colaborador (4 Sub-abas) ── */
+                                        <div className="space-y-6">
+                                            {/* TAB 1: IDENTIFICAÇÃO & CONTACTOS */}
+                                            {workerModalTab === 'identification' && (
+                                                <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-left text-[13px]">
+                                                            <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                                                                <tr>
+                                                                    <th className="px-4 py-3 min-w-[220px]">Campo</th>
+                                                                    <th className="px-4 py-3 min-w-[280px]">Valor Registado</th>
+                                                                    <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                    <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                        Identificação e Dados Pessoais (Norma IFC: IfcPerson)
+                                                                    </td>
+                                                                </tr>
 
-                                        {/* Batch Actions Bar */}
-                                        {selectedWorkerIds.length > 0 && (
-                                            <div className="mx-4 my-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
-                                                <div className="flex items-center gap-2 text-xs font-bold text-primary">
-                                                    <CheckCircle2 size={16} />
-                                                    <span>{selectedWorkerIds.length} colaborador(es) selecionado(s)</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={toggleSelectAllWorkers}
-                                                        className="px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] font-medium cursor-pointer"
-                                                    >
-                                                        Desmarcar todos
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setExportEntityType('worker');
-                                                            setExportTargetProjectId(userProjects[0]?.id || '');
-                                                            setIsExportModalOpen(true);
-                                                        }}
-                                                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                                                    >
-                                                        <Share2 size={13} /> Sincronizar Selecionados com Obra
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-xs text-left min-w-[760px]">
-                                                <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
-                                                    <tr>
-                                                        <th className="w-10 px-4 py-3.5 text-center">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedWorkerIds.length === filteredWorkers.length && filteredWorkers.length > 0}
-                                                                onChange={toggleSelectAllWorkers}
-                                                                className="rounded text-primary cursor-pointer"
-                                                                title="Selecionar todos"
-                                                            />
-                                                        </th>
-                                                        <th className="px-5 py-3.5">Colaborador</th>
-                                                        <th className="px-5 py-3.5">Função (Norma IFC)</th>
-                                                        <th className="px-5 py-3.5">Vínculo / Categoria</th>
-                                                        <th className="px-5 py-3.5">Aptidão Médica (FAT)</th>
-                                                        <th className="px-5 py-3.5">Sincronização</th>
-                                                        <th className="px-5 py-3.5 text-right">Ação</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-[var(--border)]">
-                                                    {filteredWorkers.length === 0 ? (
-                                                        <tr>
-                                                            <td colSpan={7} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                                                                Nenhum colaborador encontrado com os filtros atuais.
-                                                            </td>
-                                                        </tr>
-                                                    ) : (
-                                                        filteredWorkers.map(w => {
-                                                            const syncedPrjs = getWorkerSyncedProjects(w.id, w.nif);
-                                                            const isSelected = selectedWorkerIds.includes(w.id);
-                                                            return (
-                                                                <tr 
-                                                                    key={w.id} 
-                                                                    onClick={() => handleOpenViewWorker(w)}
-                                                                    className={cn(
-                                                                        "hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group",
-                                                                        isSelected && "bg-primary/5"
-                                                                    )}
-                                                                >
-                                                                    <td className="w-10 px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            checked={isSelected}
-                                                                            onChange={() => toggleSelectWorker(w.id)}
-                                                                            className="rounded text-primary cursor-pointer"
-                                                                        />
+                                                                {/* Nome Completo */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Nome Completo <span className="text-red-500">*</span>
                                                                     </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                                                                                {getInitials(w.name)}
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    required
+                                                                                    placeholder="Primeiro Nome"
+                                                                                    value={workerForm.firstName}
+                                                                                    onChange={e => {
+                                                                                        const fn = e.target.value;
+                                                                                        const fullName = [fn, workerForm.middleName, workerForm.lastName].filter(Boolean).join(' ');
+                                                                                        setWorkerForm({ ...workerForm, firstName: fn, name: fullName });
+                                                                                    }}
+                                                                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    placeholder="Nome do Meio"
+                                                                                    value={workerForm.middleName}
+                                                                                    onChange={e => {
+                                                                                        const mn = e.target.value;
+                                                                                        const fullName = [workerForm.firstName, mn, workerForm.lastName].filter(Boolean).join(' ');
+                                                                                        setWorkerForm({ ...workerForm, middleName: mn, name: fullName });
+                                                                                    }}
+                                                                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    required
+                                                                                    placeholder="Último Nome"
+                                                                                    value={workerForm.lastName}
+                                                                                    onChange={e => {
+                                                                                        const ln = e.target.value;
+                                                                                        const fullName = [workerForm.firstName, workerForm.middleName, ln].filter(Boolean).join(' ');
+                                                                                        setWorkerForm({ ...workerForm, lastName: ln, name: fullName });
+                                                                                    }}
+                                                                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
                                                                             </div>
-                                                                            <div>
-                                                                                <div className="font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors flex items-center gap-2">
-                                                                                    {w.name}
-                                                                                    {w.isForeign && (
-                                                                                        <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                                                                                            {w.foreignCountry || 'Estrangeiro'}
-                                                                                        </span>
-                                                                                    )}
-                                                                                </div>
-                                                                                {w.nif && <div className="text-[10px] font-mono text-[var(--text-muted)]">NIF: {w.nif}</div>}
-                                                                            </div>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text)]">
-                                                                        <span className="font-medium">{w.role || 'Colaborador'}</span>
-                                                                        <div className="text-[10px] font-mono text-[var(--text-muted)] flex items-center gap-1 mt-0.5">
-                                                                            <span className="px-1.5 py-0.2 rounded bg-primary/10 text-primary font-semibold">IFC:</span> 
-                                                                            {w.ifcLaborType || w.ifcActorRole || w.occupation || 'IfcLaborResource'}
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs">
-                                                                        <div className="font-medium text-[var(--text)]">{getContractTypeLabel(w.contractType)}</div>
-                                                                        <div className="text-[10px] text-[var(--text-muted)]">{getProfessionCategoryLabel(w.professionCategory)}</div>
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                        {(() => {
-                                                                            const badge = getMedicalFitnessBadge(w.medicalFitness, w.medicalExpiry);
-                                                                            return (
-                                                                                <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border", badge.color)}>
-                                                                                    <Check size={10} /> {badge.label}
-                                                                                    {w.medicalExpiry && <span className="opacity-80">({new Date(w.medicalExpiry).toLocaleDateString()})</span>}
-                                                                                </span>
-                                                                            );
-                                                                        })()}
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                        {syncedPrjs.length > 0 ? (
-                                                                            <span
-                                                                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                                                                title={`Sincronizado com: ${syncedPrjs.map(p => p.projectName).join(', ')}`}
-                                                                            >
-                                                                                <Share2 size={11} className="text-emerald-600" />
-                                                                                <span>{syncedPrjs.length} {syncedPrjs.length === 1 ? 'Obra' : 'Obras'}</span>
-                                                                            </span>
                                                                         ) : (
-                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)]">
-                                                                                Não sincronizado
+                                                                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                                                {selectedWorker?.name || workerForm.name || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
                                                                             </span>
                                                                         )}
                                                                     </td>
-                                                                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                        <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setSelectedWorkerForExport(w);
-                                                                                    setExportEntityType('worker');
-                                                                                    setExportTargetProjectId(userProjects[0]?.id || '');
-                                                                                    setIsExportModalOpen(true);
-                                                                                }}
-                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                                title="Sincronizar com Obra"
-                                                                            >
-                                                                                <Share2 size={14} />
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => handleOpenViewWorker(w)}
-                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                                title="Ver Ficha do Colaborador"
-                                                                            >
-                                                                                <Eye size={14} />
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => handleOpenEditWorker(w)}
-                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                                title="Editar Dados"
-                                                                            >
-                                                                                <Edit2 size={14} />
-                                                                            </button>
-                                                                        </div>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.name || workerForm.name))}
                                                                     </td>
                                                                 </tr>
-                                                            );
-                                                        })
-                                                    )}
-                                                </tbody>
-                                            </table>
+
+                                                                {/* NIF */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        NIF (N.º Identificação Fiscal) <span className="text-red-500">*</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                required
+                                                                                maxLength={9}
+                                                                                placeholder="ex: 123456789"
+                                                                                value={workerForm.nif}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, nif: e.target.value })}
+                                                                                className="w-full sm:w-64 px-2.5 py-1.5 text-xs font-mono bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                                                                                {selectedWorker?.nif || workerForm.nif || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.nif || workerForm.nif))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* NISS */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        N.º Segurança Social (NISS)
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                maxLength={11}
+                                                                                placeholder="ex: 12000000000"
+                                                                                value={workerForm.ssn}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, ssn: e.target.value })}
+                                                                                className="w-full sm:w-64 px-2.5 py-1.5 text-xs font-mono bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="font-mono text-gray-900 dark:text-gray-100">
+                                                                                {selectedWorker?.ssn || workerForm.ssn || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.ssn || workerForm.ssn))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Documento de Identificação */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Documento de Identificação
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                                                                <select
+                                                                                    value={workerForm.idCardType}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, idCardType: e.target.value as any })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                >
+                                                                                    <option value="cc">Cartão de Cidadão</option>
+                                                                                    <option value="passport">Passaporte</option>
+                                                                                    <option value="residence_permit">Título de Residência</option>
+                                                                                    <option value="other">Outro</option>
+                                                                                </select>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    placeholder="Número do documento"
+                                                                                    value={workerForm.idCardNumber}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, idCardNumber: e.target.value })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                                                />
+                                                                                <input
+                                                                                    type="date"
+                                                                                    title="Data de Validade"
+                                                                                    value={workerForm.idCardExpiry}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, idCardExpiry: e.target.value })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {(selectedWorker?.idCardNumber || workerForm.idCardNumber) ? (
+                                                                                    <>
+                                                                                        <span className="font-semibold uppercase text-gray-900 dark:text-gray-100">{selectedWorker?.idCardType || workerForm.idCardType || 'CC'}: </span>
+                                                                                        <span className="font-mono">{selectedWorker?.idCardNumber || workerForm.idCardNumber}</span>
+                                                                                        {(selectedWorker?.idCardExpiry || workerForm.idCardExpiry) && (
+                                                                                            <span className="text-xs text-[var(--text-muted)] ml-2">
+                                                                                                (Validade: {new Date(selectedWorker?.idCardExpiry || workerForm.idCardExpiry).toLocaleDateString()})
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
+                                                                                )}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderDateStatus(selectedWorker?.idCardExpiry || workerForm.idCardExpiry)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Nacionalidade */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Nacionalidade
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="flex items-center gap-2">
+                                                                                <select
+                                                                                    value={workerForm.nationalityType}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, nationalityType: e.target.value as any })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                >
+                                                                                    <option value="portugal">Portugal (PT)</option>
+                                                                                    <option value="eu_etc">União Europeia / EEE</option>
+                                                                                    <option value="other">Extracomunitário</option>
+                                                                                </select>
+                                                                                {workerForm.nationalityType !== 'portugal' && (
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        placeholder="País de Origem"
+                                                                                        value={workerForm.foreignCountry}
+                                                                                        onChange={e => setWorkerForm({ ...workerForm, foreignCountry: e.target.value })}
+                                                                                        className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {workerForm.nationalityType === 'other'
+                                                                                    ? `Extracomunitário (${workerForm.foreignCountry || 'Outro'})`
+                                                                                    : workerForm.nationalityType === 'eu_etc'
+                                                                                    ? `União Europeia / EEE (${workerForm.foreignCountry || 'U.E.'})`
+                                                                                    : 'Portugal (PT)'}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Data de Nascimento & Género */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Data de Nascimento & Género
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="flex items-center gap-2">
+                                                                                <input
+                                                                                    type="date"
+                                                                                    value={workerForm.birthDate}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, birthDate: e.target.value })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                                <select
+                                                                                    value={workerForm.gender}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, gender: e.target.value as any })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                >
+                                                                                    <option value="M">Masculino</option>
+                                                                                    <option value="F">Feminino</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {(selectedWorker?.birthDate || workerForm.birthDate) ? new Date(selectedWorker?.birthDate || workerForm.birthDate).toLocaleDateString() : '---'} • {workerForm.gender === 'F' ? 'Feminino' : 'Masculino'}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.birthDate || workerForm.birthDate))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Grupo: Contactos e Residência */}
+                                                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                    <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                        Contactos e Residência
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Email */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Email
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="email"
+                                                                                placeholder="ex: colaborador@empresa.pt"
+                                                                                value={workerForm.email}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, email: e.target.value })}
+                                                                                className="w-full sm:w-80 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span>{selectedWorker?.email || workerForm.email || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.email || workerForm.email))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Telefone */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Contacto Telefónico
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="tel"
+                                                                                placeholder="ex: +351 910 000 000"
+                                                                                value={workerForm.phone}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })}
+                                                                                className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span>{selectedWorker?.phone || workerForm.phone || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.phone || workerForm.phone))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Morada e Localidade */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Morada e Residência
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="space-y-2">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    placeholder="Rua, Número, Andar"
+                                                                                    value={workerForm.address}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, address: e.target.value })}
+                                                                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                                <div className="flex gap-2">
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        placeholder="Código Postal (ex: 1000-001)"
+                                                                                        value={workerForm.postalCode}
+                                                                                        onChange={e => setWorkerForm({ ...workerForm, postalCode: e.target.value })}
+                                                                                        className="w-36 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                    />
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        placeholder="Localidade / Cidade"
+                                                                                        value={workerForm.city}
+                                                                                        onChange={e => setWorkerForm({ ...workerForm, city: e.target.value })}
+                                                                                        className="flex-1 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {(selectedWorker?.address || workerForm.address) ? (
+                                                                                    `${selectedWorker?.address || workerForm.address}${(selectedWorker?.postalCode || workerForm.postalCode) ? `, ${selectedWorker?.postalCode || workerForm.postalCode}` : ''} ${selectedWorker?.city || workerForm.city || ''}`
+                                                                                ) : (
+                                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
+                                                                                )}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.address || workerForm.address))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Contacto de Emergência */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Contacto de Emergência (Nome & Telefone)
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="flex gap-2">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    placeholder="Nome do Contacto"
+                                                                                    value={workerForm.emergencyContactName}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, emergencyContactName: e.target.value })}
+                                                                                    className="flex-1 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                                <input
+                                                                                    type="tel"
+                                                                                    placeholder="Telefone Emergência"
+                                                                                    value={workerForm.emergencyContactPhone}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, emergencyContactPhone: e.target.value })}
+                                                                                    className="w-48 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                />
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {(selectedWorker?.emergencyContactName || workerForm.emergencyContactName) ? (
+                                                                                    `${selectedWorker?.emergencyContactName || workerForm.emergencyContactName} ${(selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone) ? `(${selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone})` : ''}`
+                                                                                ) : (
+                                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
+                                                                                )}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.emergencyContactName || workerForm.emergencyContactName))}
+                                                                    </td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* TAB 2: DADOS LABORAIS & FUNÇÃO */}
+                                            {workerModalTab === 'labor' && (
+                                                <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-left text-[13px]">
+                                                            <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                                                                <tr>
+                                                                    <th className="px-4 py-3 min-w-[220px]">Campo</th>
+                                                                    <th className="px-4 py-3 min-w-[280px]">Valor Registado</th>
+                                                                    <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                    <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                        Vínculo Contratual e Função (Norma IFC: IfcLaborResource)
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Empresa Vinculada */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Empresa Vinculada (Empregador)
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-semibold">
+                                                                        {companyForm.name || 'A Minha Empresa'}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Função / Cargo em Obra */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Função / Cargo em Obra <span className="text-red-500">*</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="space-y-2">
+                                                                                <select
+                                                                                    value={workerForm.workerRoleId}
+                                                                                    onChange={e => {
+                                                                                        const rid = e.target.value;
+                                                                                        const def = getRoleDefinition(rid);
+                                                                                        const roleLabel = rid === 'OTHER'
+                                                                                            ? workerForm.roleCustom || 'Outra'
+                                                                                            : (tRoles ? tRoles(`roles.${rid}`) : rid);
+                                                                                        setWorkerForm({
+                                                                                            ...workerForm,
+                                                                                            workerRoleId: rid,
+                                                                                            role: roleLabel,
+                                                                                            occupation: def?.ifcLaborResource?.objectType || '',
+                                                                                            ifcLaborType: def?.ifcLaborResource?.predefinedType || '',
+                                                                                        });
+                                                                                    }}
+                                                                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                >
+                                                                                    <option value="">Selecione uma função normalizada...</option>
+                                                                                    <optgroup label="Responsáveis de Obra">
+                                                                                        {WORKER_ROLES.filter(r => r.group === 'SITE_RESPONSIBLE').map(r => (
+                                                                                            <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                                                        ))}
+                                                                                    </optgroup>
+                                                                                    <optgroup label="Segurança no Trabalho (SHST)">
+                                                                                        {WORKER_ROLES.filter(r => r.group === 'SHST_RESPONSIBLE').map(r => (
+                                                                                            <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                                                        ))}
+                                                                                    </optgroup>
+                                                                                    {OPERATIVE_CATEGORIES.map(cat => {
+                                                                                        const catRoles = WORKER_ROLES.filter(r => r.group === 'OPERATIVE' && r.category === cat);
+                                                                                        if (!catRoles.length) return null;
+                                                                                        return (
+                                                                                            <optgroup key={cat} label={tRoles(`categories.${cat}`)}>
+                                                                                                {catRoles.map(r => (
+                                                                                                    <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
+                                                                                                ))}
+                                                                                            </optgroup>
+                                                                                        );
+                                                                                    })}
+                                                                                </select>
+                                                                                {workerForm.workerRoleId === 'OTHER' && (
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        placeholder="Designação da função personalizada"
+                                                                                        value={workerForm.roleCustom}
+                                                                                        onChange={e => setWorkerForm({ ...workerForm, roleCustom: e.target.value, role: e.target.value })}
+                                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                                                {selectedWorker?.role || workerForm.role || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(!!(selectedWorker?.role || workerForm.role))}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Classificação IFC */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Classificação IFC (ISO 16739)
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">
+                                                                        <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold">
+                                                                            {workerForm.ifcLaborType || 'IfcLaborResource'}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Categoria Profissional */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Categoria Profissional (CCT Construção)
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <select
+                                                                                value={workerForm.professionCategory}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, professionCategory: e.target.value as any })}
+                                                                                className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            >
+                                                                                <option value="oficial">Oficial</option>
+                                                                                <option value="pre_oficial">Pré-Oficial</option>
+                                                                                <option value="servente">Servente</option>
+                                                                                <option value="encarregado">Encarregado</option>
+                                                                                <option value="tecnico">Técnico / Especialista</option>
+                                                                                <option value="outra">Outra</option>
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span>{getProfessionCategoryLabel(workerForm.professionCategory)}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Tipo de Contrato */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Tipo de Contrato de Trabalho
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="flex gap-2">
+                                                                                <select
+                                                                                    value={workerForm.contractType}
+                                                                                    onChange={e => setWorkerForm({ ...workerForm, contractType: e.target.value as any })}
+                                                                                    className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                >
+                                                                                    <option value="sem_termo">Contrato Sem Termo (Efetivo)</option>
+                                                                                    <option value="termo_certo">A Termo Certo</option>
+                                                                                    <option value="termo_incerto">A Termo Incerto</option>
+                                                                                    <option value="cedencia">Cedência Ocasional</option>
+                                                                                    <option value="prestacao_servicos">Prestação de Serviços</option>
+                                                                                </select>
+                                                                                {workerForm.contractType === 'termo_certo' && (
+                                                                                    <input
+                                                                                        type="date"
+                                                                                        title="Data de Termo"
+                                                                                        value={workerForm.contractExpiry}
+                                                                                        onChange={e => setWorkerForm({ ...workerForm, contractExpiry: e.target.value })}
+                                                                                        className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {getContractTypeLabel(workerForm.contractType)}
+                                                                                {workerForm.contractExpiry && ` (Termo: ${new Date(workerForm.contractExpiry).toLocaleDateString()})`}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {workerForm.contractExpiry ? renderDateStatus(workerForm.contractExpiry) : renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Horário de Trabalho */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Regime de Horário
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <select
+                                                                                value={workerForm.workSchedule}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, workSchedule: e.target.value as any })}
+                                                                                className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            >
+                                                                                <option value="normal">Horário Normal (8h/dia)</option>
+                                                                                <option value="turnos">Trabalho por Turnos</option>
+                                                                                <option value="isencao">Isenção de Horário</option>
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span>
+                                                                                {workerForm.workSchedule === 'turnos' ? 'Trabalho por Turnos' : workerForm.workSchedule === 'isencao' ? 'Isenção de Horário' : 'Horário Normal (8h/dia)'}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* TAB 3: REQUISITOS LEGAIS & MÉDICOS */}
+                                            {workerModalTab === 'safety' && (
+                                                <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                                                    <div className="overflow-x-auto">
+                                                        <table className="w-full text-left text-[13px]">
+                                                            <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                                                                <tr>
+                                                                    <th className="px-4 py-3 min-w-[220px]">Campo</th>
+                                                                    <th className="px-4 py-3 min-w-[280px]">Valor Registado</th>
+                                                                    <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                    <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                        Saúde no Trabalho e Aptidão Médica (DL 273/2003)
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Aptidão Médica */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Aptidão Médica (FAT) <span className="text-red-500">*</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <select
+                                                                                value={workerForm.medicalFitness}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, medicalFitness: e.target.value as any })}
+                                                                                className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-semibold"
+                                                                            >
+                                                                                <option value="apto">Apto</option>
+                                                                                <option value="apto_restricoes">Apto com Restrições</option>
+                                                                                <option value="inapto_temp">Inapto Temporariamente</option>
+                                                                                <option value="inapto">Inapto</option>
+                                                                            </select>
+                                                                        ) : (
+                                                                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                                                {workerForm.medicalFitness === 'apto' ? 'Apto' : workerForm.medicalFitness === 'apto_restricoes' ? 'Apto com Restrições' : workerForm.medicalFitness === 'inapto_temp' ? 'Inapto Temporariamente' : 'Inapto'}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(workerForm.medicalFitness === 'apto' || workerForm.medicalFitness === 'apto_restricoes')}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Validade FAT */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Validade da Ficha de Aptidão Médica <span className="text-red-500">*</span>
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="date"
+                                                                                required
+                                                                                value={workerForm.medicalExpiry}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, medicalExpiry: e.target.value })}
+                                                                                className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span>
+                                                                                {workerForm.medicalExpiry ? new Date(workerForm.medicalExpiry).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Pendente...</span>}
+                                                                            </span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderDateStatus(workerForm.medicalExpiry)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Restrições */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Observações / Restrições Médicas
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="text"
+                                                                                placeholder="ex: Uso obrigatório de óculos graduados; Sem trabalhos em altura"
+                                                                                value={workerForm.medicalObservations}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, medicalObservations: e.target.value })}
+                                                                                className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span>{workerForm.medicalObservations || <span className="text-gray-400 italic font-normal text-xs">Sem restrições registadas.</span>}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(true)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                    <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                        Equipamentos de Proteção Individual (EPI) & Seguros
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* EPIs */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Registo de Entrega de EPIs
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                                                                {['Capacete', 'Colete Refletor', 'Botins de Proteção', 'Luvas de Proteção', 'Óculos de Proteção', 'Proteção Auditiva'].map(epi => (
+                                                                                    <label key={epi} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={workerForm.epiDeliveryList.includes(epi)}
+                                                                                            onChange={e => {
+                                                                                                if (e.target.checked) {
+                                                                                                    setWorkerForm({ ...workerForm, epiDeliveryList: [...workerForm.epiDeliveryList, epi] });
+                                                                                                } else {
+                                                                                                    setWorkerForm({ ...workerForm, epiDeliveryList: workerForm.epiDeliveryList.filter(item => item !== epi) });
+                                                                                                }
+                                                                                            }}
+                                                                                            className="rounded text-primary"
+                                                                                        />
+                                                                                        <span>{epi}</span>
+                                                                                    </label>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>{workerForm.epiDeliveryList.length > 0 ? workerForm.epiDeliveryList.join(', ') : <span className="text-gray-400 italic font-normal text-xs">Nenhum registado</span>}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderFieldStatus(workerForm.epiDeliveryList.length > 0)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Data Entrega EPIs */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Data de Entrega dos EPIs
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {workerModalMode === 'edit' ? (
+                                                                            <input
+                                                                                type="date"
+                                                                                value={workerForm.epiDate}
+                                                                                onChange={e => setWorkerForm({ ...workerForm, epiDate: e.target.value })}
+                                                                                className="px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                            />
+                                                                        ) : (
+                                                                            <span>{workerForm.epiDate ? new Date(workerForm.epiDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Pendente...</span>}</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderDateStatus(workerForm.epiDate)}
+                                                                    </td>
+                                                                </tr>
+
+                                                                {/* Seguro AT */}
+                                                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                        Seguro de Acidentes de Trabalho (Empresa)
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                        {companyForm.insuranceWorkAccPolicy ? (
+                                                                            <span>Apólice {companyForm.insuranceWorkAccPolicy} (Validade: {companyForm.insuranceWorkAccDate ? new Date(companyForm.insuranceWorkAccDate).toLocaleDateString() : 'N/D'})</span>
+                                                                        ) : (
+                                                                            <span className="text-amber-500 font-medium">Pendente de apólice corporativa</span>
+                                                                        )}
+                                                                    </td>
+                                                                    <td className="px-4 py-3 text-center">
+                                                                        {renderDateStatus(companyForm.insuranceWorkAccDate)}
+                                                                    </td>
+                                                                </tr>
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* TAB 4: FICHEIROS & DOCUMENTOS */}
+                                            {workerModalTab === 'documents' && (
+                                                <div className="space-y-4">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[var(--bg-input)]/30 border border-[var(--border)]">
+                                                        <div>
+                                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
+                                                                Dossier Documental do Colaborador
+                                                            </h4>
+                                                            <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                                                Ficha de aptidão médica, certificados de formação, contrato de trabalho e comprovativos.
+                                                            </p>
+                                                        </div>
+                                                        <DocumentUpload
+                                                            entityId={editingWorkerId || 'new_worker'}
+                                                            projectId={corporateEntityId}
+                                                            category="worker"
+                                                            layout="button"
+                                                            label="Carregar Documento"
+                                                        />
+                                                    </div>
+                                                    <DocumentList
+                                                        entityId={editingWorkerId || 'new_worker'}
+                                                        projectId={corporateEntityId}
+                                                        isEditing={workerModalMode === 'edit'}
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             )}
 
                             {/* ════════ TAB: EQUIPAMENTOS ════════ */}
                             {activeTab === 'equipment' && (
-                                <div className="space-y-4">
-                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
-                                        <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                                            <div className="relative flex-1 max-w-sm">
-                                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-                                                <input
-                                                    type="text"
-                                                    placeholder="Pesquisar equipamento por nome ou número de série..."
-                                                    className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
-                                                    value={searchTerm}
-                                                    onChange={e => setSearchTerm(e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="flex items-center gap-2.5">
-                                                <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-2.5 py-1.5">
-                                                    <Filter size={13} className="text-primary shrink-0" />
-                                                    <select
-                                                        value={equipProjectFilter}
-                                                        onChange={e => setEquipProjectFilter(e.target.value)}
-                                                        className="bg-transparent text-xs text-[var(--text)] outline-none cursor-pointer"
-                                                    >
-                                                        <option value="all">Todas as Obras ({companyEquipment.length})</option>
-                                                        <option value="unsynced">Não Sincronizados</option>
-                                                        {userProjects.map(p => (
-                                                            <option key={p.id} value={p.id}>Obra: {p.name}</option>
-                                                        ))}
-                                                    </select>
+                                !isEquipModalOpen ? (
+                                    <div className="space-y-4">
+                                        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                            <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                                                <div className="relative flex-1 max-w-sm">
+                                                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Pesquisar equipamento por nome ou número de série..."
+                                                        className="w-full bg-[var(--bg-input)] border border-[var(--border)] rounded-xl pl-9 pr-4 py-2 text-xs text-[var(--text)] outline-none focus:ring-2 focus:ring-primary/20"
+                                                        value={searchTerm}
+                                                        onChange={e => setSearchTerm(e.target.value)}
+                                                    />
                                                 </div>
-                                                <span className="text-xs text-[var(--text-muted)] font-medium hidden sm:inline">
-                                                    {filteredEquipment.length} equipamento(s)
-                                                </span>
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)] rounded-xl px-2.5 py-1.5">
+                                                        <Filter size={13} className="text-primary shrink-0" />
+                                                        <select
+                                                            value={equipProjectFilter}
+                                                            onChange={e => setEquipProjectFilter(e.target.value)}
+                                                            className="bg-transparent text-xs text-[var(--text)] outline-none cursor-pointer"
+                                                        >
+                                                            <option value="all">Todas as Obras ({companyEquipment.length})</option>
+                                                            <option value="unsynced">Não Sincronizados</option>
+                                                            {userProjects.map(p => (
+                                                                <option key={p.id} value={p.id}>Obra: {p.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <span className="text-xs text-[var(--text-muted)] font-medium hidden sm:inline">
+                                                        {filteredEquipment.length} equipamento(s)
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Batch Actions Bar */}
+                                            {selectedEquipIds.length > 0 && (
+                                                <div className="mx-4 my-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
+                                                    <div className="flex items-center gap-2 text-xs font-bold text-primary">
+                                                        <CheckCircle2 size={16} />
+                                                        <span>{selectedEquipIds.length} equipamento(s) selecionado(s)</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={toggleSelectAllEquip}
+                                                            className="px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] font-medium cursor-pointer"
+                                                        >
+                                                            Desmarcar todos
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setExportEntityType('equipment');
+                                                                setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                setIsExportModalOpen(true);
+                                                            }}
+                                                            className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                                                        >
+                                                            <Share2 size={13} /> Sincronizar Selecionados com Obra
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-xs text-left min-w-[700px]">
+                                                    <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
+                                                        <tr>
+                                                            <th className="w-10 px-4 py-3.5 text-center">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={selectedEquipIds.length === filteredEquipment.length && filteredEquipment.length > 0}
+                                                                    onChange={toggleSelectAllEquip}
+                                                                    className="rounded text-primary cursor-pointer"
+                                                                    title="Selecionar todos"
+                                                                />
+                                                            </th>
+                                                            <th className="px-5 py-3.5">Equipamento</th>
+                                                            <th className="px-5 py-3.5">N.º Série</th>
+                                                            <th className="px-5 py-3.5">Marca / Modelo</th>
+                                                            <th className="px-5 py-3.5">Conformidade CE</th>
+                                                            <th className="px-5 py-3.5">Sincronização</th>
+                                                            <th className="px-5 py-3.5 text-right">Ação</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-[var(--border)]">
+                                                        {filteredEquipment.length === 0 ? (
+                                                            <tr>
+                                                                <td colSpan={7} className="px-6 py-12 text-center text-[var(--text-muted)]">
+                                                                    Nenhum equipamento encontrado com os filtros atuais.
+                                                                </td>
+                                                            </tr>
+                                                        ) : (
+                                                            filteredEquipment.map(eq => {
+                                                                const syncedPrjs = getEquipmentSyncedProjects(eq.id, eq.serialNumber);
+                                                                const isSelected = selectedEquipIds.includes(eq.id);
+                                                                return (
+                                                                    <tr 
+                                                                        key={eq.id} 
+                                                                        onClick={() => handleOpenViewEquip(eq)}
+                                                                        className={cn(
+                                                                            "hover:bg-[var(--bg-input)]/30 transition-colors cursor-pointer group",
+                                                                            isSelected && "bg-primary/5"
+                                                                        )}
+                                                                    >
+                                                                        <td className="w-10 px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={isSelected}
+                                                                                onChange={() => toggleSelectEquip(eq.id)}
+                                                                                className="rounded text-primary cursor-pointer"
+                                                                            />
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap font-bold text-xs text-[var(--text)] group-hover:text-primary transition-colors">
+                                                                            <div className="flex items-center gap-2.5">
+                                                                                <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-[#4285F4] flex items-center justify-center shrink-0">
+                                                                                    <Wrench size={14} />
+                                                                                </div>
+                                                                                <span>{eq.name}</span>
+                                                                            </div>
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono text-[var(--text-muted)]">
+                                                                            {eq.serialNumber || '—'}
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text-muted)]">
+                                                                            {eq.brand || eq.model ? `${eq.brand || ''} ${eq.model || ''}` : '—'}
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                            {eq.ceMarking ? (
+                                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                                                                                    Conforme CE
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
+                                                                                    Sem Certificado
+                                                                                </span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 whitespace-nowrap">
+                                                                            {syncedPrjs.length > 0 ? (
+                                                                                <span
+                                                                                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                                                                    title={`Sincronizado com: ${syncedPrjs.map(p => p.projectName).join(', ')}`}
+                                                                                >
+                                                                                    <Share2 size={11} className="text-emerald-600" />
+                                                                                    <span>{syncedPrjs.length} {syncedPrjs.length === 1 ? 'Obra' : 'Obras'}</span>
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)]">
+                                                                                    Não sincronizado
+                                                                                </span>
+                                                                            )}
+                                                                        </td>
+                                                                        <td className="px-5 py-3.5 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                                                            <div className="flex items-center justify-end gap-1">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleOpenViewEquip(eq)}
+                                                                                    className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                    title="Ver Ficha Detalhada"
+                                                                                >
+                                                                                    <Eye size={14} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleOpenEditEquip(eq)}
+                                                                                    className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                    title="Editar Dados"
+                                                                                >
+                                                                                    <Edit2 size={14} />
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setSelectedEquipForExport(eq);
+                                                                                        setExportEntityType('equipment');
+                                                                                        setExportTargetProjectId(userProjects[0]?.id || '');
+                                                                                        setIsExportModalOpen(true);
+                                                                                    }}
+                                                                                    className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
+                                                                                    title="Sincronizar com Obra"
+                                                                                >
+                                                                                    <Share2 size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            })
+                                                        )}
+                                                    </tbody>
+                                                </table>
                                             </div>
                                         </div>
+                                    </div>
+                                ) : (
+                                    /* In-Flow Equipment Detail View (Matching Organization & Workers Layout) */
+                                    <div className="space-y-4">
+                                        {/* TAB 1: IDENTIFICAÇÃO & CARACTERÍSTICAS */}
+                                        {equipModalTab === 'identification' && (
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="bg-gray-50/75 dark:bg-surface/50 text-[var(--text-muted)] font-semibold text-[11px] border-b border-[var(--border)]">
+                                                            <tr>
+                                                                <th className="px-4 py-3 w-1/3">Campo</th>
+                                                                <th className="px-4 py-3 w-1/2">Valor Registado</th>
+                                                                <th className="px-4 py-3 text-center">Estado</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-[var(--border)]">
+                                                            {/* Category: Identificação */}
+                                                            <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                    Identificação e Características Técnicas (Norma IFC: IfcConstructionEquipmentResource)
+                                                                </td>
+                                                            </tr>
 
-                                        {/* Batch Actions Bar */}
-                                        {selectedEquipIds.length > 0 && (
-                                            <div className="mx-4 my-2.5 p-3 rounded-xl bg-primary/10 border border-primary/20 flex flex-wrap items-center justify-between gap-2 animate-in fade-in">
-                                                <div className="flex items-center gap-2 text-xs font-bold text-primary">
-                                                    <CheckCircle2 size={16} />
-                                                    <span>{selectedEquipIds.length} equipamento(s) selecionado(s)</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={toggleSelectAllEquip}
-                                                        className="px-2.5 py-1 text-xs text-[var(--text-muted)] hover:text-[var(--text)] font-medium cursor-pointer"
-                                                    >
-                                                        Desmarcar todos
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setExportEntityType('equipment');
-                                                            setExportTargetProjectId(userProjects[0]?.id || '');
-                                                            setIsExportModalOpen(true);
-                                                        }}
-                                                        className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-                                                    >
-                                                        <Share2 size={13} /> Sincronizar Selecionados com Obra
-                                                    </button>
+                                                            {/* Designação */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Designação do Equipamento / Máquina <span className="text-red-500">*</span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            required
+                                                                            placeholder="ex: Retroescavadora JCB 3CX"
+                                                                            value={equipForm.name}
+                                                                            onChange={e => setEquipForm({ ...equipForm, name: e.target.value })}
+                                                                            className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                                            {selectedEquip?.name || equipForm.name || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(!!(selectedEquip?.name || equipForm.name))}
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Número de Série / Matrícula */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    N.º de Série / Matrícula / Chassis
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="ex: SN-998822 / 00-AA-00"
+                                                                            value={equipForm.serialNumber}
+                                                                            onChange={e => setEquipForm({ ...equipForm, serialNumber: e.target.value })}
+                                                                            className="w-full sm:w-64 px-2.5 py-1.5 text-xs font-mono bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                                                                            {selectedEquip?.serialNumber || equipForm.serialNumber || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(!!(selectedEquip?.serialNumber || equipForm.serialNumber))}
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Tipo de Equipamento */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Tipo de Equipamento (Classificação Técnica)
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
+                                                                        <select
+                                                                            value={equipForm.type}
+                                                                            onChange={e => setEquipForm({ ...equipForm, type: e.target.value as any })}
+                                                                            className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                                                                        >
+                                                                            <option value="vehicle">Veículo / Máquina Automotriz</option>
+                                                                            <option value="heavy_machinery">Máquinas Pesadas / Terraplanagem</option>
+                                                                            <option value="lifting">Equipamento de Elevação de Cargas</option>
+                                                                            <option value="power_tool">Ferramenta Elétrica Portátil</option>
+                                                                            <option value="other">Outro Equipamento de Apoio</option>
+                                                                        </select>
+                                                                    ) : (
+                                                                        <span className="font-medium text-gray-900 dark:text-gray-100">
+                                                                            {(() => {
+                                                                                const t = selectedEquip?.type || equipForm.type;
+                                                                                if (t === 'vehicle') return 'Veículo / Máquina Automotriz';
+                                                                                if (t === 'heavy_machinery') return 'Máquinas Pesadas / Terraplanagem';
+                                                                                if (t === 'lifting') return 'Equipamento de Elevação de Cargas';
+                                                                                if (t === 'power_tool') return 'Ferramenta Elétrica Portátil';
+                                                                                return 'Outro Equipamento de Apoio';
+                                                                            })()}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(true)}
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Marca */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Marca do Fabricante
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="ex: Caterpillar, JCB, Bosch..."
+                                                                            value={equipForm.brand}
+                                                                            onChange={e => setEquipForm({ ...equipForm, brand: e.target.value })}
+                                                                            className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="font-medium text-gray-900 dark:text-gray-100">
+                                                                            {selectedEquip?.brand || equipForm.brand || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(!!(selectedEquip?.brand || equipForm.brand))}
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Modelo */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Modelo / Versão
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="ex: 3CX Eco Turbo"
+                                                                            value={equipForm.model}
+                                                                            onChange={e => setEquipForm({ ...equipForm, model: e.target.value })}
+                                                                            className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                        />
+                                                                    ) : (
+                                                                        <span className="font-medium text-gray-900 dark:text-gray-100">
+                                                                            {selectedEquip?.model || equipForm.model || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(!!(selectedEquip?.model || equipForm.model))}
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Empresa Proprietária */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Empresa Proprietária / Vínculo
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-5 h-5 rounded-md bg-blue-500/10 text-[#4285F4] flex items-center justify-center font-bold text-[10px]">
+                                                                            <Building2 size={12} />
+                                                                        </div>
+                                                                        <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                                                            {masterCompany?.name || userAccount?.name || 'A Minha Empresa'}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(true)}
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         )}
 
-                                        <div className="overflow-x-auto">
-                                            <table className="w-full text-xs text-left min-w-[700px]">
-                                                <thead className="bg-[var(--bg-input)]/50 text-[var(--text-muted)] font-bold uppercase tracking-wider text-[10px] border-b border-[var(--border)]">
-                                                    <tr>
-                                                        <th className="w-10 px-4 py-3.5 text-center">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={selectedEquipIds.length === filteredEquipment.length && filteredEquipment.length > 0}
-                                                                onChange={toggleSelectAllEquip}
-                                                                className="rounded text-primary cursor-pointer"
-                                                                title="Selecionar todos"
-                                                            />
-                                                        </th>
-                                                        <th className="px-5 py-3.5">Equipamento</th>
-                                                        <th className="px-5 py-3.5">N.º Série</th>
-                                                        <th className="px-5 py-3.5">Marca / Modelo</th>
-                                                        <th className="px-5 py-3.5">Conformidade CE</th>
-                                                        <th className="px-5 py-3.5">Sincronização</th>
-                                                        <th className="px-5 py-3.5 text-right">Ação</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-[var(--border)]">
-                                                    {filteredEquipment.length === 0 ? (
-                                                        <tr>
-                                                            <td colSpan={7} className="px-6 py-12 text-center text-[var(--text-muted)]">
-                                                                Nenhum equipamento encontrado com os filtros atuais.
-                                                            </td>
-                                                        </tr>
-                                                    ) : (
-                                                        filteredEquipment.map(eq => {
-                                                            const syncedPrjs = getEquipmentSyncedProjects(eq.id, eq.serialNumber);
-                                                            const isSelected = selectedEquipIds.includes(eq.id);
-                                                            return (
-                                                                <tr 
-                                                                    key={eq.id} 
-                                                                    className={cn(
-                                                                        "hover:bg-[var(--bg-input)]/30 transition-colors",
-                                                                        isSelected && "bg-primary/5"
+                                        {/* TAB 2: REQUISITOS LEGAIS & SEGURANÇA */}
+                                        {equipModalTab === 'safety' && (
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm overflow-hidden">
+                                                <div className="overflow-x-auto">
+                                                    <table className="w-full text-xs text-left">
+                                                        <thead className="bg-gray-50/75 dark:bg-surface/50 text-[var(--text-muted)] font-semibold text-[11px] border-b border-[var(--border)]">
+                                                            <tr>
+                                                                <th className="px-4 py-3 w-1/3">Campo</th>
+                                                                <th className="px-4 py-3 w-1/2">Valor Registado</th>
+                                                                <th className="px-4 py-3 text-center">Estado</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-[var(--border)]">
+                                                            {/* Category: Segurança */}
+                                                            <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                                                <td colSpan={3} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light">
+                                                                    Segurança, Marcação CE e Inspeções Periódicas (DL 50/2005)
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Declaração de Conformidade CE */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Marcação CE / Declaração de Conformidade
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
+                                                                        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text)] cursor-pointer">
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={equipForm.ceCertified}
+                                                                                onChange={e => setEquipForm({ ...equipForm, ceCertified: e.target.checked })}
+                                                                                className="rounded text-primary cursor-pointer w-4 h-4"
+                                                                            />
+                                                                            <span>Possui Declaração de Conformidade CE e Marcação CE válida</span>
+                                                                        </label>
+                                                                    ) : (
+                                                                        equipForm.ceCertified ? (
+                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                                                                <Check size={12} /> Conforme CE (Diretiva Máquinas)
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                                                                <AlertTriangle size={12} /> Sem Declaração CE Registada
+                                                                            </span>
+                                                                        )
                                                                     )}
-                                                                >
-                                                                    <td className="w-10 px-4 py-3.5 text-center" onClick={e => e.stopPropagation()}>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(equipForm.ceCertified)}
+                                                                </td>
+                                                            </tr>
+
+                                                            {/* Data da Próxima Inspeção Periódica */}
+                                                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                    Data da Próxima Inspeção Periódica
+                                                                </td>
+                                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                    {equipModalMode === 'edit' ? (
                                                                         <input
-                                                                            type="checkbox"
-                                                                            checked={isSelected}
-                                                                            onChange={() => toggleSelectEquip(eq.id)}
-                                                                            className="rounded text-primary cursor-pointer"
+                                                                            type="date"
+                                                                            value={equipForm.inspectionDate}
+                                                                            onChange={e => setEquipForm({ ...equipForm, inspectionDate: e.target.value })}
+                                                                            className="w-full sm:w-64 px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
                                                                         />
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap font-bold text-xs text-[var(--text)]">
-                                                                        {eq.name}
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs font-mono text-[var(--text-muted)]">
-                                                                        {eq.serialNumber || '—'}
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap text-xs text-[var(--text-muted)]">
-                                                                        {eq.brand || eq.model ? `${eq.brand || ''} ${eq.model || ''}` : '—'}
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                        {eq.ceMarking ? (
-                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
-                                                                                Conforme CE
+                                                                    ) : (
+                                                                        equipForm.inspectionDate ? (
+                                                                            <span className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                                                                <span>{new Date(equipForm.inspectionDate).toLocaleDateString()}</span>
+                                                                                {new Date(equipForm.inspectionDate) < new Date() ? (
+                                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                                                                                        Expirada
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                                                                        Válida
+                                                                                    </span>
+                                                                                )}
                                                                             </span>
                                                                         ) : (
-                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-600">
-                                                                                Sem Certificado
-                                                                            </span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 whitespace-nowrap">
-                                                                        {syncedPrjs.length > 0 ? (
-                                                                            <span
-                                                                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                                                                title={`Sincronizado com: ${syncedPrjs.map(p => p.projectName).join(', ')}`}
-                                                                            >
-                                                                                <Share2 size={11} className="text-emerald-600" />
-                                                                                <span>{syncedPrjs.length} {syncedPrjs.length === 1 ? 'Obra' : 'Obras'}</span>
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-[var(--text-muted)] bg-[var(--bg-input)] border border-[var(--border)]">
-                                                                                Não sincronizado
-                                                                            </span>
-                                                                        )}
-                                                                    </td>
-                                                                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                                                                        <div className="flex items-center justify-end gap-1">
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setSelectedEquipForExport(eq);
-                                                                                    setExportEntityType('equipment');
-                                                                                    setExportTargetProjectId(userProjects[0]?.id || '');
-                                                                                    setIsExportModalOpen(true);
-                                                                                }}
-                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                                title="Sincronizar com Obra"
-                                                                            >
-                                                                                <Share2 size={14} />
-                                                                            </button>
-                                                                            <button
-                                                                                onClick={() => {
-                                                                                    setEditingEquipId(eq.id);
-                                                                                    setEquipForm({
-                                                                                        name: eq.name,
-                                                                                        type: (eq.type as any) || 'vehicle',
-                                                                                        serialNumber: eq.serialNumber || '',
-                                                                                        brand: eq.brand || '',
-                                                                                        model: eq.model || '',
-                                                                                        inspectionDate: eq.inspectionDueDate || '',
-                                                                                        ceCertified: eq.ceMarking ?? true
-                                                                                    });
-                                                                                    setIsEquipModalOpen(true);
-                                                                                }}
-                                                                                className="p-1.5 text-[var(--text-muted)] hover:text-primary rounded-lg transition-colors cursor-pointer"
-                                                                                title="Editar"
-                                                                            >
-                                                                                <Edit2 size={14} />
-                                                                            </button>
-                                                                        </div>
-                                                                    </td>
-                                                                </tr>
-                                                            );
-                                                        })
-                                                    )}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                                            <span className="text-gray-400 italic font-normal text-xs">Sem data agendada</span>
+                                                                        )
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    {renderFieldStatus(!!equipForm.inspectionDate && new Date(equipForm.inspectionDate) >= new Date())}
+                                                                </td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* TAB 3: FICHEIROS & DOCUMENTOS */}
+                                        {equipModalTab === 'documents' && (
+                                            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-sm p-5 space-y-4">
+                                                <div className="flex items-center justify-between pb-3 border-b border-[var(--border)]">
+                                                    <div>
+                                                        <h3 className="font-bold text-sm text-[var(--text)] flex items-center gap-2">
+                                                            <Folder className="text-[#4285F4]" size={16} /> Ficheiros e Documentos Comprovativos do Equipamento
+                                                        </h3>
+                                                        <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                                            Declarações de conformidade CE, relatórios de inspeção periódica e manuais de utilização.
+                                                        </p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-4">
+                                                    <RequirementCard
+                                                        label="Declaração de Conformidade CE e Manual de Instruções"
+                                                        entityId={selectedEquip?.id || editingEquipId || 'new-equip'}
+                                                        projectId={corporateEntityId}
+                                                        category="equipment"
+                                                        isEditing={equipModalMode === 'edit'}
+                                                    />
+                                                    <RequirementCard
+                                                        label="Relatório de Inspeção Periódica Oficial (DL 50/2005)"
+                                                        entityId={selectedEquip?.id || editingEquipId || 'new-equip'}
+                                                        projectId={corporateEntityId}
+                                                        category="equipment"
+                                                        expiryDate={equipForm.inspectionDate}
+                                                        isEditing={equipModalMode === 'edit'}
+                                                    />
+                                                    <RequirementCard
+                                                        label="Apólice de Seguro de Máquinas / Circulação (se aplicável)"
+                                                        entityId={selectedEquip?.id || editingEquipId || 'new-equip'}
+                                                        projectId={corporateEntityId}
+                                                        category="equipment"
+                                                        isEditing={equipModalMode === 'edit'}
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
+                                )
                             )}
 
                             {/* ════════ TAB: FORMAÇÃO ════════ */}
@@ -4243,13 +5704,26 @@ export default function MyCompanyPage() {
                                 </div>
                             </div>
 
-                            {/* Sticky Footer when editing in Organization tab */}
-                            {activeTab === 'organization' && isCompanyModalOpen && companyModalMode === 'edit' && (
+                            {/* Sticky Footer when editing in Organization, Workers or Equipment tabs */}
+                            {(
+                                (activeTab === 'organization' && isCompanyModalOpen && companyModalMode === 'edit') ||
+                                (activeTab === 'workers' && isWorkerModalOpen && workerModalMode === 'edit') ||
+                                (activeTab === 'equipment' && isEquipModalOpen && equipModalMode === 'edit')
+                            ) && (
                                 <div className="border-t border-gray-200 dark:border-[#444746] bg-white dark:bg-surface p-4 sticky bottom-0 z-20 shadow-xs">
                                     <div className="max-w-7xl mx-auto flex items-center justify-end gap-3">
                                         <button
                                             type="button"
-                                            onClick={handleCancelCompanyEdit}
+                                            onClick={() => {
+                                                if (activeTab === 'organization') handleCancelCompanyEdit();
+                                                else if (activeTab === 'workers') {
+                                                    if (selectedWorker) handleOpenViewWorker(selectedWorker);
+                                                    else setIsWorkerModalOpen(false);
+                                                } else if (activeTab === 'equipment') {
+                                                    if (selectedEquip) handleOpenViewEquip(selectedEquip);
+                                                    else setIsEquipModalOpen(false);
+                                                }
+                                            }}
                                             className="px-4 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg hover:bg-gray-100 dark:hover:bg-[#131314] transition-colors shadow-xs cursor-pointer"
                                         >
                                             Cancelar
@@ -4257,8 +5731,14 @@ export default function MyCompanyPage() {
                                         <button
                                             type="button"
                                             onClick={(e) => {
-                                                handleSaveCompany(e);
-                                                setCompanyModalMode('view');
+                                                if (activeTab === 'organization') {
+                                                    handleSaveCompany(e);
+                                                    setCompanyModalMode('view');
+                                                } else if (activeTab === 'workers') {
+                                                    handleSaveWorker(e);
+                                                } else if (activeTab === 'equipment') {
+                                                    handleSaveEquipment(e);
+                                                }
                                             }}
                                             className="px-4 py-2 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] dark:hover:bg-[#1A73E8] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
                                         >
@@ -4271,951 +5751,7 @@ export default function MyCompanyPage() {
                     </div>
 
                     {/* ════════ MODALS ════════ */}
-                    {/* Modal Colaborador — Dual Mode: Visualização & Edição (IFC Standard ISO 16739 & DL 273/2003) */}
-                    <Modal
-                        maxWidth="max-w-4xl"
-                        title={
-                            workerModalMode === 'view' ? (
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
-                                        {getInitials(selectedWorker?.name || workerForm.name)}
-                                    </div>
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-bold text-sm text-[var(--text)] truncate">
-                                                {selectedWorker?.name || workerForm.name || 'Ficha do Colaborador'}
-                                            </span>
-                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 font-semibold">
-                                                IFC: {selectedWorker?.ifcLaborType || selectedWorker?.ifcActorRole || selectedWorker?.occupation || 'IfcLaborResource'}
-                                            </span>
-                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                                                Ativo
-                                            </span>
-                                        </div>
-                                        <div className="text-[11px] text-[var(--text-muted)] truncate">
-                                            {selectedWorker?.role || workerForm.role || 'Colaborador'} • {masterCompany?.name || 'A Minha Empresa'}
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="flex items-center gap-2">
-                                    <User size={18} className="text-primary" />
-                                    <div>
-                                        <h3 className="font-bold text-sm text-[var(--text)]">
-                                            {editingWorkerId ? "Editar Colaborador (Norma IFC)" : "Novo Colaborador (Norma IFC)"}
-                                        </h3>
-                                        <p className="text-[10px] text-[var(--text-muted)]">
-                                            ISO 16739-1:2024 (IfcPerson, IfcLaborResource, IfcActorRole) • DL 273/2003
-                                        </p>
-                                    </div>
-                                </div>
-                            )
-                        }
-                        headerAction={
-                            workerModalMode === 'view' ? (
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            if (selectedWorker) {
-                                                setSelectedWorkerForExport(selectedWorker);
-                                                setExportEntityType('worker');
-                                                setExportTargetProjectId(userProjects[0]?.id || '');
-                                                setIsExportModalOpen(true);
-                                            }
-                                        }}
-                                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-semibold border border-[var(--border)] transition-colors flex items-center gap-1.5 cursor-pointer"
-                                        title="Sincronizar colaborador com uma das suas obras"
-                                    >
-                                        <Share2 size={13} className="text-primary" />
-                                        <span className="hidden sm:inline">Sincronizar com Obra</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setWorkerModalMode('edit')}
-                                        className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
-                                        title="Editar dados do colaborador"
-                                    >
-                                        <Edit2 size={13} />
-                                        <span>Editar</span>
-                                    </button>
-                                </div>
-                            ) : (
-                                editingWorkerId && selectedWorker ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => setWorkerModalMode('view')}
-                                        className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] hover:bg-[var(--border)] text-[var(--text)] text-xs font-semibold border border-[var(--border)] transition-colors flex items-center gap-1.5 cursor-pointer"
-                                        title="Voltar ao modo de visualização"
-                                    >
-                                        <Eye size={13} />
-                                        <span>Ver Ficha</span>
-                                    </button>
-                                ) : null
-                            )
-                        }
-                        isOpen={isWorkerModalOpen}
-                        onClose={() => setIsWorkerModalOpen(false)}
-                    >
-                        {/* Tab Switcher for Worker Modal */}
-                        <div className="flex items-center gap-1 p-1 bg-[var(--bg-input)] rounded-xl border border-[var(--border)] mb-5">
-                            <button
-                                type="button"
-                                onClick={() => setWorkerModalTab('identification')}
-                                className={cn(
-                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
-                                    workerModalTab === 'identification'
-                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
-                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                                )}
-                            >
-                                <User size={14} />
-                                <span>Identificação</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setWorkerModalTab('labor')}
-                                className={cn(
-                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
-                                    workerModalTab === 'labor'
-                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
-                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                                )}
-                            >
-                                <Briefcase size={14} />
-                                <span>Dados Laborais</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setWorkerModalTab('safety')}
-                                className={cn(
-                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
-                                    workerModalTab === 'safety'
-                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
-                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                                )}
-                            >
-                                <Shield size={14} />
-                                <span>Segurança & Saúde</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setWorkerModalTab('documents')}
-                                className={cn(
-                                    "flex-1 py-2 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer",
-                                    workerModalTab === 'documents'
-                                        ? "bg-[var(--bg-card)] text-primary shadow-xs font-bold"
-                                        : "text-[var(--text-muted)] hover:text-[var(--text)]"
-                                )}
-                            >
-                                <Folder size={14} />
-                                <span>Documentos</span>
-                            </button>
-                        </div>
-
-                        {/* TAB 1: IDENTIFICAÇÃO */}
-                        {workerModalTab === 'identification' && (
-                            workerModalMode === 'view' ? (
-                                <div className="space-y-6">
-                                    {/* Banner de Sincronização e Conformidade */}
-                                    <div className="p-4 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-primary flex items-center justify-center shrink-0">
-                                                <Shield size={20} />
-                                            </div>
-                                            <div>
-                                                <h4 className="text-xs font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                                                    Registo Padronizado com Norma IFC (ISO 16739) & DL 273/2003
-                                                </h4>
-                                                <p className="text-[11px] text-[var(--text-muted)]">
-                                                    Os dados deste colaborador estão compatibilizados com o esquema BIM e podem ser sincronizados diretamente para qualquer estaleiro.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                if (selectedWorker) {
-                                                    setSelectedWorkerForExport(selectedWorker);
-                                                    setExportEntityType('worker');
-                                                    setExportTargetProjectId(userProjects[0]?.id || '');
-                                                    setIsExportModalOpen(true);
-                                                }
-                                            }}
-                                            className="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary-hover text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 shadow-sm cursor-pointer"
-                                        >
-                                            <Share2 size={13} /> Sincronizar com Obra
-                                        </button>
-                                    </div>
-
-                                    {/* 1. Identificação & Dados Pessoais (IfcPerson) */}
-                                    <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
-                                        <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <User size={15} className="text-primary" />
-                                                <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                    1. Identificação e Dados Pessoais
-                                                </h4>
-                                            </div>
-                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                                IfcPerson
-                                            </span>
-                                        </div>
-                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nome Completo</span>
-                                                <span className="font-bold text-[var(--text)]">{selectedWorker?.name || workerForm.name || '—'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">NIF</span>
-                                                <span className="font-mono text-[var(--text)] font-semibold">{selectedWorker?.nif || workerForm.nif || '—'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">N.º Segurança Social (NISS)</span>
-                                                <span className="font-mono text-[var(--text)]">{selectedWorker?.ssn || workerForm.ssn || '—'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Documento de Identificação</span>
-                                                <span className="text-[var(--text)]">
-                                                    {selectedWorker?.idCardNumber ? `${(selectedWorker?.idCardType || 'CC').toUpperCase()}: ${selectedWorker.idCardNumber}` : '—'}
-                                                    {selectedWorker?.idCardExpiry ? ` (Validade: ${new Date(selectedWorker.idCardExpiry).toLocaleDateString()})` : ''}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Nacionalidade</span>
-                                                <span className="text-[var(--text)] font-medium">
-                                                    {selectedWorker?.nationalityType === 'other'
-                                                        ? `Extracomunitário (${selectedWorker.foreignCountry || 'Outra'})`
-                                                        : selectedWorker?.nationalityType === 'eu_etc'
-                                                        ? `União Europeia / EEE (${selectedWorker.foreignCountry || 'U.E.'})`
-                                                        : 'Portugal (PT)'}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Data Nasc. / Género</span>
-                                                <span className="text-[var(--text)]">
-                                                    {selectedWorker?.birthDate ? new Date(selectedWorker.birthDate).toLocaleDateString() : '—'} • {selectedWorker?.gender === 'F' ? 'Feminino' : 'Masculino'}
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contactos</span>
-                                                <div className="text-[var(--text)]">
-                                                    {selectedWorker?.phone && <div>Tel: {selectedWorker.phone}</div>}
-                                                    {selectedWorker?.email && <div>Email: {selectedWorker.email}</div>}
-                                                    {!selectedWorker?.phone && !selectedWorker?.email && '—'}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Morada</span>
-                                                <div className="text-[var(--text)]">
-                                                    {selectedWorker?.address || workerForm.address ? (
-                                                        `${selectedWorker?.address || workerForm.address}${selectedWorker?.postalCode ? `, ${selectedWorker.postalCode}` : ''} ${selectedWorker?.city || ''}`
-                                                    ) : '—'}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Contacto de Emergência</span>
-                                                <span className="text-[var(--text)]">
-                                                    {(selectedWorker?.emergencyContactName || workerForm.emergencyContactName) ? (
-                                                        `${selectedWorker?.emergencyContactName || workerForm.emergencyContactName} ${(selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone) ? `(${selectedWorker?.emergencyContactPhone || workerForm.emergencyContactPhone})` : ''}`
-                                                    ) : '—'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Modal Footer (View Mode) */}
-                                    <div className="flex items-center justify-end pt-3 border-t border-[var(--border)]">
-                                        <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
-                                            Fechar
-                                        </SecondaryButton>
-                                    </div>
-                                </div>
-                            ) : (
-                                <form onSubmit={handleSaveWorker} className="space-y-6">
-                                    {/* 1. Identificação e Dados Pessoais (IfcPerson) */}
-                                    <div className="p-4 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/20 space-y-4">
-                                        <div className="flex items-center justify-between border-b border-[var(--border)] pb-2">
-                                            <div className="flex items-center gap-2">
-                                                <User size={15} className="text-primary" />
-                                                <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                    1. Identificação e Dados Pessoais (Norma IFC: IfcPerson)
-                                                </h4>
-                                            </div>
-                                            <span className="text-[10px] text-[var(--text-muted)] font-mono">ISO 16739</span>
-                                        </div>
-
-                                        {/* Nomes */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                            <InputGroup label="Primeiro Nome *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={workerForm.firstName}
-                                                    onChange={e => setWorkerForm({ ...workerForm, firstName: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: João"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Nome do Meio">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.middleName}
-                                                    onChange={e => setWorkerForm({ ...workerForm, middleName: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: Carlos"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Apelido *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={workerForm.lastName}
-                                                    onChange={e => setWorkerForm({ ...workerForm, lastName: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: Silva"
-                                                />
-                                            </InputGroup>
-                                        </div>
-
-                                        {/* Nacionalidade */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            <InputGroup label="Nacionalidade *">
-                                                <select
-                                                    value={workerForm.nationalityType}
-                                                    onChange={e => setWorkerForm({ ...workerForm, nationalityType: e.target.value as any })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    <option value="portugal">Portugal (PT)</option>
-                                                    <option value="eu_etc">U.E., Islândia, Liechtenstein, Noruega, Suíça e Andorra</option>
-                                                    <option value="other">Outra Nacionalidade (Extracomunitário)</option>
-                                                </select>
-                                            </InputGroup>
-                                            {workerForm.nationalityType !== 'portugal' && (
-                                                <InputGroup label="País de Origem *">
-                                                    <input
-                                                        type="text"
-                                                        required
-                                                        value={workerForm.foreignCountry}
-                                                        onChange={e => setWorkerForm({ ...workerForm, foreignCountry: e.target.value })}
-                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        placeholder="ex: Brasil, Cabo Verde, Espanha..."
-                                                    />
-                                                </InputGroup>
-                                            )}
-                                        </div>
-
-                                        {/* Documentos de Identificação e Fiscais */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                                            <InputGroup label="NIF do Colaborador *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={workerForm.nif}
-                                                    onChange={e => setWorkerForm({ ...workerForm, nif: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                    placeholder="ex: 123456789"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Tipo de Documento *">
-                                                <select
-                                                    value={workerForm.idCardType}
-                                                    onChange={e => setWorkerForm({ ...workerForm, idCardType: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    <option value="cc">Cartão de Cidadão</option>
-                                                    <option value="passaporte">Passaporte</option>
-                                                    <option value="titulo_residencia">Título de Residência (AIMA/SEF)</option>
-                                                    <option value="outro">Outro Documento</option>
-                                                </select>
-                                            </InputGroup>
-                                            <InputGroup label="N.º do Documento *">
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={workerForm.idCardNumber}
-                                                    onChange={e => setWorkerForm({ ...workerForm, idCardNumber: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                    placeholder="ex: 00000000 0 ZZ0"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Validade do Documento">
-                                                <input
-                                                    type="date"
-                                                    value={workerForm.idCardExpiry}
-                                                    onChange={e => setWorkerForm({ ...workerForm, idCardExpiry: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                                            <InputGroup label="N.º Seg. Social (NISS)">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.ssn}
-                                                    onChange={e => setWorkerForm({ ...workerForm, ssn: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                                    placeholder="ex: 12000000000"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Data de Nascimento">
-                                                <input
-                                                    type="date"
-                                                    value={workerForm.birthDate}
-                                                    onChange={e => setWorkerForm({ ...workerForm, birthDate: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Género">
-                                                <select
-                                                    value={workerForm.gender}
-                                                    onChange={e => setWorkerForm({ ...workerForm, gender: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    <option value="M">Masculino</option>
-                                                    <option value="F">Feminino</option>
-                                                    <option value="outro">Outro / Prefere não declarar</option>
-                                                </select>
-                                            </InputGroup>
-                                            <InputGroup label="Telefone">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.phone}
-                                                    onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: 912345678"
-                                                />
-                                            </InputGroup>
-                                        </div>
-
-                                        {/* Morada e Emergência */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                            <div className="sm:col-span-2">
-                                                <InputGroup label="Morada">
-                                                    <input
-                                                        type="text"
-                                                        value={workerForm.address}
-                                                        onChange={e => setWorkerForm({ ...workerForm, address: e.target.value })}
-                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        placeholder="Rua, Número, Andar..."
-                                                    />
-                                                </InputGroup>
-                                            </div>
-                                            <InputGroup label="Código Postal e Localidade">
-                                                <div className="flex gap-2">
-                                                    <input
-                                                        type="text"
-                                                        value={workerForm.postalCode}
-                                                        onChange={e => setWorkerForm({ ...workerForm, postalCode: e.target.value })}
-                                                        className="w-24 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        placeholder="0000-000"
-                                                    />
-                                                    <input
-                                                        type="text"
-                                                        value={workerForm.city}
-                                                        onChange={e => setWorkerForm({ ...workerForm, city: e.target.value })}
-                                                        className="flex-1 p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        placeholder="Localidade"
-                                                    />
-                                                </div>
-                                            </InputGroup>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                                            <InputGroup label="Contacto de Emergência (Nome)">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.emergencyContactName}
-                                                    onChange={e => setWorkerForm({ ...workerForm, emergencyContactName: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: Maria Silva (Esposa)"
-                                                />
-                                            </InputGroup>
-                                            <InputGroup label="Contacto de Emergência (Telefone)">
-                                                <input
-                                                    type="text"
-                                                    value={workerForm.emergencyContactPhone}
-                                                    onChange={e => setWorkerForm({ ...workerForm, emergencyContactPhone: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                    placeholder="ex: 919876543"
-                                                />
-                                            </InputGroup>
-                                        </div>
-                                    </div>
-
-                                    {/* Action Buttons */}
-                                    <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
-                                        <SecondaryButton type="button" onClick={() => setIsWorkerModalOpen(false)}>
-                                            Cancelar
-                                        </SecondaryButton>
-                                        <PrimaryButton type="submit" className="px-4 py-2 text-xs font-bold">
-                                            <Save size={14} className="mr-1.5 inline" />
-                                            {editingWorkerId ? "Guardar Alterações" : "Adicionar Colaborador à Empresa"}
-                                        </PrimaryButton>
-                                    </div>
-                                </form>
-                            )
-                        )}
-
-                        {/* TAB 2: DADOS LABORAIS */}
-                        {workerModalTab === 'labor' && (
-                            <div className="space-y-6">
-                                {/* 2. Função & Recurso BIM (IfcLaborResource / IfcActorRole) */}
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
-                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Briefcase size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                Função e Qualificação Profissional (Norma IFC)
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                            IfcLaborResource / IfcActorRole
-                                        </span>
-                                    </div>
-                                    {workerModalMode === 'view' ? (
-                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Função Padronizada</span>
-                                                <span className="font-bold text-[var(--text)]">{selectedWorker?.role || workerForm.role || '—'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Recurso IFC</span>
-                                                <span className="font-mono text-primary font-bold">{selectedWorker?.ifcLaborType || workerForm.ifcLaborType || 'USERDEFINED'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Papel IFC</span>
-                                                <span className="font-mono text-[var(--text)]">{selectedWorker?.ifcActorRole || 'LABOUR'}</span>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 space-y-3">
-                                            <InputGroup label="Função Padronizada (Norma IFC / Obra) *">
-                                                <select
-                                                    value={workerForm.workerRoleId}
-                                                    required
-                                                    onChange={e => {
-                                                        const roleId = e.target.value;
-                                                        const roleDef = getRoleDefinition(roleId);
-                                                        const roleLabel = roleId === 'OTHER'
-                                                            ? (workerForm.roleCustom || 'Outra')
-                                                            : tRoles(`roles.${roleId}`);
-
-                                                        setWorkerForm({
-                                                            ...workerForm,
-                                                            workerRoleId: roleId,
-                                                            role: roleLabel,
-                                                            occupation: roleDef?.ifcLaborResource?.objectType ?? '',
-                                                            ifcLaborType: roleDef?.ifcLaborResource?.predefinedType ?? ''
-                                                        });
-                                                    }}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    <option value="">— Selecionar função padronizada IFC —</option>
-                                                    <optgroup label="Responsáveis de Obra">
-                                                        {WORKER_ROLES.filter(r => r.group === 'SITE_RESPONSIBLE').map(r => (
-                                                            <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
-                                                        ))}
-                                                    </optgroup>
-                                                    <optgroup label="Segurança no Trabalho (SHST)">
-                                                        {WORKER_ROLES.filter(r => r.group === 'SHST_RESPONSIBLE').map(r => (
-                                                            <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
-                                                        ))}
-                                                    </optgroup>
-                                                    {OPERATIVE_CATEGORIES.map(cat => {
-                                                        const catRoles = WORKER_ROLES.filter(r => r.group === 'OPERATIVE' && r.category === cat);
-                                                        if (!catRoles.length) return null;
-                                                        return (
-                                                            <optgroup key={cat} label={tRoles(`categories.${cat}`)}>
-                                                                {catRoles.map(r => (
-                                                                    <option key={r.id} value={r.id}>{tRoles(`roles.${r.id}`)}</option>
-                                                                ))}
-                                                            </optgroup>
-                                                        );
-                                                    })}
-                                                </select>
-                                            </InputGroup>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* 3. Vínculo Laboral & Enquadramento */}
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
-                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Building2 size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                Vínculo Laboral & Enquadramento Contratual
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                            IfcPersonAndOrganization
-                                        </span>
-                                    </div>
-                                    {workerModalMode === 'view' ? (
-                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Tipo de Vínculo Contratual</span>
-                                                <span className="font-semibold text-[var(--text)]">{getContractTypeLabel(selectedWorker?.contractType || workerForm.contractType)}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Categoria Profissional Legal</span>
-                                                <span className="text-[var(--text)]">{getProfessionCategoryLabel(selectedWorker?.professionCategory || workerForm.professionCategory)}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block">Horário de Trabalho</span>
-                                                <span className="text-[var(--text)]">{getWorkScheduleLabel(selectedWorker?.workSchedule || workerForm.workSchedule)}</span>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                            <InputGroup label="Tipo de Vínculo Contratual">
-                                                <select
-                                                    value={workerForm.contractType}
-                                                    onChange={e => setWorkerForm({ ...workerForm, contractType: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    {CONTRACT_TYPE_OPTIONS.map(opt => (
-                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                    ))}
-                                                </select>
-                                            </InputGroup>
-                                            <InputGroup label="Categoria Profissional">
-                                                <select
-                                                    value={workerForm.professionCategory}
-                                                    onChange={e => setWorkerForm({ ...workerForm, professionCategory: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    {PROFESSION_CATEGORY_OPTIONS.map(opt => (
-                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                    ))}
-                                                </select>
-                                            </InputGroup>
-                                            <InputGroup label="Horário">
-                                                <select
-                                                    value={workerForm.workSchedule}
-                                                    onChange={e => setWorkerForm({ ...workerForm, workSchedule: e.target.value })}
-                                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                >
-                                                    {WORK_SCHEDULE_OPTIONS.map(opt => (
-                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                                    ))}
-                                                </select>
-                                            </InputGroup>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Anexo Inline: Contrato de Trabalho */}
-                                <RequirementCard
-                                    label="Contrato de Trabalho / Declaração de Cedência"
-                                    category="work_contract"
-                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={corporateEntityId}
-                                    expiryDate={selectedWorker?.contractExpiry || workerForm.contractExpiry}
-                                    isEditing={workerModalMode === 'edit'}
-                                >
-                                    {workerModalMode === 'edit' && (
-                                        <div className="pt-2">
-                                            <InputGroup label="Data de Término / Validade do Contrato (se a termo)">
-                                                <input
-                                                    type="date"
-                                                    value={workerForm.contractExpiry}
-                                                    onChange={e => setWorkerForm({ ...workerForm, contractExpiry: e.target.value })}
-                                                    className="w-full p-2 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                />
-                                            </InputGroup>
-                                        </div>
-                                    )}
-                                </RequirementCard>
-
-                                {workerModalMode === 'edit' && (
-                                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
-                                        <PrimaryButton type="button" onClick={handleSaveWorker} className="px-4 py-2 text-xs font-bold">
-                                            Guardar Dados Laborais
-                                        </PrimaryButton>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* TAB 3: SEGURANÇA & SAÚDE */}
-                        {workerModalTab === 'safety' && (
-                            <div className="space-y-6">
-                                {/* 4. Saúde, Segurança & EPIs (DL 273/2003) */}
-                                <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl overflow-hidden shadow-sm">
-                                    <div className="px-4 py-3 bg-[var(--bg-input)]/50 border-b border-[var(--border)] flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Shield size={15} className="text-primary" />
-                                            <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                                Saúde, Segurança no Trabalho & EPIs (DL 273/2003)
-                                            </h4>
-                                        </div>
-                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                                            DL 273/2003 • SST
-                                        </span>
-                                    </div>
-                                    <div className="p-4 space-y-4 text-xs">
-                                        {workerModalMode === 'view' ? (
-                                            <>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                                                    <div>
-                                                        <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Aptidão Médica (FAT)</span>
-                                                        {(() => {
-                                                            const badge = getMedicalFitnessBadge(selectedWorker?.medicalFitness || workerForm.medicalFitness, selectedWorker?.medicalExpiry || workerForm.medicalExpiry);
-                                                            return (
-                                                                <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border", badge.color)}>
-                                                                    <Check size={12} /> {badge.label}
-                                                                </span>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data / Validade do Exame</span>
-                                                        <span className="font-medium text-[var(--text)]">
-                                                            {(selectedWorker?.medicalExpiry || workerForm.medicalExpiry)
-                                                                ? new Date(selectedWorker?.medicalExpiry || workerForm.medicalExpiry).toLocaleDateString()
-                                                                : 'Sem data registada'}
-                                                        </span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-1">Data de Entrega de EPI</span>
-                                                        <span className="text-[var(--text)]">
-                                                            {(selectedWorker?.epiDate || workerForm.epiDate)
-                                                                ? new Date(selectedWorker?.epiDate || workerForm.epiDate).toLocaleDateString()
-                                                                : 'Registada com admissão'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-wider block mb-2">EPIs Atribuídos / Entregues</span>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {(selectedWorker?.epiDeliveryList || workerForm.epiDeliveryList || []).map((epi: string) => (
-                                                            <span key={epi} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary/10 text-primary border border-primary/20 flex items-center gap-1.5">
-                                                                <Check size={12} /> {epi}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    <InputGroup label="Data do Exame Médico (Ficha de Aptidão)">
-                                                        <input
-                                                            type="date"
-                                                            value={workerForm.medicalExpiry}
-                                                            onChange={e => setWorkerForm({ ...workerForm, medicalExpiry: e.target.value })}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        />
-                                                    </InputGroup>
-                                                    <InputGroup label="Resultado da Aptidão Médica">
-                                                        <select
-                                                            value={workerForm.medicalFitness}
-                                                            onChange={e => setWorkerForm({ ...workerForm, medicalFitness: e.target.value })}
-                                                            className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                                        >
-                                                            <option value="apto">Apto para a Função (Sem Restrições)</option>
-                                                            <option value="apto_condicionado">Apto Condicionado / com Restrições</option>
-                                                            <option value="inapto">Inapto Temporariamente</option>
-                                                            <option value="outro">Outro / Pendente</option>
-                                                        </select>
-                                                    </InputGroup>
-                                                </div>
-
-                                                <InputGroup label="Observações / Condicionantes Médicas">
-                                                    <textarea
-                                                        rows={2}
-                                                        value={workerForm.medicalObservations}
-                                                        onChange={e => setWorkerForm({ ...workerForm, medicalObservations: e.target.value })}
-                                                        placeholder="Ex: Apto com restrição para trabalhos em altura..."
-                                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary resize-none"
-                                                    />
-                                                </InputGroup>
-
-                                                <div>
-                                                    <div className="flex items-center justify-between mb-2">
-                                                        <span className="text-[11px] font-semibold text-[var(--text)] uppercase tracking-wider">
-                                                            EPIs Obrigatórios Entregues (DL 273/2003)
-                                                        </span>
-                                                        <span className="text-[10px] text-[var(--text-muted)]">Clique para selecionar</span>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {ALL_EPIS.map(epi => {
-                                                            const selected = workerForm.epiDeliveryList.includes(epi);
-                                                            return (
-                                                                <button
-                                                                    key={epi}
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        const current = workerForm.epiDeliveryList || [];
-                                                                        const updated = selected
-                                                                            ? current.filter(e => e !== epi)
-                                                                            : [...current, epi];
-                                                                        setWorkerForm({ ...workerForm, epiDeliveryList: updated });
-                                                                    }}
-                                                                    className={cn(
-                                                                        "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5",
-                                                                        selected
-                                                                            ? "bg-primary text-white border-primary shadow-sm"
-                                                                            : "bg-[var(--bg-input)] text-[var(--text-muted)] border-[var(--border)] hover:border-primary/40"
-                                                                    )}
-                                                                >
-                                                                    {selected ? <Check size={12} /> : null}
-                                                                    {epi}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Anexos Inline: Ficha de Aptidão Médica e Ficha de Entrega de EPI */}
-                                <RequirementCard
-                                    label="Ficha de Aptidão Médica (FAT)"
-                                    category="medical_fitness"
-                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={corporateEntityId}
-                                    expiryDate={selectedWorker?.medicalExpiry || workerForm.medicalExpiry}
-                                    isEditing={workerModalMode === 'edit'}
-                                />
-
-                                <RequirementCard
-                                    label="Ficha de Entrega de EPI Assinada (DL 273/2003)"
-                                    category="ppe_receipt"
-                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={corporateEntityId}
-                                    isEditing={workerModalMode === 'edit'}
-                                />
-
-                                {workerModalMode === 'edit' && (
-                                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
-                                        <PrimaryButton type="button" onClick={handleSaveWorker} className="px-4 py-2 text-xs font-bold">
-                                            Guardar Segurança & Saúde
-                                        </PrimaryButton>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* TAB 4: DOCUMENTOS */}
-                        {workerModalTab === 'documents' && (
-                            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl bg-[var(--bg-input)]/30 border border-[var(--border)]">
-                                    <div>
-                                        <h4 className="text-xs font-bold text-[var(--text)] uppercase tracking-wider">
-                                            Dossier Documental do Colaborador
-                                        </h4>
-                                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                                            Todos os documentos, versões e certificados arquivados deste colaborador.
-                                        </p>
-                                    </div>
-                                    <DocumentUpload
-                                        entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                        projectId={corporateEntityId}
-                                        category="general"
-                                        layout="button"
-                                        label="Carregar Documento"
-                                    />
-                                </div>
-
-                                <DocumentList
-                                    entityId={editingWorkerId || selectedWorker?.id || 'w_temp'}
-                                    projectId={corporateEntityId}
-                                    isEditing={workerModalMode === 'edit'}
-                                />
-                            </div>
-                        )}
-                    </Modal>
-
-                    {/* Modal Equipamento */}
-                    <Modal
-                        title={editingEquipId ? "Editar Equipamento" : "Adicionar Equipamento à Minha Empresa"}
-                        isOpen={isEquipModalOpen}
-                        onClose={() => setIsEquipModalOpen(false)}
-                    >
-                        <form onSubmit={handleSaveEquipment} className="space-y-4">
-                            <InputGroup label="Designação do Equipamento *">
-                                <input
-                                    type="text"
-                                    required
-                                    value={equipForm.name}
-                                    onChange={e => setEquipForm({ ...equipForm, name: e.target.value })}
-                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    placeholder="ex: Retroescavadora JCB"
-                                />
-                            </InputGroup>
-                            <div className="grid grid-cols-2 gap-3">
-                                <InputGroup label="Número de Série">
-                                    <input
-                                        type="text"
-                                        value={equipForm.serialNumber}
-                                        onChange={e => setEquipForm({ ...equipForm, serialNumber: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary font-mono"
-                                        placeholder="ex: SN-998822"
-                                    />
-                                </InputGroup>
-                                <InputGroup label="Tipo">
-                                    <select
-                                        value={equipForm.type}
-                                        onChange={e => setEquipForm({ ...equipForm, type: e.target.value as any })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    >
-                                        <option value="vehicle">Veículo / Máquina</option>
-                                        <option value="heavy_machinery">Máquinas Pesadas</option>
-                                        <option value="lifting">Equipamento de Elevação</option>
-                                        <option value="power_tool">Ferramenta Elétrica</option>
-                                        <option value="other">Outro</option>
-                                    </select>
-                                </InputGroup>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <InputGroup label="Marca">
-                                    <input
-                                        type="text"
-                                        value={equipForm.brand}
-                                        onChange={e => setEquipForm({ ...equipForm, brand: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    />
-                                </InputGroup>
-                                <InputGroup label="Modelo">
-                                    <input
-                                        type="text"
-                                        value={equipForm.model}
-                                        onChange={e => setEquipForm({ ...equipForm, model: e.target.value })}
-                                        className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                    />
-                                </InputGroup>
-                            </div>
-                            <InputGroup label="Data da Próxima Inspeção Periódica">
-                                <input
-                                    type="date"
-                                    value={equipForm.inspectionDate}
-                                    onChange={e => setEquipForm({ ...equipForm, inspectionDate: e.target.value })}
-                                    className="w-full p-2.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-xl outline-none focus:ring-2 focus:ring-primary"
-                                />
-                            </InputGroup>
-                            <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text)] cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={equipForm.ceCertified}
-                                    onChange={e => setEquipForm({ ...equipForm, ceCertified: e.target.checked })}
-                                    className="rounded text-primary"
-                                />
-                                Possui Declaração de Conformidade CE
-                            </label>
-                            <PrimaryButton type="submit" className="w-full py-2.5 text-xs font-bold">
-                                {editingEquipId ? "Guardar Alterações" : "Adicionar Equipamento"}
-                            </PrimaryButton>
-                        </form>
-                    </Modal>
-
-                    {/* Modal Sincronizar com Obra */}
+{/* Modal Sincronizar com Obra */}
                     <Modal
                         title={
                             exportEntityType === 'company' ? "Sincronizar Empresa com Obra" :
