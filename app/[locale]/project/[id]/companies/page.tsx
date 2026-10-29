@@ -5448,21 +5448,7 @@ export default function CompaniesPage() {
                                       return (
                                         <tr
                                           key={row.id}
-                                          className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors cursor-pointer group"
-                                          onClick={(e) => {
-                                            if (
-                                              (
-                                                e.target as HTMLElement
-                                              ).tagName.toLowerCase() ===
-                                              "input" ||
-                                              (
-                                                e.target as HTMLElement
-                                              ).tagName.toLowerCase() ===
-                                              "select"
-                                            )
-                                              return;
-                                            setSelectedDocRow(row);
-                                          }}
+                                          className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors group"
                                         >
                                           <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
                                             <div className="flex items-center gap-2">
@@ -5589,21 +5575,75 @@ export default function CompaniesPage() {
                                             })()}
                                           </td>
                                           <td className="px-4 py-3 text-center">
-                                            {hasDocs ? (
-                                              <div
-                                                className="inline-flex items-center justify-center p-1.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-md border border-green-100 dark:border-green-500/20 group-hover:scale-105 transition-transform"
-                                                title="Document Uploaded"
-                                              >
-                                                <FileText size={16} />
-                                              </div>
-                                            ) : (
-                                              <div
-                                                className="inline-flex items-center justify-center p-1.5 bg-gray-50 dark:bg-[#131314] text-gray-400 dark:text-gray-600 rounded-md border border-gray-100 dark:border-[#444746]"
-                                                title="Document Missing"
-                                              >
-                                                <FileText size={16} />
-                                              </div>
-                                            )}
+                                            <div className="flex items-center justify-center gap-2">
+                                              {hasDocs ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setActiveTab("docs");
+                                                  }}
+                                                  className="inline-flex items-center justify-center p-1.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-md border border-green-200 dark:border-green-500/30 hover:scale-105 transition-transform cursor-pointer"
+                                                  title="Ver no Dossier Documental"
+                                                >
+                                                  <FileText size={16} />
+                                                </button>
+                                              ) : (
+                                                <div
+                                                  className="inline-flex items-center justify-center p-1.5 bg-gray-50 dark:bg-[#131314] text-gray-400 dark:text-gray-600 rounded-md border border-gray-200 dark:border-[#444746]"
+                                                  title="Sem Documento"
+                                                >
+                                                  <FileText size={16} />
+                                                </div>
+                                              )}
+                                              {isEditing && (
+                                                <DocumentUpload
+                                                  entityId={row.entityId}
+                                                  projectId={projectId}
+                                                  category={row.category}
+                                                  layout="button"
+                                                  label=""
+                                                  systemLabel={row.label}
+                                                  enableAI={true}
+                                                  aiType={row.type === "date" ? "date" : "text"}
+                                                  onOperation={(op) => {
+                                                    if (op.type === "upload") {
+                                                      handleSessionUpload(op.fileId);
+                                                      const fieldKey = row.category?.startsWith("custom_")
+                                                        ? row.category
+                                                        : row.id;
+                                                      setCorrectedFields((prev: any) => ({
+                                                        ...prev,
+                                                        [fieldKey]: true,
+                                                      }));
+                                                    }
+                                                  }}
+                                                  onSmartComplete={(data) => {
+                                                    const isCustom = row.category?.startsWith("custom_");
+                                                    setNewItem((prev: any) => {
+                                                      if (isCustom) {
+                                                        const docId = row.id.replace("custom_", "");
+                                                        return {
+                                                          ...prev,
+                                                          customDocuments: {
+                                                            ...(prev.customDocuments || {}),
+                                                            [docId]: {
+                                                              ...((prev.customDocuments as any)?.[docId] || {}),
+                                                              value: data.date || data.text || prev.customDocuments?.[docId]?.value,
+                                                            },
+                                                          },
+                                                        };
+                                                      } else {
+                                                        return {
+                                                          ...prev,
+                                                          [row.id]: data.date || data.text || (prev as any)[row.id],
+                                                        };
+                                                      }
+                                                    });
+                                                  }}
+                                                />
+                                              )}
+                                            </div>
                                           </td>
                                           <td className="px-4 py-3 text-center">
                                             {row.isValidated ? (
