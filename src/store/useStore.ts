@@ -3717,10 +3717,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 if (type === 'company') {
                     // Map of standard doc ID → { entityField, fieldName, isMonth, defaultExpiry }
                     const STANDARD_DOC_MAP: Record<string, { entityField: string; fieldName: string; isMonth?: boolean; defaultExpiry: boolean }> = {
-                        insurance_at: { entityField: 'insuranceWorkAccPolicy', fieldName: 'Apólice Seguro AT', defaultExpiry: false },
-                        insurance_at_receipt: { entityField: 'insuranceWorkAccDate', fieldName: 'Recibo Seguro AT', defaultExpiry: true },
-                        insurance_rc: { entityField: 'insuranceCivilPolicy', fieldName: 'Apólice Seguro RC', defaultExpiry: false },
-                        insurance_rc_receipt: { entityField: 'insuranceCivilDate', fieldName: 'Recibo Seguro RC', defaultExpiry: true },
+                        insurance_at: { entityField: 'insuranceWorkAccPolicy', fieldName: 'Apólice de Seguro de Acidentes de Trabalho', defaultExpiry: false },
+                        insurance_at_receipt: { entityField: 'insuranceWorkAccDate', fieldName: 'Recibo Seguro de Acidentes de Trabalho', defaultExpiry: true },
+                        insurance_rc: { entityField: 'insuranceCivilPolicy', fieldName: 'Apólice de Seguro de Responsabilidade Civil', defaultExpiry: false },
+                        insurance_rc_receipt: { entityField: 'insuranceCivilDate', fieldName: 'Recibo Seguro de Responsabilidade Civil', defaultExpiry: true },
                         finance_ss: { entityField: 'cleanSSDate', fieldName: 'N/ Dívida SS', defaultExpiry: true },
                         finance_fin: { entityField: 'cleanFinDate', fieldName: 'N/ Dívida Finanças', defaultExpiry: true },
                         ss_discount: { entityField: 'ssDiscountSheet', fieldName: 'Folha Desc. SS', defaultExpiry: true, isMonth: true },

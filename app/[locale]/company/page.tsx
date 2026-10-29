@@ -2641,7 +2641,7 @@ export default function MyCompanyPage() {
                                                                         <td className="px-5 py-3.5 whitespace-nowrap">
                                                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                                                 {comp.insuranceWorkAccDate ? (
-                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro AT válido até ${new Date(comp.insuranceWorkAccDate).toLocaleDateString()}`}>
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro de Acidentes de Trabalho válido até ${new Date(comp.insuranceWorkAccDate).toLocaleDateString()}`}>
                                                                                         <Check size={10} /> AT Válido
                                                                                     </span>
                                                                                 ) : (
@@ -2650,7 +2650,7 @@ export default function MyCompanyPage() {
                                                                                     </span>
                                                                                 )}
                                                                                 {comp.insuranceCivilDate ? (
-                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro RC válido até ${new Date(comp.insuranceCivilDate).toLocaleDateString()}`}>
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`Seguro de Responsabilidade Civil válido até ${new Date(comp.insuranceCivilDate).toLocaleDateString()}`}>
                                                                                         <Check size={10} /> RC Válido
                                                                                     </span>
                                                                                 ) : null}
@@ -3166,7 +3166,7 @@ export default function MyCompanyPage() {
                                      if (isVisible('insurance_at')) {
                                          addRow('Seguros e Apólices', {
                                              id: 'insuranceWorkAccPolicy',
-                                             label: 'Apólice de Seguro de AT',
+                                             label: 'Apólice de Seguro de Acidentes de Trabalho',
                                              category: 'insurance_work_acc_policy',
                                              altCategory: 'insurance_work_acc',
                                              type: 'text',
@@ -3182,7 +3182,7 @@ export default function MyCompanyPage() {
                                      if (isVisible('insurance_at_receipt')) {
                                          addRow('Seguros e Apólices', {
                                              id: 'insuranceWorkAccDate',
-                                             label: 'Recibo Seguro AT',
+                                             label: 'Recibo Seguro de Acidentes de Trabalho',
                                              category: 'insurance_work_acc_receipt',
                                              type: 'date',
                                              value: companyForm.insuranceWorkAccDate,
@@ -3198,7 +3198,7 @@ export default function MyCompanyPage() {
                                      if (isVisible('insurance_rc')) {
                                          addRow('Seguros e Apólices', {
                                              id: 'insuranceCivilPolicy',
-                                             label: 'Apólice de Seguro de RC',
+                                             label: 'Apólice de Seguro de Responsabilidade Civil',
                                              category: 'insurance_civil_policy',
                                              altCategory: 'insurance_civil',
                                              type: 'text',
@@ -3214,7 +3214,7 @@ export default function MyCompanyPage() {
                                      if (isVisible('insurance_rc_receipt')) {
                                          addRow('Seguros e Apólices', {
                                              id: 'insuranceCivilDate',
-                                             label: 'Recibo Seguro RC',
+                                             label: 'Recibo Seguro de Responsabilidade Civil',
                                              category: 'insurance_civil_receipt',
                                              type: 'date',
                                              value: companyForm.insuranceCivilDate,

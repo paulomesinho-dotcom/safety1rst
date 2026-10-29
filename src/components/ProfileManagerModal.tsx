@@ -177,10 +177,10 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
 
 // Nomes descritivos padrão em português
 const DOC_FALLBACK_LABELS: Record<string, string> = {
-    insurance_at: 'Apólice de Seguro de AT',
-    insurance_at_receipt: 'Recibo Seguro AT',
-    insurance_rc: 'Apólice de Seguro de RC',
-    insurance_rc_receipt: 'Recibo Seguro RC',
+    insurance_at: 'Apólice de Seguro de Acidentes de Trabalho',
+    insurance_at_receipt: 'Recibo Seguro de Acidentes de Trabalho',
+    insurance_rc: 'Apólice de Seguro de Responsabilidade Civil',
+    insurance_rc_receipt: 'Recibo Seguro de Responsabilidade Civil',
     finance_ss: 'Declaração Não Dívida — Segurança Social',
     finance_fin: 'Declaração Não Dívida — Finanças (AT)',
     ss_discount: 'Folha de Remunerações / Descontos (Segurança Social)',

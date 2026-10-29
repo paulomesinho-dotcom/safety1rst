@@ -2143,8 +2143,8 @@ export default function CompaniesPage() {
         // Check Standard Dates
         // NOTE: pssAcceptanceDate is intentionally excluded — it is configured as a
         // non-expiry date (isExpirationDate: false) and past dates are valid.
-        checkField("insuranceWorkAccDate", "Seguro AT");
-        checkField("insuranceCivilDate", "Seguro RC");
+        checkField("insuranceWorkAccDate", "Seguro de Acidentes de Trabalho");
+        checkField("insuranceCivilDate", "Seguro de Responsabilidade Civil");
         checkField("cleanSSDate", "N/ Dívida SS");
         checkField("cleanFinDate", "N/ Dívida Finanças");
         // checkField('entryDate', 'Data Entrada'); // Entry date doesn't "expire" in the same way? Or does it? Usually Validity dates expire.
@@ -2419,20 +2419,20 @@ export default function CompaniesPage() {
 
     // 3. Legal / Documents Tab (Dependent on Visibility & Document Upload Requirements)
     if (isFieldVisible("insurance_at")) {
-      if (!newItem.insuranceWorkAccDate) msgs.push("Data Validade: Seguro AT");
-      if (!newItem.insuranceWorkAccPolicy) msgs.push("Texto: Seguro AT Apólice");
+      if (!newItem.insuranceWorkAccDate) msgs.push("Data Validade: Seguro de Acidentes de Trabalho");
+      if (!newItem.insuranceWorkAccPolicy) msgs.push("Texto: Apólice Seguro de Acidentes de Trabalho");
       if (isUploadVisible("insurance_at")) {
-        if (!hasDoc("insurance_work_acc_receipt")) msgs.push("Ficheiro: Seguro AT Recibo");
-        if (!hasDoc("insurance_work_acc_policy")) msgs.push("Ficheiro: Seguro AT Apólice");
+        if (!hasDoc("insurance_work_acc_receipt")) msgs.push("Ficheiro: Recibo Seguro de Acidentes de Trabalho");
+        if (!hasDoc("insurance_work_acc_policy")) msgs.push("Ficheiro: Apólice Seguro de Acidentes de Trabalho");
       }
     }
 
     if (isFieldVisible("insurance_rc")) {
-      if (!newItem.insuranceCivilDate) msgs.push("Data Validade: Seguro RC");
-      if (!newItem.insuranceCivilPolicy) msgs.push("Texto: Seguro RC Apólice");
+      if (!newItem.insuranceCivilDate) msgs.push("Data Validade: Seguro de Responsabilidade Civil");
+      if (!newItem.insuranceCivilPolicy) msgs.push("Texto: Apólice Seguro de Responsabilidade Civil");
       if (isUploadVisible("insurance_rc")) {
-        if (!hasDoc("insurance_civil_receipt")) msgs.push("Ficheiro: Seguro RC Recibo");
-        if (!hasDoc("insurance_civil_policy")) msgs.push("Ficheiro: Seguro RC Apólice");
+        if (!hasDoc("insurance_civil_receipt")) msgs.push("Ficheiro: Recibo Seguro de Responsabilidade Civil");
+        if (!hasDoc("insurance_civil_policy")) msgs.push("Ficheiro: Apólice Seguro de Responsabilidade Civil");
       }
     }
 
@@ -4975,7 +4975,7 @@ export default function CompaniesPage() {
                               if (isVisible("insurance_at")) {
                                 addRow("Seguros e Apólices", {
                                   id: "insuranceWorkAccPolicy",
-                                  label: "Apólice de Seguro de AT",
+                                  label: "Apólice de Seguro de Acidentes de Trabalho",
                                   category: "insurance_work_acc_policy",
                                   type: "text",
                                   isUploadVisible: isUploadVisible("insurance_at"),
@@ -5005,7 +5005,7 @@ export default function CompaniesPage() {
                               if (isVisible("insurance_at_receipt") || (!selectedProfile && isVisible("insurance_at"))) {
                                 addRow("Seguros e Apólices", {
                                   id: "insuranceWorkAccDate",
-                                  label: "Recibo Seguro AT",
+                                  label: "Recibo Seguro de Acidentes de Trabalho",
                                   category: "insurance_work_acc_receipt",
                                   type: "date",
                                   isUploadVisible: isUploadVisible("insurance_at_receipt") || isUploadVisible("insurance_at"),
@@ -5039,7 +5039,7 @@ export default function CompaniesPage() {
                               if (isVisible("insurance_rc")) {
                                 addRow("Seguros e Apólices", {
                                   id: "insuranceCivilPolicy",
-                                  label: "Apólice de Seguro de RC",
+                                  label: "Apólice de Seguro de Responsabilidade Civil",
                                   category: "insurance_civil_policy",
                                   type: "text",
                                   isUploadVisible: isUploadVisible("insurance_rc"),
@@ -5069,7 +5069,7 @@ export default function CompaniesPage() {
                               if (isVisible("insurance_rc_receipt") || (!selectedProfile && isVisible("insurance_rc"))) {
                                 addRow("Seguros e Apólices", {
                                   id: "insuranceCivilDate",
-                                  label: "Recibo Seguro RC",
+                                  label: "Recibo Seguro de Responsabilidade Civil",
                                   category: "insurance_civil_receipt",
                                   type: "date",
                                   isUploadVisible: isUploadVisible("insurance_rc_receipt") || isUploadVisible("insurance_rc"),
