@@ -39,6 +39,7 @@ interface Props {
     onClose: () => void;
     projectId: string;
     entityType: ProfileType;
+    isCorporate?: boolean;
 }
 
 // Standard metadata for dates and expiration
@@ -196,12 +197,13 @@ const DOC_FALLBACK_LABELS: Record<string, string> = {
     property_title: 'Título de Propriedade / Registo'
 };
 
-export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectId, entityType }) => {
+export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectId, entityType, isCorporate }) => {
     const t = useTranslations('Components.ProfileManager');
     const store = useStore();
     const currentProject = store.projects.find(p => p.id === projectId);
+    const isCorporateMode = !!isCorporate || !projectId || projectId === 'comp_master' || projectId.startsWith('comp_');
     const userRole = store.currentUser ? store.getUserRoleInProject(store.currentUser.id, projectId) : null;
-    const isManager = userRole === 'manager' || store.currentUser?.role === 'admin' || store.currentUser?.role === 'superadmin' || projectId.startsWith('comp_');
+    const isManager = userRole === 'manager' || store.currentUser?.role === 'admin' || store.currentUser?.role === 'superadmin' || isCorporateMode;
 
     const subjects = PROFILE_SUBJECTS[entityType] || [];
     const allStandardDocIds = useMemo(() => subjects.flatMap(s => s.standardDocIds), [subjects]);
@@ -220,13 +222,16 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
     };
 
     const deleteProfile = (id: string) => {
+        if (isCorporateMode) return; // Impedir eliminar perfil único corporativo
         if (entityType === 'company') store.deleteCompanyProfile(id);
         if (entityType === 'worker') store.deleteWorkerProfile(id);
         if (entityType === 'equipment') store.deleteEquipmentProfile(id);
     };
 
+    const projectProfiles = getProfiles().filter(p => p.projectId === projectId || (!p.projectId && isCorporateMode));
+
     const saveProfile = (isNew: boolean, data: any) => {
-        if (isNew) {
+        if (isNew && (!isCorporateMode || projectProfiles.length === 0)) {
             const newProfile = {
                 id: nanoid(),
                 projectId: projectId,
@@ -242,6 +247,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
             if (entityType === 'worker') store.addWorkerProfile(newProfile);
             if (entityType === 'equipment') store.addEquipmentProfile(newProfile);
         } else {
+            const targetId = editingId === 'new' && isCorporateMode && projectProfiles.length > 0 ? projectProfiles[0].id : editingId!;
             const updates = {
                 name: data.name,
                 requirements: data.requirements,
@@ -250,20 +256,18 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                 subjectFolders: data.subjectFolders || {},
                 customDocuments: data.customDocuments
             };
-            if (entityType === 'company') store.updateCompanyProfile(editingId!, updates);
-            if (entityType === 'worker') store.updateWorkerProfile(editingId!, updates);
-            if (entityType === 'equipment') store.updateEquipmentProfile(editingId!, updates);
+            if (entityType === 'company') store.updateCompanyProfile(targetId, updates);
+            if (entityType === 'worker') store.updateWorkerProfile(targetId, updates);
+            if (entityType === 'equipment') store.updateEquipmentProfile(targetId, updates);
         }
     };
-
-    const projectProfiles = getProfiles().filter(p => p.projectId === projectId);
 
     // Auto-criação do Perfil Padrão DL 273/2003 caso não exista nenhum perfil no projeto
     React.useEffect(() => {
         if (!isOpen || !projectId) return;
-        const currentProfiles = getProfiles().filter(p => p.projectId === projectId);
+        const currentProfiles = getProfiles().filter(p => p.projectId === projectId || (!p.projectId && isCorporateMode));
         if (currentProfiles.length === 0) {
-            const stdId = `std_${entityType}_${projectId}`;
+            const stdId = isCorporateMode ? `corp_profile_${entityType}_${projectId}` : `std_${entityType}_${projectId}`;
             const defaultConfig: Record<string, { isExpirationDate: boolean; toleranceDays: number }> = {};
             Object.entries(STANDARD_DATE_DOC_CONFIG).forEach(([docId, meta]) => {
                 defaultConfig[docId] = { isExpirationDate: meta.defaultExpiry, toleranceDays: 0 };
@@ -278,7 +282,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
             const newProfile = {
                 id: stdId,
                 projectId,
-                name: entityType === 'company' ? 'Perfil Padrão (DL 273/2003)' : 'Perfil Padrão',
+                name: entityType === 'company' ? (isCorporateMode ? 'Perfil Corporativo da Organização (DL 273/2003)' : 'Perfil Padrão (DL 273/2003)') : (isCorporateMode ? 'Perfil Corporativo da Organização' : 'Perfil Padrão'),
                 requirements: defaultRequirements,
                 standardUploads: defaultUploads,
                 standardDocConfig: defaultConfig,
@@ -291,7 +295,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
             if (entityType === 'worker') store.addWorkerProfile(newProfile);
             if (entityType === 'equipment') store.addEquipmentProfile(newProfile);
         }
-    }, [isOpen, projectId, entityType, allStandardDocIds]);
+    }, [isOpen, projectId, entityType, allStandardDocIds, isCorporateMode]);
 
     // Local State
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -346,10 +350,26 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
         if (profile.subjectFolders) {
             Object.assign(initialFolders, profile.subjectFolders);
         }
+        const initialRequirements = { ...(profile.requirements || {}) };
+        if (initialRequirements.insurance_at && initialRequirements.insurance_at_receipt === undefined) {
+            initialRequirements.insurance_at_receipt = true;
+        }
+        if (initialRequirements.insurance_rc && initialRequirements.insurance_rc_receipt === undefined) {
+            initialRequirements.insurance_rc_receipt = true;
+        }
+
+        const initialUploads = { ...(profile.standardUploads || {}) };
+        if (initialUploads.insurance_at !== false && initialUploads.insurance_at_receipt === undefined) {
+            initialUploads.insurance_at_receipt = true;
+        }
+        if (initialUploads.insurance_rc !== false && initialUploads.insurance_rc_receipt === undefined) {
+            initialUploads.insurance_rc_receipt = true;
+        }
+
         setFormState({
             name: profile.name,
-            requirements: profile.requirements || {},
-            standardUploads: profile.standardUploads || {},
+            requirements: initialRequirements,
+            standardUploads: initialUploads,
             standardDocConfig: defaultConfig,
             subjectFolders: initialFolders,
             customDocuments: profile.customDocuments || [],
@@ -385,7 +405,11 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
             return;
         }
         saveProfile(editingId === 'new', formState);
-        setEditingId(null);
+        if (isCorporateMode) {
+            onClose();
+        } else {
+            setEditingId(null);
+        }
     };
 
     const toggleRequirement = (key: string) => {
@@ -514,17 +538,21 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                     <div className="flex justify-between items-center mb-3">
                         <div>
                             <h3 className="font-bold text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                                {t('title') || 'Perfis de Requisitos'}
+                                {isCorporateMode ? 'Perfil da Organização' : (t('title') || 'Perfis de Requisitos')}
                             </h3>
-                            <p className="text-[11px] text-gray-400 mt-0.5">Modelos de conformidade</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">
+                                {isCorporateMode ? 'Perfil único corporativo' : 'Modelos de conformidade'}
+                            </p>
                         </div>
-                        <button
-                            onClick={handleCreate}
-                            className="p-1.5 bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors shadow-xs flex items-center gap-1 text-xs font-semibold cursor-pointer"
-                            title={t('create') || 'Novo Perfil'}
-                        >
-                            <Plus size={14} /> Novo
-                        </button>
+                        {!isCorporateMode && (
+                            <button
+                                onClick={handleCreate}
+                                className="p-1.5 bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors shadow-xs flex items-center gap-1 text-xs font-semibold cursor-pointer"
+                                title={t('create') || 'Novo Perfil'}
+                            >
+                                <Plus size={14} /> Novo
+                            </button>
+                        )}
                     </div>
 
                     <div className="space-y-2 overflow-y-auto flex-1 pr-1">
@@ -559,7 +587,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                                             {isDefault && <Star size={12} className="text-amber-500 fill-amber-500 shrink-0" />}
                                             {p.name}
                                         </span>
-                                        {!p.isSystem && (
+                                        {!isCorporateMode && !p.isSystem && (
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -615,7 +643,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                                             className="w-full px-3 py-2 text-sm font-semibold rounded-lg border border-gray-300 dark:border-[#444746] bg-white dark:bg-[#131314] text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary disabled:opacity-60"
                                         />
                                     </div>
-                                    {isManager && editingId !== 'new' && (
+                                    {isManager && editingId !== 'new' && !isCorporateMode && (
                                         <button
                                             type="button"
                                             onClick={() => {
@@ -929,7 +957,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                                                     const isUploadReq = formState.standardUploads?.[docId];
                                                     const dateConfig = STANDARD_DATE_DOC_CONFIG[docId];
                                                     const expiryConfig = formState.standardDocConfig?.[docId];
-                                                    const label = t(`docTypes.${docId}` as any) || DOC_FALLBACK_LABELS[docId] || docId;
+                                                    const label = DOC_FALLBACK_LABELS[docId] || t(`docTypes.${docId}` as any) || docId;
 
                                                     return (
                                                         <div
@@ -1200,7 +1228,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
 
                                 <div className="flex items-center gap-2.5">
                                     <SecondaryButton
-                                        onClick={() => setEditingId(null)}
+                                        onClick={() => isCorporateMode ? onClose() : setEditingId(null)}
                                         className="w-auto px-4 py-2 text-xs"
                                     >
                                         {t('cancel') || 'Cancelar'}

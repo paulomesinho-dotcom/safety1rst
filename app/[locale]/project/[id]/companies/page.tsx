@@ -4229,6 +4229,12 @@ export default function CompaniesPage() {
           const isVisible = (key: string) => {
             if (!newItem.profileId) return true;
             if (!selectedProfile) return true;
+            if (key === 'insurance_at_receipt' && selectedProfile.requirements?.insurance_at_receipt === undefined) {
+              return !!selectedProfile.requirements?.insurance_at;
+            }
+            if (key === 'insurance_rc_receipt' && selectedProfile.requirements?.insurance_rc_receipt === undefined) {
+              return !!selectedProfile.requirements?.insurance_rc;
+            }
             return !!selectedProfile.requirements?.[
               key as keyof typeof selectedProfile.requirements
             ];
@@ -4237,6 +4243,12 @@ export default function CompaniesPage() {
           const isUploadVisible = (key: string) => {
             if (!newItem.profileId) return true;
             if (!selectedProfile) return true;
+            if (key === 'insurance_at_receipt' && selectedProfile.standardUploads?.insurance_at_receipt === undefined) {
+              return selectedProfile.standardUploads?.insurance_at !== false;
+            }
+            if (key === 'insurance_rc_receipt' && selectedProfile.standardUploads?.insurance_rc_receipt === undefined) {
+              return selectedProfile.standardUploads?.insurance_rc !== false;
+            }
             return selectedProfile.standardUploads?.[key] !== false;
           };
 

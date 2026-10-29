@@ -1728,8 +1728,8 @@ export default function MyCompanyPage() {
         );
     };
 
-    const renderFileCell = (category: string) => {
-        const doc = documents.find(d => d.entityId === corporateEntityId && d.category === category && !d.archived);
+    const renderFileCell = (category: string, altCategory?: string) => {
+        const doc = documents.find(d => d.entityId === corporateEntityId && (d.category === category || (altCategory && d.category === altCategory)) && !d.archived);
         return (
             <div className="flex items-center justify-center gap-2">
                 {doc ? (
@@ -3129,16 +3129,29 @@ export default function MyCompanyPage() {
                                                                  {/* TAB 2: REQUISITOS LEGAIS */}
                                  {companyModalTab === 'legal' && (() => {
                                      const selectedProfile = companyProfiles.find(p => p.id === (companyForm as any).profileId) ||
+                                                             companyProfiles.find(p => p.projectId === corporateEntityId) ||
                                                              companyProfiles.find(p => !p.projectId) ||
                                                              companyProfiles[0];
 
                                      const isVisible = (key: string) => {
                                          if (!selectedProfile) return true;
+                                         if (key === 'insurance_at_receipt' && selectedProfile.requirements?.insurance_at_receipt === undefined) {
+                                             return !!selectedProfile.requirements?.insurance_at;
+                                         }
+                                         if (key === 'insurance_rc_receipt' && selectedProfile.requirements?.insurance_rc_receipt === undefined) {
+                                             return !!selectedProfile.requirements?.insurance_rc;
+                                         }
                                          return !!selectedProfile.requirements?.[key as keyof typeof selectedProfile.requirements];
                                      };
 
                                      const isUploadVisible = (key: string) => {
                                          if (!selectedProfile) return true;
+                                         if (key === 'insurance_at_receipt' && selectedProfile.standardUploads?.insurance_at_receipt === undefined) {
+                                             return selectedProfile.standardUploads?.insurance_at !== false;
+                                         }
+                                         if (key === 'insurance_rc_receipt' && selectedProfile.standardUploads?.insurance_rc_receipt === undefined) {
+                                             return selectedProfile.standardUploads?.insurance_rc !== false;
+                                         }
                                          return selectedProfile.standardUploads?.[key] !== false;
                                      };
 
@@ -3155,6 +3168,7 @@ export default function MyCompanyPage() {
                                              id: 'insuranceWorkAccPolicy',
                                              label: 'Apólice de Seguro de AT',
                                              category: 'insurance_work_acc_policy',
+                                             altCategory: 'insurance_work_acc',
                                              type: 'text',
                                              value: companyForm.insuranceWorkAccPolicy,
                                              isUploadVisible: isUploadVisible('insurance_at'),
@@ -3165,14 +3179,14 @@ export default function MyCompanyPage() {
                                          });
                                      }
 
-                                     if (isVisible('insurance_at_receipt') || (!selectedProfile && isVisible('insurance_at'))) {
+                                     if (isVisible('insurance_at_receipt')) {
                                          addRow('Seguros e Apólices', {
                                              id: 'insuranceWorkAccDate',
                                              label: 'Recibo Seguro AT',
                                              category: 'insurance_work_acc_receipt',
                                              type: 'date',
                                              value: companyForm.insuranceWorkAccDate,
-                                             isUploadVisible: isUploadVisible('insurance_at_receipt') || isUploadVisible('insurance_at'),
+                                             isUploadVisible: isUploadVisible('insurance_at_receipt'),
                                              isExpirationDate: true,
                                              onChange: (val: string) => {
                                                  isFormEditedRef.current = true;
@@ -3186,6 +3200,7 @@ export default function MyCompanyPage() {
                                              id: 'insuranceCivilPolicy',
                                              label: 'Apólice de Seguro de RC',
                                              category: 'insurance_civil_policy',
+                                             altCategory: 'insurance_civil',
                                              type: 'text',
                                              value: companyForm.insuranceCivilPolicy,
                                              isUploadVisible: isUploadVisible('insurance_rc'),
@@ -3196,14 +3211,14 @@ export default function MyCompanyPage() {
                                          });
                                      }
 
-                                     if (isVisible('insurance_rc_receipt') || (!selectedProfile && isVisible('insurance_rc'))) {
+                                     if (isVisible('insurance_rc_receipt')) {
                                          addRow('Seguros e Apólices', {
                                              id: 'insuranceCivilDate',
                                              label: 'Recibo Seguro RC',
                                              category: 'insurance_civil_receipt',
                                              type: 'date',
                                              value: companyForm.insuranceCivilDate,
-                                             isUploadVisible: isUploadVisible('insurance_rc_receipt') || isUploadVisible('insurance_rc'),
+                                             isUploadVisible: isUploadVisible('insurance_rc_receipt'),
                                              isExpirationDate: true,
                                              onChange: (val: string) => {
                                                  isFormEditedRef.current = true;
@@ -3435,13 +3450,13 @@ export default function MyCompanyPage() {
                                                                                      )}
                                                                                  </td>
                                                                                  <td className="px-4 py-3 text-center">
-                                                                                     {renderFileCell(row.category)}
+                                                                                     {renderFileCell(row.category, row.altCategory)}
                                                                                  </td>
                                                                                  <td className="px-4 py-3 text-center">
                                                                                      {row.type === 'date' ? (
                                                                                          renderDateStatus(row.value)
                                                                                      ) : (
-                                                                                         renderFieldStatus(!!row.value || documents.some(d => d.entityId === corporateEntityId && d.category === row.category && !d.archived))
+                                                                                         renderFieldStatus(!!row.value || documents.some(d => d.entityId === corporateEntityId && (d.category === row.category || (row.altCategory && d.category === row.altCategory)) && !d.archived))
                                                                                      )}
                                                                                  </td>
                                                                              </tr>
@@ -6553,6 +6568,7 @@ export default function MyCompanyPage() {
                             onClose={() => setIsProfileModalOpen(false)}
                             projectId={corporateEntityId}
                             entityType={profileModalType}
+                            isCorporate={true}
                         />
                     )}
                 </div>

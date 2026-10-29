@@ -781,7 +781,36 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
 
             // Verify Standard Profiles
-            let finalCompanyProfiles = [...companyProfiles];
+            let finalCompanyProfiles = [...companyProfiles].map(p => {
+                const reqs = { ...(p.requirements || {}) };
+                const uploads = { ...(p.standardUploads || {}) };
+                let modified = false;
+                if (reqs.insurance_at && reqs.insurance_at_receipt === undefined) {
+                    reqs.insurance_at_receipt = true;
+                    modified = true;
+                }
+                if (reqs.insurance_rc && reqs.insurance_rc_receipt === undefined) {
+                    reqs.insurance_rc_receipt = true;
+                    modified = true;
+                }
+                if (uploads.insurance_at !== false && uploads.insurance_at_receipt === undefined) {
+                    uploads.insurance_at_receipt = true;
+                    modified = true;
+                }
+                if (uploads.insurance_rc !== false && uploads.insurance_rc_receipt === undefined) {
+                    uploads.insurance_rc_receipt = true;
+                    modified = true;
+                }
+                if (!p.subjectFolders || Object.keys(p.subjectFolders).length === 0) {
+                    p.subjectFolders = {
+                        insurance_policies: 'Seguros e Apólices',
+                        state_obligations: 'Obrigações do Estado',
+                        site_documents: 'Documentos de Obra'
+                    };
+                    modified = true;
+                }
+                return modified ? { ...p, requirements: reqs, standardUploads: uploads } : p;
+            });
             let finalWorkerProfiles = [...workerProfiles];
             let finalEquipmentProfiles = [...equipmentProfiles];
 
