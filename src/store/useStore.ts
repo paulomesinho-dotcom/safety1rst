@@ -908,23 +908,76 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                                 }
                             }
 
-                            // Reconciliar utilizadores para convites aceites
+                            // Reconciliar utilizadores para convites aceites sem misturar contas
                             let updatedUsers = [...s.users];
+                            let updatedAccounts = [...s.accounts];
                             for (const inv of curInvs) {
                                 if (inv.status === 'accepted') {
                                     const clean = (inv.invitedEmail || '').toLowerCase().trim();
                                     const matchIdx = updatedUsers.findIndex(u => (u.email || '').toLowerCase().trim() === clean);
                                     if (matchIdx !== -1) {
-                                        if (updatedUsers[matchIdx].accountId !== inv.accountId) {
-                                            updatedUsers[matchIdx] = { ...updatedUsers[matchIdx], accountId: inv.accountId };
-                                            dbUpdate('users', updatedUsers[matchIdx].id, { accountId: inv.accountId }).catch(() => {});
+                                        const usr = updatedUsers[matchIdx];
+                                        let fixedAccountId = usr.accountId;
+
+                                        // Se a conta primária do utilizador foi sobreposta pela da empresa convidante, restaurar a conta própria (Free)
+                                        if (usr.accountId === inv.accountId) {
+                                            const ownAcc = updatedAccounts.find(a => a.id !== inv.accountId && (
+                                                a.contactEmail?.toLowerCase().trim() === clean ||
+                                                a.registeredUserName?.toLowerCase().trim() === (usr.name || '').toLowerCase().trim()
+                                            ));
+                                            if (ownAcc) {
+                                                fixedAccountId = ownAcc.id;
+                                            } else {
+                                                const personalAccId = `acc_free_${usr.id.replace(/^user_/, '')}`;
+                                                const newPersonalAcc: Account = {
+                                                    id: personalAccId,
+                                                    name: `${usr.name || 'Utilizador'} (Conta Pessoal)`,
+                                                    plan: 'free',
+                                                    status: 'active',
+                                                    subscriptionStatus: 'active',
+                                                    maxProjects: 0,
+                                                    accessControlLimit: 600,
+                                                    maxCompanyUsers: 1,
+                                                    modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                                    createdAt: usr.createdAt || new Date().toISOString()
+                                                };
+                                                updatedAccounts.push(newPersonalAcc);
+                                                dbInsert('accounts', newPersonalAcc).catch(() => {});
+                                                fixedAccountId = personalAccId;
+                                            }
                                         }
+
+                                        updatedUsers[matchIdx] = {
+                                            ...usr,
+                                            accountId: fixedAccountId,
+                                            associatedCompanyId: inv.accountId
+                                        };
+                                        dbUpdate('users', usr.id, { accountId: fixedAccountId, associatedCompanyId: inv.accountId }).catch(() => {});
                                     } else {
+                                        const personalAccId = `acc_free_${inv.id}`;
+                                        const newPersonalAcc: Account = {
+                                            id: personalAccId,
+                                            name: `${inv.invitedName || clean.split('@')[0]} (Conta Pessoal)`,
+                                            plan: 'free',
+                                            status: 'active',
+                                            subscriptionStatus: 'active',
+                                            maxProjects: 0,
+                                            accessControlLimit: 600,
+                                            maxCompanyUsers: 1,
+                                            modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                            createdAt: inv.createdAt
+                                        };
+                                        if (!updatedAccounts.some(a => a.id === personalAccId)) {
+                                            updatedAccounts.push(newPersonalAcc);
+                                            dbInsert('accounts', newPersonalAcc).catch(() => {});
+                                        }
+
                                         const newUserRecord: User = {
                                             id: `user_${inv.id}`,
                                             name: inv.invitedName || clean.split('@')[0],
                                             email: inv.invitedEmail,
-                                            accountId: inv.accountId,
+                                            accountId: personalAccId,
+                                            associatedCompanyId: inv.accountId,
                                             role: 'user',
                                             status: 'active',
                                             createdAt: inv.createdAt,
@@ -943,6 +996,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                             return {
                                 companyInvitations: curInvs,
                                 users: updatedUsers,
+                                accounts: updatedAccounts,
                                 currentUser: updatedCurrentUser
                             };
                         });
@@ -1229,23 +1283,76 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                             }
                         }
 
-                        // Reconciliar utilizadores para convites aceites
+                        // Reconciliar utilizadores para convites aceites sem misturar contas
                         let updatedUsers = [...state.users];
+                        let updatedAccounts = [...state.accounts];
                         for (const inv of mergedCompanyInvs) {
                             if (inv.status === 'accepted') {
                                 const clean = (inv.invitedEmail || '').toLowerCase().trim();
                                 const matchIdx = updatedUsers.findIndex(u => (u.email || '').toLowerCase().trim() === clean);
                                 if (matchIdx !== -1) {
-                                    if (updatedUsers[matchIdx].accountId !== inv.accountId) {
-                                        updatedUsers[matchIdx] = { ...updatedUsers[matchIdx], accountId: inv.accountId };
-                                        dbUpdate('users', updatedUsers[matchIdx].id, { accountId: inv.accountId }).catch(() => {});
+                                    const usr = updatedUsers[matchIdx];
+                                    let fixedAccountId = usr.accountId;
+
+                                    // Se a conta primária do utilizador foi sobreposta pela da empresa convidante, restaurar a conta própria (Free)
+                                    if (usr.accountId === inv.accountId) {
+                                        const ownAcc = updatedAccounts.find(a => a.id !== inv.accountId && (
+                                            a.contactEmail?.toLowerCase().trim() === clean ||
+                                            a.registeredUserName?.toLowerCase().trim() === (usr.name || '').toLowerCase().trim()
+                                        ));
+                                        if (ownAcc) {
+                                            fixedAccountId = ownAcc.id;
+                                        } else {
+                                            const personalAccId = `acc_free_${usr.id.replace(/^user_/, '')}`;
+                                            const newPersonalAcc: Account = {
+                                                id: personalAccId,
+                                                name: `${usr.name || 'Utilizador'} (Conta Pessoal)`,
+                                                plan: 'free',
+                                                status: 'active',
+                                                subscriptionStatus: 'active',
+                                                maxProjects: 0,
+                                                accessControlLimit: 600,
+                                                maxCompanyUsers: 1,
+                                                modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                                createdAt: usr.createdAt || new Date().toISOString()
+                                            };
+                                            updatedAccounts.push(newPersonalAcc);
+                                            dbInsert('accounts', newPersonalAcc).catch(() => {});
+                                            fixedAccountId = personalAccId;
+                                        }
                                     }
+
+                                    updatedUsers[matchIdx] = {
+                                        ...usr,
+                                        accountId: fixedAccountId,
+                                        associatedCompanyId: inv.accountId
+                                    };
+                                    dbUpdate('users', usr.id, { accountId: fixedAccountId, associatedCompanyId: inv.accountId }).catch(() => {});
                                 } else {
+                                    const personalAccId = `acc_free_${inv.id}`;
+                                    const newPersonalAcc: Account = {
+                                        id: personalAccId,
+                                        name: `${inv.invitedName || clean.split('@')[0]} (Conta Pessoal)`,
+                                        plan: 'free',
+                                        status: 'active',
+                                        subscriptionStatus: 'active',
+                                        maxProjects: 0,
+                                        accessControlLimit: 600,
+                                        maxCompanyUsers: 1,
+                                        modules: ['companies', 'workers', 'equipment', 'access-control'],
+                                        createdAt: inv.createdAt
+                                    };
+                                    if (!updatedAccounts.some(a => a.id === personalAccId)) {
+                                        updatedAccounts.push(newPersonalAcc);
+                                        dbInsert('accounts', newPersonalAcc).catch(() => {});
+                                    }
+
                                     const newUserRecord: User = {
                                         id: `user_${inv.id}`,
                                         name: inv.invitedName || clean.split('@')[0],
                                         email: inv.invitedEmail,
-                                        accountId: inv.accountId,
+                                        accountId: personalAccId,
+                                        associatedCompanyId: inv.accountId,
                                         role: 'user',
                                         status: 'active',
                                         createdAt: inv.createdAt,
@@ -1264,6 +1371,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         return {
                             companyInvitations: mergedCompanyInvs,
                             users: updatedUsers,
+                            accounts: updatedAccounts,
                             currentUser: updatedCurrentUser
                         };
                     });
@@ -2430,6 +2538,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const isSuper = state.currentUser?.role === 'superadmin' || reqUser?.role === 'superadmin';
             const isMember = isSuper || (reqUser && proj && (
                 (reqUser.accountId && proj.accountId && reqUser.accountId === proj.accountId) ||
+                (reqUser.associatedCompanyId && proj.accountId && reqUser.associatedCompanyId === proj.accountId) ||
+                (state.companyInvitations || []).some(ci => ci.accountId === proj.accountId && ci.status === 'accepted' && (ci.invitedEmail || '').toLowerCase().trim() === (reqUser.email || '').toLowerCase().trim()) ||
                 (proj.creatorId && reqUser.id === proj.creatorId)
             ));
 
@@ -2619,12 +2729,12 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const resolvedAt = new Date().toISOString();
         const cleanEmail = inv.invitedEmail.toLowerCase().trim();
         let targetUser = state.users.find(u => u.email.toLowerCase().trim() === cleanEmail);
+        if (!targetUser && state.currentUser && state.currentUser.email.toLowerCase().trim() === cleanEmail) {
+            targetUser = state.currentUser;
+        }
 
         if (targetUser) {
-            dbUpdate('users', targetUser.id, { accountId: inv.accountId }).catch(console.error);
-        } else if (state.currentUser && state.currentUser.email.toLowerCase().trim() === cleanEmail) {
-            targetUser = state.currentUser;
-            dbUpdate('users', targetUser.id, { accountId: inv.accountId }).catch(console.error);
+            dbUpdate('users', targetUser.id, { associatedCompanyId: inv.accountId }).catch(console.error);
         }
 
         dbUpdate('company_invitations', inv.id, { status: 'accepted', resolvedAt }).catch(console.error);
@@ -2643,7 +2753,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const updatedUsers = s.users.map(u => {
                 if (u.email.toLowerCase().trim() === cleanEmail) {
                     userFound = true;
-                    return { ...u, accountId: inv.accountId };
+                    // Preservar a sua conta pessoal/plano e apenas guardar a empresa associada
+                    return { ...u, associatedCompanyId: inv.accountId };
                 }
                 return u;
             });
@@ -2653,7 +2764,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     id: targetUser?.id || `user_${inv.id}`,
                     name: inv.invitedName || targetUser?.name || cleanEmail.split('@')[0],
                     email: inv.invitedEmail,
-                    accountId: inv.accountId,
+                    accountId: `acc_free_${inv.id}`,
+                    associatedCompanyId: inv.accountId,
                     role: 'user',
                     status: 'active',
                     createdAt: inv.createdAt,
@@ -2663,7 +2775,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 dbInsert('users', newUserRecord).catch(() => {});
             }
 
-            // Assegurar que a conta da empresa existe no store do utilizador que aceita
+            // Assegurar que a conta da empresa convidante existe no store local para exibição do nome e plano
             let updatedAccounts = [...s.accounts];
             if (!updatedAccounts.some(a => a.id === inv.accountId)) {
                 const newAcc: Account = {
@@ -2682,8 +2794,9 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 dbInsert('accounts', newAcc).catch(() => {});
             }
 
+            // Se o currentUser for o utilizador que aceitou, atualizar apenas associatedCompanyId sem perder a sua própria conta
             const updatedCurrentUser = s.currentUser?.email.toLowerCase().trim() === cleanEmail
-                ? { ...s.currentUser, accountId: inv.accountId }
+                ? { ...s.currentUser, associatedCompanyId: inv.accountId }
                 : s.currentUser;
 
             return {
@@ -2694,7 +2807,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             };
         });
 
-        get().addNotification('success', `Aceitou o convite com sucesso! Agora faz parte da empresa ${inv.accountName}.`);
+        get().addNotification('success', `Aceitou o convite com sucesso! Ficou associado à empresa "${inv.accountName}" como Convidado.`);
         return { success: true, message: `Conta associada com sucesso à empresa ${inv.accountName}!` };
     },
 
@@ -4052,6 +4165,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const isSuper = state.currentUser?.role === 'superadmin' || targetUser?.role === 'superadmin';
             const isMemberOfAccount = isSuper || (targetUser && proj && (
                 (targetUser.accountId && proj.accountId && targetUser.accountId === proj.accountId) ||
+                (targetUser.associatedCompanyId && proj.accountId && targetUser.associatedCompanyId === proj.accountId) ||
+                (state.companyInvitations || []).some(ci => ci.accountId === proj.accountId && ci.status === 'accepted' && (ci.invitedEmail || '').toLowerCase().trim() === (targetUser.email || '').toLowerCase().trim()) ||
                 (proj.creatorId && targetUser.id === proj.creatorId)
             ));
 

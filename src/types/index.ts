@@ -19,6 +19,9 @@ export interface User {
     role: SystemRole;
     phone?: string;
     accountId: string; // Tenant ID
+    associatedCompanyId?: string; // ID da empresa/conta a que foi associado como convidado/membro
+    associatedCompanyIds?: string[];
+    isGuestMember?: boolean;
     projectAccess?: ProjectAccess[]; // Permissions per project
     avatarUrl?: string;
     password?: string;

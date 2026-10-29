@@ -92,28 +92,50 @@ export async function GET() {
             };
         });
 
-        const users = dbUsers.map(u => ({
-            id: u.id,
-            accountId: u.tenantId || undefined,
-            name: u.name || 'Utilizador',
-            email: u.email,
-            password: u.password || undefined,
-            role: (u.role || 'client_admin') as any,
-            avatar: u.avatarUrl || u.image || undefined,
-            status: (u.status || 'active') as any,
-            lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
-            suspendedAt: u.suspendedAt ? u.suspendedAt.toISOString() : undefined,
-            suspensionReason: u.suspensionReason || undefined,
-            deletedAt: u.deletedAt ? u.deletedAt.toISOString() : undefined,
-            emailVerified: u.emailVerified ? u.emailVerified.toISOString() : undefined,
-            createdAt: u.createdAt.toISOString(),
-            projectAccess: (u.projectMembers || []).map(pm => ({
-                projectId: pm.projectId,
-                role: pm.role as any,
-                allowedModules: pm.allowedModules || [],
-                companyIds: pm.companyIds || [],
-            })),
-        }));
+        const users = dbUsers.map(u => {
+            const cleanEmail = (u.email || '').toLowerCase().trim();
+            const acceptedInv = (rawCompanyInvitations || []).find(
+                (ci: any) => ci.status === 'accepted' && (ci.invitedEmail || '').toLowerCase().trim() === cleanEmail
+            );
+            const associatedCompanyId = acceptedInv?.accountId || undefined;
+
+            let effectiveTenantId = u.tenantId || undefined;
+            // Se o utilizador aceitou um convite mas o seu tenantId apontava para a empresa que o convidou,
+            // verificar se existe o seu próprio tenant pessoal para evitar mistura de contas
+            if (acceptedInv && effectiveTenantId === acceptedInv.accountId) {
+                const personalTenant = tenants.find(t => t.id !== acceptedInv.accountId && (
+                    t.name.toLowerCase().trim() === (u.name || '').toLowerCase().trim() ||
+                    requests.some(r => r.email.toLowerCase().trim() === cleanEmail && r.companyName === t.name)
+                ));
+                if (personalTenant) {
+                    effectiveTenantId = personalTenant.id;
+                }
+            }
+
+            return {
+                id: u.id,
+                accountId: effectiveTenantId,
+                associatedCompanyId,
+                name: u.name || 'Utilizador',
+                email: u.email,
+                password: u.password || undefined,
+                role: (u.role || 'client_admin') as any,
+                avatar: u.avatarUrl || u.image || undefined,
+                status: (u.status || 'active') as any,
+                lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : undefined,
+                suspendedAt: u.suspendedAt ? u.suspendedAt.toISOString() : undefined,
+                suspensionReason: u.suspensionReason || undefined,
+                deletedAt: u.deletedAt ? u.deletedAt.toISOString() : undefined,
+                emailVerified: u.emailVerified ? u.emailVerified.toISOString() : undefined,
+                createdAt: u.createdAt.toISOString(),
+                projectAccess: (u.projectMembers || []).map(pm => ({
+                    projectId: pm.projectId,
+                    role: pm.role as any,
+                    allowedModules: pm.allowedModules || [],
+                    companyIds: pm.companyIds || [],
+                })),
+            };
+        });
 
         const subscriptionRequests = requests.map(r => ({
             id: r.id,

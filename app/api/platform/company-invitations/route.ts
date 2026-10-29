@@ -180,11 +180,8 @@ export async function PATCH(req: NextRequest) {
             );
 
             if (status === 'accepted' && target) {
-                const cleanEmail = String(target.invitedEmail).toLowerCase().trim();
-                await prisma.$executeRawUnsafe(
-                    `UPDATE "User" SET "tenantId" = $1 WHERE LOWER(TRIM("email")) = $2`,
-                    target.accountId, cleanEmail
-                ).catch(() => {});
+                // Não alterar o tenantId primário do utilizador no PostgreSQL para preservar a sua conta pessoal/plano.
+                // A associação é estabelecida através do registo na tabela company_invitations.
             }
         } catch (dbErr) {
             console.warn('[API Company Invitations PATCH] DB update warning (file storage used):', (dbErr as any)?.message);

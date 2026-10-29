@@ -172,6 +172,75 @@ export default function Home() {
         };
     }, [syncFromServer]);
 
+    // Convite aceite de empresa associada (se o utilizador for membro/convidado de outra empresa)
+    const associatedCompanyInvitation = useMemo(() => {
+        if (!currentUser?.email) return null;
+        const myEmail = currentUser.email.toLowerCase().trim();
+        return (companyInvitations || []).find(inv => 
+            (inv.invitedEmail || '').toLowerCase().trim() === myEmail && inv.status === 'accepted'
+        ) || null;
+    }, [currentUser, companyInvitations]);
+
+    const associatedCompanyAccount = useMemo(() => {
+        const accId = currentUser?.associatedCompanyId || associatedCompanyInvitation?.accountId;
+        if (!accId) return null;
+        return accounts.find(a => a.id === accId) || null;
+    }, [currentUser, associatedCompanyInvitation, accounts]);
+
+    // Auto-reconciliação: se o utilizador livre tiver sido indevidamente associado ao accountId da empresa que o convidou,
+    // restaurar a sua conta própria pessoal Free para que o seu Workplace permaneça Free e o bónus seja aplicado.
+    useEffect(() => {
+        if (!currentUser?.email || !hasMounted) return;
+        const myEmail = currentUser.email.toLowerCase().trim();
+        const acceptedInv = (companyInvitations || []).find(
+            inv => (inv.invitedEmail || '').toLowerCase().trim() === myEmail && inv.status === 'accepted'
+        );
+
+        if (acceptedInv) {
+            if (currentUser.accountId === acceptedInv.accountId) {
+                const ownAccount = accounts.find(a => a.id !== acceptedInv.accountId && (
+                    a.contactEmail?.toLowerCase().trim() === myEmail ||
+                    a.registeredUserName?.toLowerCase().trim() === (currentUser.name || '').toLowerCase().trim()
+                ));
+                const targetPersonalId = ownAccount ? ownAccount.id : `acc_free_${currentUser.id.replace(/^user_/, '')}`;
+
+                if (!ownAccount && !accounts.some(a => a.id === targetPersonalId)) {
+                    useStore.getState().addAccount({
+                        id: targetPersonalId,
+                        name: `${currentUser.name || 'Utilizador'} (Conta Pessoal)`,
+                        plan: 'free',
+                        status: 'active',
+                        subscriptionStatus: 'active',
+                        maxProjects: 0,
+                        accessControlLimit: 600,
+                        maxCompanyUsers: 1,
+                        modules: ['companies', 'workers', 'equipment', 'access-control']
+                    });
+                }
+
+                useStore.getState().updateUser(currentUser.id, {
+                    accountId: targetPersonalId,
+                    associatedCompanyId: acceptedInv.accountId
+                });
+                useStore.setState({
+                    currentUser: {
+                        ...currentUser,
+                        accountId: targetPersonalId,
+                        associatedCompanyId: acceptedInv.accountId
+                    }
+                });
+            } else if (!currentUser.associatedCompanyId) {
+                useStore.getState().updateUser(currentUser.id, { associatedCompanyId: acceptedInv.accountId });
+                useStore.setState({
+                    currentUser: {
+                        ...currentUser,
+                        associatedCompanyId: acceptedInv.accountId
+                    }
+                });
+            }
+        }
+    }, [currentUser, companyInvitations, accounts, hasMounted]);
+
     // Active Account & Subscription Details — strictly isolated per user
     const userAccount = useMemo(() => {
         if (!currentUser || currentUser.role === 'superadmin') return null;
@@ -247,11 +316,13 @@ export default function Home() {
 
     const maxJoinedProjects = useMemo(() => {
         if (isSuperAdmin) return Infinity;
-        // User without subscription: 5 projects. User with subscription or associated to subscription: 5 + 10 = 15 projects. Enterprise: unlimited
+        if (userAccount?.plan === 'enterprise') return Infinity;
+        if (userAccount && userAccount.plan !== 'free') return 15;
+        // Utilizador com plano gratuito mas associado a uma empresa parceira com subscrição ativa: 5 + 10 = 15 obras
+        if (associatedCompanyAccount && associatedCompanyAccount.plan !== 'free') return 15;
         if (!userAccount || userAccount.plan === 'free') return 5;
-        if (userAccount.plan === 'enterprise') return Infinity;
         return 15;
-    }, [isSuperAdmin, userAccount]);
+    }, [isSuperAdmin, userAccount, associatedCompanyAccount]);
 
     const maxCompanyMembers = useMemo(() => {
         if (isSuperAdmin) return Infinity;
@@ -287,12 +358,22 @@ export default function Home() {
 
     // Company Members
     const companyMembers = useMemo(() => {
-        const targetAccountId = userAccount?.id || currentUser?.accountId;
+        // Se a conta for de plano pago, foca nela; senão, se tiver empresa associada, foca na empresa associada
+        const targetAccountId = userAccount && userAccount.plan !== 'free'
+            ? userAccount.id
+            : (currentUser?.associatedCompanyId || associatedCompanyAccount?.id || userAccount?.id || currentUser?.accountId);
+
         if (!targetAccountId) return currentUser ? [currentUser] : [];
 
         // Membros diretos com accountId atribuído
         const directMembers = users.filter(u => u.accountId === targetAccountId);
         const memberEmails = new Set(directMembers.map(u => (u.email || '').toLowerCase().trim()));
+
+        // Membros que têm associatedCompanyId para esta conta
+        const associatedMembers = users.filter(u => u.associatedCompanyId === targetAccountId && !memberEmails.has((u.email || '').toLowerCase().trim()));
+        for (const am of associatedMembers) {
+            memberEmails.add((am.email || '').toLowerCase().trim());
+        }
 
         // Incluir também colaboradores com convite aceite para esta conta
         const acceptedInvs = (companyInvitations || []).filter(
@@ -305,13 +386,14 @@ export default function Home() {
             if (cleanInvEmail && !memberEmails.has(cleanInvEmail)) {
                 const matchUser = users.find(u => (u.email || '').toLowerCase().trim() === cleanInvEmail);
                 if (matchUser) {
-                    syntheticFromInvs.push({ ...matchUser, accountId: targetAccountId });
+                    syntheticFromInvs.push({ ...matchUser, associatedCompanyId: targetAccountId });
                 } else {
                     syntheticFromInvs.push({
                         id: `member_${inv.id}`,
                         name: inv.invitedName || cleanInvEmail.split('@')[0],
                         email: inv.invitedEmail,
-                        accountId: targetAccountId,
+                        accountId: `acc_free_${inv.id}`,
+                        associatedCompanyId: targetAccountId,
                         role: 'user',
                         status: 'active',
                         createdAt: inv.createdAt,
@@ -322,12 +404,12 @@ export default function Home() {
             }
         }
 
-        const all = [...directMembers, ...syntheticFromInvs];
-        if (currentUser && currentUser.accountId === targetAccountId && !memberEmails.has((currentUser.email || '').toLowerCase().trim())) {
+        const all = [...directMembers, ...associatedMembers, ...syntheticFromInvs];
+        if (currentUser && (currentUser.accountId === targetAccountId || currentUser.associatedCompanyId === targetAccountId) && !memberEmails.has((currentUser.email || '').toLowerCase().trim())) {
             all.unshift(currentUser);
         }
         return all;
-    }, [users, userAccount, currentUser, companyInvitations]);
+    }, [users, userAccount, currentUser, associatedCompanyAccount, companyInvitations]);
 
     // Access Requests (apenas para obras que o utilizador gere no seu workplace)
     const managedProjectIds = useMemo(() => {
@@ -742,8 +824,15 @@ export default function Home() {
                             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text)]">
                                 Workplace
                             </h1>
-                            <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                                {userAccount?.name ? `${userAccount.name} • ` : ''}Plano <strong className="uppercase text-primary">{currentPlan}</strong> &bull; {joinedProjects.length}/{maxJoinedProjects === Infinity ? '∞' : maxJoinedProjects} obras em acesso
+                            <p className="text-xs text-[var(--text-muted)] mt-0.5 flex items-center gap-2 flex-wrap">
+                                <span>
+                                    {userAccount?.name ? `${userAccount.name} • ` : ''}Plano <strong className="uppercase text-primary">{currentPlan}</strong> &bull; {joinedProjects.length}/{maxJoinedProjects === Infinity ? '∞' : maxJoinedProjects} obras em acesso
+                                </span>
+                                {associatedCompanyAccount && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                        <Building2 size={11} /> Convidado na empresa: {associatedCompanyAccount.name}
+                                    </span>
+                                )}
                             </p>
                         </div>
 
@@ -1358,7 +1447,14 @@ export default function Home() {
                     )}
 
                     {/* ════════ TAB 3: MEMBROS DA EMPRESA ════════ */}
-                    {activeTab === 'company' && (
+                    {activeTab === 'company' && (() => {
+                        const targetCompanyAccount = userAccount && userAccount.plan !== 'free'
+                            ? userAccount
+                            : (associatedCompanyAccount || userAccount);
+                        const targetAccountId = targetCompanyAccount?.id;
+                        const isAccountOwnerAdmin = (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin') && targetAccountId === userAccount?.id;
+
+                        return (
                         <div className="space-y-6">
                             <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -1366,28 +1462,30 @@ export default function Home() {
                                         <div className="flex items-center gap-2">
                                             <Building2 size={20} className="text-primary" />
                                             <h3 className="text-base font-bold text-[var(--text)]">
-                                                {userAccount?.name || 'A Minha Empresa'}
+                                                {targetCompanyAccount?.name || userAccount?.name || 'A Minha Empresa'}
                                             </h3>
                                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase">
-                                                {currentPlan}
+                                                {targetCompanyAccount?.plan || currentPlan}
                                             </span>
                                         </div>
                                         <p className="text-xs text-[var(--text-muted)] mt-1">
-                                            {userAccount?.vatNumber ? `NIF: ${userAccount.vatNumber} • ` : ''} 
+                                            {targetCompanyAccount?.vatNumber ? `NIF: ${targetCompanyAccount.vatNumber} • ` : ''} 
                                             Utilizadores associados: <strong>{companyMembers.length} / {maxCompanyMembers === Infinity ? 'Ilimitados' : maxCompanyMembers}</strong>
                                         </p>
                                     </div>
 
-                                    <button
-                                        onClick={() => {
-                                            setInviteError('');
-                                            setInviteSuccess('');
-                                            setIsInviteOpen(true);
-                                        }}
-                                        className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 shrink-0 self-start sm:self-auto"
-                                    >
-                                        <UserPlus size={15} /> Associar Utilizador
-                                    </button>
+                                    {isAccountOwnerAdmin && (
+                                        <button
+                                            onClick={() => {
+                                                setInviteError('');
+                                                setInviteSuccess('');
+                                                setIsInviteOpen(true);
+                                            }}
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 shrink-0 self-start sm:self-auto"
+                                        >
+                                            <UserPlus size={15} /> Associar Utilizador
+                                        </button>
+                                    )}
                                 </div>
 
                                 {/* Bonus project accesses banner */}
@@ -1415,6 +1513,19 @@ export default function Home() {
                                             {companyMembers.map(member => {
                                                 const isSuspended = member.status === 'suspended';
                                                 const canManage = (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin') && member.id !== currentUser.id;
+                                                const cleanMemberEmail = (member.email || '').toLowerCase().trim();
+
+                                                const isGuest = member.associatedCompanyId === targetAccountId ||
+                                                    (companyInvitations || []).some(inv => inv.accountId === targetAccountId && inv.status === 'accepted' && (inv.invitedEmail || '').toLowerCase().trim() === cleanMemberEmail) ||
+                                                    (member.accountId !== targetAccountId);
+
+                                                const isCompanyAdmin = !isGuest && (
+                                                    member.role === 'admin' ||
+                                                    member.role === 'client_admin' ||
+                                                    member.id === targetCompanyAccount?.id ||
+                                                    (targetCompanyAccount?.contactEmail && cleanMemberEmail === targetCompanyAccount.contactEmail.toLowerCase().trim()) ||
+                                                    (targetCompanyAccount?.registeredUserName && (member.name || '').toLowerCase().trim() === targetCompanyAccount.registeredUserName.toLowerCase().trim())
+                                                );
 
                                                 return (
                                                     <tr key={member.id} className="hover:bg-primary/5">
@@ -1428,9 +1539,27 @@ export default function Home() {
                                                         </td>
                                                         <td className="py-3 px-3 text-[var(--text-muted)]">{member.email}</td>
                                                         <td className="py-3 px-3">
-                                                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 dark:bg-surface text-gray-700 dark:text-gray-300">
-                                                                {member.role === 'admin' || member.role === 'client_admin' ? 'Administrador' : 'Colaborador'}
-                                                            </span>
+                                                            {isCompanyAdmin ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                    Administrador
+                                                                </span>
+                                                            ) : isGuest ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    Convidado
+                                                                </span>
+                                                            ) : member.role === 'manager' ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                                    Manager
+                                                                </span>
+                                                            ) : member.role === 'editor' ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                                                    Editor
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-gray-100 dark:bg-surface text-gray-700 dark:text-gray-300">
+                                                                    Colaborador
+                                                                </span>
+                                                            )}
                                                         </td>
                                                         <td className="py-3 px-3 font-medium text-[var(--text)]">
                                                             {member.projectAccess?.length || 0} obra(s)
@@ -1536,7 +1665,8 @@ export default function Home() {
                                 )}
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* ════════ TAB 4: AS MINHAS SUBSCRIÇÕES ════════ */}
                     {activeTab === 'subscriptions' && (

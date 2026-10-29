@@ -46,6 +46,10 @@ export default function AccountDashboardPage() {
         const direct = users.filter(u => u.accountId === currentAccountId);
         const emails = new Set(direct.map(u => (u.email || '').toLowerCase().trim()));
 
+        // Membros associados com associatedCompanyId
+        const associated = users.filter(u => u.associatedCompanyId === currentAccountId && !emails.has((u.email || '').toLowerCase().trim()));
+        for (const au of associated) emails.add((au.email || '').toLowerCase().trim());
+
         const acceptedInvs = (companyInvitations || []).filter(
             i => i.accountId === currentAccountId && i.status === 'accepted'
         );
@@ -56,13 +60,14 @@ export default function AccountDashboardPage() {
             if (cleanInvEmail && !emails.has(cleanInvEmail)) {
                 const match = users.find(u => (u.email || '').toLowerCase().trim() === cleanInvEmail);
                 if (match) {
-                    synthetic.push({ ...match, accountId: currentAccountId });
+                    synthetic.push({ ...match, associatedCompanyId: currentAccountId });
                 } else {
                     synthetic.push({
                         id: `member_${inv.id}`,
                         name: inv.invitedName || cleanInvEmail.split('@')[0],
                         email: inv.invitedEmail,
-                        accountId: currentAccountId,
+                        accountId: `acc_free_${inv.id}`,
+                        associatedCompanyId: currentAccountId,
                         role: 'user',
                         status: 'active',
                         createdAt: inv.createdAt,
@@ -72,7 +77,7 @@ export default function AccountDashboardPage() {
                 emails.add(cleanInvEmail);
             }
         }
-        return [...direct, ...synthetic];
+        return [...direct, ...associated, ...synthetic];
     }, [users, currentAccountId, companyInvitations]);
 
     const pendingInvitations = (companyInvitations || []).filter(
@@ -296,17 +301,27 @@ export default function AccountDashboardPage() {
 
                         {userViewMode === 'grid' ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                {filteredUsers.map(user => (
+                                {filteredUsers.map(user => {
+                                    const cleanEmail = (user.email || '').toLowerCase().trim();
+                                    const isGuest = user.associatedCompanyId === currentAccountId ||
+                                        (companyInvitations || []).some(inv => inv.accountId === currentAccountId && inv.status === 'accepted' && (inv.invitedEmail || '').toLowerCase().trim() === cleanEmail) ||
+                                        (user.accountId !== currentAccountId);
+
+                                    const isOwnerAdmin = !isGuest && (user.role === 'admin' || user.role === 'client_admin');
+
+                                    return (
                                     <div key={user.id} className="bg-white dark:bg-surface p-5 rounded-xl shadow-sm border border-gray-200 dark:border-[#444746] hover:border-purple-200 transition-all flex flex-col h-full">
                                         <div className="flex justify-between items-start mb-4">
                                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-100 to-blue-100 text-purple-700 flex items-center justify-center text-sm font-bold border border-white shadow-sm">
                                                 {user.name.substring(0, 2).toUpperCase()}
                                             </div>
                                             <span className={cn("px-2 py-0.5 rounded text-xs font-semibold capitalize border",
-                                                user.role === 'admin' ? "bg-amber-50 text-amber-700 border-amber-100" :
-                                                    user.role === 'manager' ? "bg-primary-light text-primary-hover border-primary/10" :
-                                                        "bg-gray-50 dark:bg-[#131314] text-gray-600 dark:text-gray-300 border-gray-100 dark:border-[#444746]")}>
-                                                {user.role}
+                                                isGuest ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800" :
+                                                isOwnerAdmin ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800" :
+                                                user.role === 'manager' ? "bg-primary-light text-primary-hover border-primary/10" :
+                                                user.role === 'editor' ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800" :
+                                                "bg-gray-50 dark:bg-[#131314] text-gray-600 dark:text-gray-300 border-gray-100 dark:border-[#444746]")}>
+                                                {isGuest ? 'Convidado' : isOwnerAdmin ? 'Administrador' : user.role}
                                             </span>
                                         </div>
                                         <div className="mb-4 flex-1">
@@ -327,7 +342,8 @@ export default function AccountDashboardPage() {
                                             </button>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div className="bg-white dark:bg-surface rounded-xl shadow-sm border border-gray-200 dark:border-[#444746] overflow-hidden">
@@ -341,7 +357,15 @@ export default function AccountDashboardPage() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {filteredUsers.map(user => (
+                                        {filteredUsers.map(user => {
+                                            const cleanEmail = (user.email || '').toLowerCase().trim();
+                                            const isGuest = user.associatedCompanyId === currentAccountId ||
+                                                (companyInvitations || []).some(inv => inv.accountId === currentAccountId && inv.status === 'accepted' && (inv.invitedEmail || '').toLowerCase().trim() === cleanEmail) ||
+                                                (user.accountId !== currentAccountId);
+
+                                            const isOwnerAdmin = !isGuest && (user.role === 'admin' || user.role === 'client_admin');
+
+                                            return (
                                             <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-[#131314] transition-colors">
                                                 <td className="px-6 py-4">
                                                     <div className="flex items-center gap-3">
@@ -355,7 +379,19 @@ export default function AccountDashboardPage() {
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <span className="capitalize text-gray-700 dark:text-gray-200 block">{user.role}</span>
+                                                    {isGuest ? (
+                                                        <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
+                                                            Convidado
+                                                        </span>
+                                                    ) : isOwnerAdmin ? (
+                                                        <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
+                                                            Administrador
+                                                        </span>
+                                                    ) : (
+                                                        <span className="capitalize text-gray-700 dark:text-gray-200 block font-medium">
+                                                            {user.role}
+                                                        </span>
+                                                    )}
                                                     {user.canManageCompanyData && (
                                                         <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5">
                                                             ✓ A Minha Empresa
@@ -374,7 +410,8 @@ export default function AccountDashboardPage() {
                                                     </button>
                                                 </td>
                                             </tr>
-                                        ))}
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
