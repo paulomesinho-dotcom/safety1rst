@@ -604,6 +604,7 @@ export default function MyCompanyPage() {
     const [cdeCurrentPath, setCdeCurrentPath] = useState<Array<{ id: string; name: string }>>([]);
     const [cdeDriveItems, setCdeDriveItems] = useState<any[]>([]);
     const [cdeTreeData, setCdeTreeData] = useState<Record<string, any[]>>({});
+    const cdeTreeDataRef = useRef<Record<string, any[]>>({});
     const [cdeExpandedFolders, setCdeExpandedFolders] = useState<Set<string>>(new Set(['root']));
     const [isLoadingCdeItems, setIsLoadingCdeItems] = useState(false);
     const [cdeLoadError, setCdeLoadError] = useState<string>('');
@@ -682,28 +683,60 @@ export default function MyCompanyPage() {
             prevCdeFolderKeyRef.current = key;
             setCdeCurrentPath([]);
             setCdeTreeData({});
+            cdeTreeDataRef.current = {};
             setCdeDriveItems([]);
         }
     }, [companyCdeConfig?.provider, companyCdeConfig?.siteUrl, companyCdeConfig?.folderId, companyCdeConfig?.folderPath]);
 
-    // Load live CDE content when connected or navigating
-    const loadCompanyCdeView = async (overrideTargetId?: string, refreshRootAlso: boolean = false) => {
+    // Load live CDE content with Instant Cache & Background Revalidation
+    const loadCompanyCdeView = async (overrideTargetId?: string, forceRefresh: boolean = false) => {
         if (!companyCdeConfig?.connected) {
             setCdeDriveItems([]);
             setCdeTreeData({});
+            cdeTreeDataRef.current = {};
             return;
         }
+
+        const targetId = overrideTargetId !== undefined
+            ? overrideTargetId
+            : (cdeCurrentPath.length > 0 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : 'root');
+
+        const cached = cdeTreeDataRef.current[targetId];
+
+        // 1. INSTANT RENDER: If folder is already cached, show immediately with 0ms delay
+        if (cached && !forceRefresh) {
+            setCdeDriveItems(cached);
+            setCdeLoadError('');
+            setCdeExpandedFolders(prev => {
+                const next = new Set(prev);
+                next.add('root');
+                if (companyCdeConfig.folderId) next.add(companyCdeConfig.folderId);
+                cdeCurrentPath.forEach(p => next.add(p.id));
+                if (targetId && targetId !== 'root') next.add(targetId);
+                return next;
+            });
+
+            // Silent background revalidation
+            fetchCompanyCdeContent(companyCdeConfig, targetId).then(freshItems => {
+                cdeTreeDataRef.current[targetId] = freshItems;
+                setCdeDriveItems(freshItems);
+                setCdeTreeData(prev => ({ ...prev, [targetId]: freshItems }));
+            }).catch(e => console.warn('[CDE] Background refresh warning:', e));
+            return;
+        }
+
+        // 2. First-time fetch: show loading and fetch
         setIsLoadingCdeItems(true);
         setCdeLoadError('');
         try {
-            const targetId = overrideTargetId !== undefined
-                ? overrideTargetId
-                : (cdeCurrentPath.length > 0 ? cdeCurrentPath[cdeCurrentPath.length - 1].id : 'root');
             const items = await fetchCompanyCdeContent(companyCdeConfig, targetId);
+            cdeTreeDataRef.current[targetId] = items;
             setCdeDriveItems(items);
 
             const isRoot = !targetId || targetId === 'root' || targetId === companyCdeConfig.folderId;
             if (isRoot) {
+                cdeTreeDataRef.current['root'] = items;
+                if (companyCdeConfig.folderId) cdeTreeDataRef.current[companyCdeConfig.folderId] = items;
                 setCdeTreeData(prev => ({
                     ...prev,
                     root: items,
@@ -711,15 +744,6 @@ export default function MyCompanyPage() {
                 }));
             } else {
                 setCdeTreeData(prev => ({ ...prev, [targetId]: items }));
-                if (refreshRootAlso || !cdeTreeData['root']) {
-                    const rootItems = await fetchCompanyCdeContent(companyCdeConfig, 'root');
-                    setCdeTreeData(prev => ({
-                        ...prev,
-                        [targetId]: items,
-                        root: rootItems,
-                        ...(companyCdeConfig.folderId ? { [companyCdeConfig.folderId]: rootItems } : {})
-                    }));
-                }
             }
 
             setCdeExpandedFolders(prev => {
@@ -727,6 +751,7 @@ export default function MyCompanyPage() {
                 next.add('root');
                 if (companyCdeConfig.folderId) next.add(companyCdeConfig.folderId);
                 cdeCurrentPath.forEach(p => next.add(p.id));
+                if (targetId && targetId !== 'root') next.add(targetId);
                 return next;
             });
         } catch (err: any) {
@@ -743,6 +768,7 @@ export default function MyCompanyPage() {
         } else {
             setCdeDriveItems([]);
             setCdeTreeData({});
+            cdeTreeDataRef.current = {};
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
@@ -761,9 +787,10 @@ export default function MyCompanyPage() {
         } else {
             next.add(folderId);
             setCdeExpandedFolders(next);
-            if (!cdeTreeData[folderId] && companyCdeConfig?.connected) {
+            if (!cdeTreeDataRef.current[folderId] && companyCdeConfig?.connected) {
                 try {
                     const items = await fetchCompanyCdeContent(companyCdeConfig, folderId);
+                    cdeTreeDataRef.current[folderId] = items;
                     setCdeTreeData(prev => ({ ...prev, [folderId]: items }));
                 } catch (e) {
                     console.warn('Failed to expand folder in tree:', e);
@@ -5296,9 +5323,7 @@ export default function MyCompanyPage() {
                                                                             } else {
                                                                                 setCdeCurrentPath(pathUntilNow);
                                                                             }
-                                                                            if (!isExpanded) {
-                                                                                toggleCdeTreeFolderExpand(folderId);
-                                                                            }
+                                                                            setCdeExpandedFolders(prev => new Set(prev).add(folderId));
                                                                         }}
                                                                     >
                                                                         <button

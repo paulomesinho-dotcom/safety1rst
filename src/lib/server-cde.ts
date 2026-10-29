@@ -1,6 +1,18 @@
 import { prisma } from '@/lib/prisma';
 import { encryptSecret, decryptSecret, sanitizeCdeConfig } from './server-crypto';
 
+interface CacheEntry<T> {
+    data: T;
+    expiresAt: number;
+}
+const serverListCache = new Map<string, CacheEntry<any>>();
+const serverBaseFolderCache = new Map<string, CacheEntry<any>>();
+
+export function clearServerCdeCache() {
+    serverListCache.clear();
+    serverBaseFolderCache.clear();
+}
+
 export interface DecryptedCdeConfig {
     provider: 'onedrive' | 'gdrive' | 'dropbox' | 'local' | null;
     connected: boolean;
@@ -499,6 +511,11 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
     // Helper: Resolves base folder (immutable ID, driveId, name, webUrl)
     const resolveBaseFolder = async (): Promise<{ id: string; name?: string; driveId?: string; webUrl?: string }> => {
+        const baseCacheKey = `${siteId}:${config.folderPath || ''}:${config.folderUrl || ''}:${config.folderId || ''}`;
+        const cachedBase = serverBaseFolderCache.get(baseCacheKey);
+        if (cachedBase && cachedBase.expiresAt > Date.now()) {
+            return cachedBase.data;
+        }
         // Extract leaf folder name if folderPath or folderUrl is specified
         const rawTarget = (config.folderPath || config.folderUrl || '').trim();
         let expectedLeaf = '';
@@ -650,7 +667,9 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             currentParentId = lastRes.id;
         }
 
-        return { id: lastRes ? lastRes.id : 'root', name: lastRes?.name, driveId: targetDriveId, webUrl: lastRes?.webViewLink };
+        const finalBase = { id: lastRes ? lastRes.id : 'root', name: lastRes?.name, driveId: targetDriveId, webUrl: lastRes?.webViewLink };
+        serverBaseFolderCache.set(baseCacheKey, { data: finalBase, expiresAt: Date.now() + 180000 });
+        return finalBase;
     };
 
     if (action === 'test_connection') {
@@ -678,6 +697,18 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const reqFolderId = payload.folderId;
         const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolder.id : reqFolderId;
         const driveId = baseFolder.driveId;
+
+        const listCacheKey = `${siteId}:${driveId || ''}:${targetFolderId}`;
+        const cachedList = serverListCache.get(listCacheKey);
+        if (cachedList && cachedList.expiresAt > Date.now()) {
+            return {
+                files: cachedList.data,
+                siteId,
+                baseFolderId: baseFolder.id,
+                baseFolderName: baseFolder.name,
+                driveId: baseFolder.driveId
+            };
+        }
 
         const isRoot = !targetFolderId || targetFolderId === 'root';
         let effectiveDriveId = driveId;
@@ -734,6 +765,8 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             webViewLink: item.webUrl,
             size: item.size
         }));
+
+        serverListCache.set(listCacheKey, { data: files, expiresAt: Date.now() + 30000 });
 
         return { 
             files, 
@@ -833,6 +866,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     }
 
     if (action === 'create_folder') {
+        clearServerCdeCache();
         const folderName = payload.folderName || payload.name;
         if (!folderName) throw new Error('Nome da pasta obrigatório.');
         const baseFolder = await resolveBaseFolder();
@@ -941,6 +975,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     }
 
     if (action === 'initialize_project_company_structure') {
+        clearServerCdeCache();
         const { companyName } = payload;
         if (!companyName || !companyName.trim()) {
             throw new Error('Nome da empresa é obrigatório.');
@@ -1065,6 +1100,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     }
 
     if (action === 'upload' || action === 'upload_file') {
+        clearServerCdeCache();
         const { fileName, fileBase64, mimeType } = payload;
         if (!fileName) throw new Error('Nome do ficheiro obrigatório.');
         if (!fileBase64) throw new Error('Conteúdo do ficheiro obrigatório.');
@@ -1106,6 +1142,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
     }
 
     if (action === 'delete' || action === 'delete_file') {
+        clearServerCdeCache();
         const { fileId } = payload;
         if (!fileId) throw new Error('ID do ficheiro obrigatório.');
 

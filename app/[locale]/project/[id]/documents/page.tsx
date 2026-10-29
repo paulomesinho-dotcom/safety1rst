@@ -49,6 +49,7 @@ export default function ProjectDocumentsPage() {
     const [currentPath, setCurrentPath] = useState<Array<{ id: string; name: string }>>([]);
     const [driveItems, setDriveItems] = useState<any[]>([]);
     const [treeData, setTreeData] = useState<Record<string, any[]>>({});
+    const treeDataRef = useRef<Record<string, any[]>>({});
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root']));
     const [isLoadingDrive, setIsLoadingDrive] = useState(false);
     const [cdeLoadError, setCdeLoadError] = useState<string>('');
@@ -108,28 +109,60 @@ export default function ProjectDocumentsPage() {
             prevCdeFolderKeyRef.current = key;
             setCurrentPath([]);
             setTreeData({});
+            treeDataRef.current = {};
             setDriveItems([]);
         }
     }, [cdeConfig?.provider, cdeConfig?.siteUrl, cdeConfig?.folderId, cdeConfig?.folderPath]);
 
-    // Load live CDE content when connected or navigating
-    const loadProjectCdeView = async (overrideTargetId?: string, refreshRootAlso: boolean = false) => {
+    // Load live CDE content with Instant Cache & Background Revalidation
+    const loadProjectCdeView = async (overrideTargetId?: string, forceRefresh: boolean = false) => {
         if (!cdeConfig?.connected) {
             setDriveItems([]);
             setTreeData({});
+            treeDataRef.current = {};
             return;
         }
+
+        const targetId = overrideTargetId !== undefined
+            ? overrideTargetId
+            : (currentPath.length > 0 ? currentPath[currentPath.length - 1].id : 'root');
+
+        const cached = treeDataRef.current[targetId];
+
+        // 1. INSTANT RENDER: If folder is already cached, show immediately with 0ms delay
+        if (cached && !forceRefresh) {
+            setDriveItems(cached);
+            setCdeLoadError('');
+            setExpandedFolders(prev => {
+                const next = new Set(prev);
+                next.add('root');
+                if (cdeConfig.folderId) next.add(cdeConfig.folderId);
+                currentPath.forEach(p => next.add(p.id));
+                if (targetId && targetId !== 'root') next.add(targetId);
+                return next;
+            });
+
+            // Silent background revalidation (never blocks UI or shows spinner)
+            fetchCdeContent(cdeConfig, targetId).then(freshItems => {
+                treeDataRef.current[targetId] = freshItems;
+                setDriveItems(freshItems);
+                setTreeData(prev => ({ ...prev, [targetId]: freshItems }));
+            }).catch(e => console.warn('[CDE] Background refresh warning:', e));
+            return;
+        }
+
+        // 2. First-time fetch: show loading and fetch
         setIsLoadingDrive(true);
         setCdeLoadError('');
         try {
-            const targetId = overrideTargetId !== undefined
-                ? overrideTargetId
-                : (currentPath.length > 0 ? currentPath[currentPath.length - 1].id : 'root');
             const items = await fetchCdeContent(cdeConfig, targetId);
+            treeDataRef.current[targetId] = items;
             setDriveItems(items);
 
             const isRoot = !targetId || targetId === 'root' || targetId === cdeConfig.folderId;
             if (isRoot) {
+                treeDataRef.current['root'] = items;
+                if (cdeConfig.folderId) treeDataRef.current[cdeConfig.folderId] = items;
                 setTreeData(prev => ({
                     ...prev,
                     root: items,
@@ -137,15 +170,6 @@ export default function ProjectDocumentsPage() {
                 }));
             } else {
                 setTreeData(prev => ({ ...prev, [targetId]: items }));
-                if (refreshRootAlso || !treeData['root']) {
-                    const rootItems = await fetchCdeContent(cdeConfig, 'root');
-                    setTreeData(prev => ({
-                        ...prev,
-                        [targetId]: items,
-                        root: rootItems,
-                        ...(cdeConfig.folderId ? { [cdeConfig.folderId]: rootItems } : {})
-                    }));
-                }
             }
 
             setExpandedFolders(prev => {
@@ -153,6 +177,7 @@ export default function ProjectDocumentsPage() {
                 next.add('root');
                 if (cdeConfig.folderId) next.add(cdeConfig.folderId);
                 currentPath.forEach(p => next.add(p.id));
+                if (targetId && targetId !== 'root') next.add(targetId);
                 return next;
             });
         } catch (err: any) {
@@ -169,6 +194,7 @@ export default function ProjectDocumentsPage() {
         } else {
             setDriveItems([]);
             setTreeData({});
+            treeDataRef.current = {};
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
@@ -187,9 +213,10 @@ export default function ProjectDocumentsPage() {
         } else {
             next.add(folderId);
             setExpandedFolders(next);
-            if (!treeData[folderId] && cdeConfig?.connected) {
+            if (!treeDataRef.current[folderId] && cdeConfig?.connected) {
                 try {
                     const items = await fetchCdeContent(cdeConfig, folderId);
+                    treeDataRef.current[folderId] = items;
                     setTreeData(prev => ({ ...prev, [folderId]: items }));
                 } catch (e) {
                     console.warn('Failed to expand folder in tree:', e);
@@ -488,9 +515,7 @@ export default function ProjectDocumentsPage() {
                                                     } else {
                                                         setCurrentPath(pathUntilNow);
                                                     }
-                                                    if (!isExpanded) {
-                                                        toggleTreeFolderExpand(folderId);
-                                                    }
+                                                    setExpandedFolders(prev => new Set(prev).add(folderId));
                                                 }}
                                             >
                                                 <button
