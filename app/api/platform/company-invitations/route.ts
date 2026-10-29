@@ -156,8 +156,8 @@ export async function PATCH(req: NextRequest) {
         const body = await req.json();
         const { invitationId, status } = body;
 
-        if (!invitationId || !['accepted', 'rejected', 'canceled'].includes(status)) {
-            return NextResponse.json({ error: 'invitationId e status válido (accepted/rejected/canceled) são obrigatórios.' }, { status: 400 });
+        if (!invitationId || !['accepted', 'rejected', 'canceled', 'removed'].includes(status)) {
+            return NextResponse.json({ error: 'invitationId e status válido (accepted/rejected/canceled/removed) são obrigatórios.' }, { status: 400 });
         }
 
         const now = new Date().toISOString();

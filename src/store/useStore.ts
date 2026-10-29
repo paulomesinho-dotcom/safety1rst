@@ -186,6 +186,10 @@ export interface AppState {
     acceptCompanyInvitation: (invitationId: string) => { success: boolean; message: string };
     rejectCompanyInvitation: (invitationId: string) => void;
     cancelCompanyInvitation: (invitationId: string) => void;
+    removeCompanyMember: (companyAccountId: string, userIdOrEmail: string) => Promise<{ success: boolean; message: string }>;
+    leaveCompany: (companyAccountId: string) => Promise<{ success: boolean; message: string }>;
+    resolveProjectQuotaSelection: (userId: string, retainedProjectIds: string[]) => void;
+    checkProjectQuotaDeadlines: () => void;
 
     // Company Requests
     addCompanyRequest: (userId: string, companyId: string, projectId: string, updates: Partial<Company>) => void;
@@ -2855,6 +2859,198 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         get().addNotification('info', `Convite para ${inv.invitedEmail} foi cancelado.`);
     },
 
+    removeCompanyMember: async (companyAccountId: string, userIdOrEmail: string) => {
+        const state = get();
+        const cleanTarget = userIdOrEmail.trim().toLowerCase();
+        const targetUser = state.users.find(u => u.id === userIdOrEmail || (u.email && u.email.trim().toLowerCase() === cleanTarget));
+        if (!targetUser) {
+            return { success: false, message: 'Utilizador não encontrado.' };
+        }
+
+        const companyAccount = state.accounts.find(a => a.id === companyAccountId);
+        const resolvedAt = new Date().toISOString();
+
+        // 1. Atualizar convite de associação para 'removed'
+        const matchingInvs = (state.companyInvitations || []).filter(
+            inv => inv.accountId === companyAccountId &&
+                   inv.invitedEmail.toLowerCase().trim() === (targetUser.email || '').toLowerCase().trim()
+        );
+
+        for (const inv of matchingInvs) {
+            dbUpdate('company_invitations', inv.id, { status: 'removed', resolvedAt }).catch(console.error);
+            fetch('/api/platform/company-invitations', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ invitationId: inv.id, status: 'removed' })
+            }).catch(console.error);
+        }
+
+        // 2. Projetos da empresa ou criados pelo admin da empresa
+        const companyProjectIds = new Set(
+            state.projects
+                .filter(p => p.accountId === companyAccountId || (p.creatorId && (p.creatorId === state.currentUser?.id || p.creatorId === companyAccount?.id)))
+                .map(p => p.id)
+        );
+
+        // Desassociar o utilizador de imediato de todos os projetos desta empresa
+        const remainingAccess = (targetUser.projectAccess || []).filter(pa => !companyProjectIds.has(pa.projectId));
+
+        companyProjectIds.forEach(pid => {
+            executeQuery(`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, [pid, targetUser.id]).catch(() => {});
+        });
+
+        // 3. Regra dos 5 projetos gratuitos: se continuar com mais do que 5 obras, ativar prazo de 48h
+        const remainingTotalCount = remainingAccess.length;
+        const now = new Date();
+        const deadline = new Date(now.getTime() + 48 * 3600 * 1000).toISOString();
+
+        const userUpdates: Partial<User> = {
+            associatedCompanyId: targetUser.associatedCompanyId === companyAccountId ? undefined : targetUser.associatedCompanyId,
+            projectAccess: remainingAccess,
+        };
+
+        if (remainingTotalCount > 5) {
+            userUpdates.projectQuotaExceededAt = now.toISOString();
+            userUpdates.projectQuotaDeadline = deadline;
+            userUpdates.pendingQuotaSelection = true;
+            userUpdates.removedFromCompanyNotification = {
+                companyName: companyAccount?.name || 'Empresa',
+                removedAt: now.toISOString(),
+                excessProjectsCount: remainingTotalCount - 5
+            };
+        } else {
+            userUpdates.pendingQuotaSelection = false;
+            userUpdates.projectQuotaExceededAt = undefined;
+            userUpdates.projectQuotaDeadline = undefined;
+            userUpdates.removedFromCompanyNotification = undefined;
+        }
+
+        dbUpdate('users', targetUser.id, userUpdates).catch(console.error);
+
+        set((s) => {
+            const updatedInvitations = (s.companyInvitations || []).map(inv =>
+                (inv.accountId === companyAccountId && inv.invitedEmail.toLowerCase().trim() === (targetUser.email || '').toLowerCase().trim())
+                    ? { ...inv, status: 'removed' as const, resolvedAt }
+                    : inv
+            );
+
+            const updatedUsers = s.users.map(u => u.id === targetUser.id ? { ...u, ...userUpdates } : u);
+            const updatedCurrentUser = s.currentUser?.id === targetUser.id
+                ? { ...s.currentUser, ...userUpdates }
+                : s.currentUser;
+
+            return {
+                companyInvitations: updatedInvitations,
+                users: updatedUsers,
+                currentUser: updatedCurrentUser
+            };
+        });
+
+        get().addNotification(
+            'info',
+            `O utilizador ${targetUser.name || targetUser.email} foi desassociado da empresa "${companyAccount?.name || ''}". Foi removido dos projetos da empresa.`
+        );
+
+        return {
+            success: true,
+            message: `Utilizador ${targetUser.name || targetUser.email} removido da empresa com sucesso.`
+        };
+    },
+
+    leaveCompany: async (companyAccountId: string) => {
+        const state = get();
+        if (!state.currentUser) return { success: false, message: 'Nenhum utilizador com sessão iniciada.' };
+        return get().removeCompanyMember(companyAccountId, state.currentUser.id);
+    },
+
+    resolveProjectQuotaSelection: (userId: string, retainedProjectIds: string[]) => {
+        const state = get();
+        const targetUser = state.users.find(u => u.id === userId) || state.currentUser;
+        if (!targetUser) return;
+
+        const retainedSet = new Set(retainedProjectIds.slice(0, 5));
+        const updatedAccess = (targetUser.projectAccess || []).filter(pa => retainedSet.has(pa.projectId));
+
+        const removedProjects = (targetUser.projectAccess || []).filter(pa => !retainedSet.has(pa.projectId));
+        for (const rp of removedProjects) {
+            executeQuery(`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, [rp.projectId, targetUser.id]).catch(() => {});
+        }
+
+        const updates: Partial<User> = {
+            projectAccess: updatedAccess,
+            pendingQuotaSelection: false,
+            projectQuotaExceededAt: undefined,
+            projectQuotaDeadline: undefined,
+            removedFromCompanyNotification: undefined
+        };
+
+        dbUpdate('users', targetUser.id, updates).catch(console.error);
+
+        set((s) => ({
+            users: s.users.map(u => u.id === targetUser.id ? { ...u, ...updates } : u),
+            currentUser: s.currentUser?.id === targetUser.id ? { ...s.currentUser, ...updates } : s.currentUser
+        }));
+
+        get().addNotification('success', `Preferências guardadas com sucesso! Mantém acesso a ${updatedAccess.length} obra(s).`);
+    },
+
+    checkProjectQuotaDeadlines: () => {
+        const state = get();
+        const now = new Date();
+
+        const usersToEnforce = state.users.filter(u =>
+            u.pendingQuotaSelection &&
+            u.projectQuotaDeadline &&
+            new Date(u.projectQuotaDeadline).getTime() <= now.getTime()
+        );
+
+        if (usersToEnforce.length === 0) return;
+
+        for (const u of usersToEnforce) {
+            const currentAccess = u.projectAccess || [];
+            if (currentAccess.length > 5) {
+                const retained = currentAccess.slice(0, 5);
+                const revoked = currentAccess.slice(5);
+
+                for (const r of revoked) {
+                    executeQuery(`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, [r.projectId, u.id]).catch(() => {});
+                }
+
+                const updates: Partial<User> = {
+                    projectAccess: retained,
+                    pendingQuotaSelection: false,
+                    projectQuotaExceededAt: undefined,
+                    projectQuotaDeadline: undefined,
+                    removedFromCompanyNotification: undefined
+                };
+
+                dbUpdate('users', u.id, updates).catch(console.error);
+
+                set((s) => ({
+                    users: s.users.map(usr => usr.id === u.id ? { ...usr, ...updates } : usr),
+                    currentUser: s.currentUser?.id === u.id ? { ...s.currentUser, ...updates } : s.currentUser
+                }));
+
+                get().addNotification(
+                    'warning',
+                    `O prazo de 48h para escolha de obras expirou. Foram mantidas 5 obras e revogado o acesso a ${revoked.length} obra(s) adicionada(s) mais recentemente.`
+                );
+            } else {
+                const updates: Partial<User> = {
+                    pendingQuotaSelection: false,
+                    projectQuotaExceededAt: undefined,
+                    projectQuotaDeadline: undefined,
+                    removedFromCompanyNotification: undefined
+                };
+                dbUpdate('users', u.id, updates).catch(console.error);
+                set((s) => ({
+                    users: s.users.map(usr => usr.id === u.id ? { ...usr, ...updates } : usr),
+                    currentUser: s.currentUser?.id === u.id ? { ...s.currentUser, ...updates } : s.currentUser
+                }));
+            }
+        }
+    },
+
     addCompanyRequest: (userId, companyId, projectId, updates) => set((state) => ({
         companyRequests: [...state.companyRequests, {
             id: nanoid(),
@@ -3206,6 +3402,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
 
     checkExpirations: () => {
+        get().checkProjectQuotaDeadlines();
         set((state) => {
             // Compute today's date in the project's configured timezone (first project found)
             // Defaults to the machine's local timezone if not configured

@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { ArrowLeft, Plus, Folder, Users, Settings, Search, LayoutGrid, List, MoreVertical, X, Check, Shield, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { Modal, InputGroup, PrimaryButton } from '@/components/Modal';
+import { ArrowLeft, Plus, Folder, Users, Settings, Search, LayoutGrid, List, MoreVertical, X, Check, Shield, Clock, AlertCircle, CheckCircle2, UserX, AlertTriangle } from 'lucide-react';
+import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import type { User, ProjectRole } from '@/types';
 import AuthGuard from '@/components/AuthGuard';
@@ -20,6 +20,7 @@ export default function AccountDashboardPage() {
         addProject,
         associateCompanyUser,
         cancelCompanyInvitation,
+        removeCompanyMember,
         updateUser
     } = useStore();
 
@@ -91,6 +92,9 @@ export default function AccountDashboardPage() {
     const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
+    const [isRemoveUserModalOpen, setIsRemoveUserModalOpen] = useState(false);
+    const [userToRemove, setUserToRemove] = useState<User | null>(null);
+    const [isRemovingUser, setIsRemovingUser] = useState(false);
 
     // State for Forms
     const [newProject, setNewProject] = useState({ name: '', address: '', description: '' });
@@ -334,12 +338,27 @@ export default function AccountDashboardPage() {
                                             )}
                                         </div>
                                         <div className="pt-4 border-t border-gray-100 dark:border-[#444746] mt-auto">
-                                            <button
-                                                onClick={() => handleOpenAccessModal(user)}
-                                                className="w-full py-2 px-3 bg-gray-50 dark:bg-[#131314] hover:bg-gray-100 dark:hover:bg-surface text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                                            >
-                                                <Settings size={14} /> Manage Access
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => handleOpenAccessModal(user)}
+                                                    className="flex-1 py-2 px-3 bg-gray-50 dark:bg-[#131314] hover:bg-gray-100 dark:hover:bg-surface text-gray-700 dark:text-gray-200 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                                                >
+                                                    <Settings size={14} /> Gerir Acessos
+                                                </button>
+                                                {isGuest && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setUserToRemove(user);
+                                                            setIsRemoveUserModalOpen(true);
+                                                        }}
+                                                        className="py-2 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300 rounded-lg text-xs font-medium transition-colors border border-rose-200 dark:border-rose-900/40 cursor-pointer"
+                                                        title="Remover Convidado da Empresa"
+                                                    >
+                                                        <UserX size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                     );
@@ -402,12 +421,27 @@ export default function AccountDashboardPage() {
                                                     {(user.projectAccess?.length || 0)} Projects Assigned
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
-                                                    <button
-                                                        onClick={() => handleOpenAccessModal(user)}
-                                                        className="text-primary hover:text-blue-800 font-medium text-xs"
-                                                    >
-                                                        Manage Access
-                                                    </button>
+                                                    <div className="flex items-center justify-end gap-3">
+                                                        <button
+                                                            onClick={() => handleOpenAccessModal(user)}
+                                                            className="text-primary hover:text-blue-800 font-medium text-xs cursor-pointer"
+                                                        >
+                                                            Gerir Acessos
+                                                        </button>
+                                                        {isGuest && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setUserToRemove(user);
+                                                                    setIsRemoveUserModalOpen(true);
+                                                                }}
+                                                                className="text-rose-600 hover:text-rose-800 font-medium text-xs cursor-pointer"
+                                                                title="Remover Convidado da Empresa"
+                                                            >
+                                                                Remover
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                             );
@@ -619,6 +653,64 @@ export default function AccountDashboardPage() {
                         </div>
                     </Modal>
                 )}
+
+                {/* Modal: Remover Convidado da Empresa */}
+                <Modal
+                    title="Remover Convidado da Empresa"
+                    isOpen={isRemoveUserModalOpen}
+                    onClose={() => {
+                        setIsRemoveUserModalOpen(false);
+                        setUserToRemove(null);
+                    }}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex items-start gap-3">
+                            <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-rose-950 dark:text-rose-200 leading-relaxed">
+                                Tem a certeza de que pretende remover <strong>{userToRemove?.name}</strong> ({userToRemove?.email}) da sua empresa?
+                            </div>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-gray-50 dark:bg-[#131314] border border-gray-200 dark:border-[#444746] text-xs text-gray-600 dark:text-gray-300 space-y-2">
+                            <p className="font-semibold text-gray-900 dark:text-white">Consequências da remoção:</p>
+                            <ul className="list-disc pl-4 space-y-1">
+                                <li>O utilizador deixará de ser membro convidado desta empresa.</li>
+                                <li>Ficará <strong>imediatamente desassociado de todas as obras</strong> criadas por esta empresa.</li>
+                                <li>Caso ainda mantenha mais de 5 obras parceiras, terá um prazo de <strong>48 horas</strong> para escolher quais pretende manter no seu plano gratuito.</li>
+                            </ul>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton
+                                onClick={() => {
+                                    setIsRemoveUserModalOpen(false);
+                                    setUserToRemove(null);
+                                }}
+                                className="text-xs"
+                            >
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={isRemovingUser}
+                                onClick={async () => {
+                                    if (!userToRemove || !currentAccountId) return;
+                                    setIsRemovingUser(true);
+                                    try {
+                                        await removeCompanyMember(currentAccountId, userToRemove.id || userToRemove.email);
+                                        setIsRemoveUserModalOpen(false);
+                                        setUserToRemove(null);
+                                    } finally {
+                                        setIsRemovingUser(false);
+                                    }
+                                }}
+                                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                {isRemovingUser ? 'A remover...' : 'Confirmar Remoção'}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
             </div>
         </AuthGuard>
     );

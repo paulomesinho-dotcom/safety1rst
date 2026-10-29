@@ -10,7 +10,7 @@ import {
     Copy, Search, Sparkles, UserPlus, Crown, CheckCheck, 
     XCircle, ChevronRight, Briefcase, FileCheck, ArrowUpRight, KeyRound,
     UserX, UserCheck, Trash2, Ban, ShieldAlert, Info, RotateCcw, Filter, Loader2, Bell,
-    Lock, Eye, Edit3
+    Lock, Eye, Edit3, FolderCheck, AlertTriangle
 } from 'lucide-react';
 import { getCompanyRoleLabel } from '@/lib/company-ifc-map';
 import { Modal, InputGroup, PrimaryButton, SecondaryButton } from '@/components/Modal';
@@ -61,6 +61,10 @@ export default function Home() {
         acceptCompanyInvitation,
         rejectCompanyInvitation,
         cancelCompanyInvitation,
+        removeCompanyMember,
+        leaveCompany,
+        resolveProjectQuotaSelection,
+        checkProjectQuotaDeadlines,
         isInitialized
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
@@ -93,6 +97,10 @@ export default function Home() {
         acceptCompanyInvitation: state.acceptCompanyInvitation,
         rejectCompanyInvitation: state.rejectCompanyInvitation,
         cancelCompanyInvitation: state.cancelCompanyInvitation,
+        removeCompanyMember: state.removeCompanyMember,
+        leaveCompany: state.leaveCompany,
+        resolveProjectQuotaSelection: state.resolveProjectQuotaSelection,
+        checkProjectQuotaDeadlines: state.checkProjectQuotaDeadlines,
         isInitialized: state.isInitialized,
     })));
 
@@ -145,6 +153,17 @@ export default function Home() {
     const [inviteError, setInviteError] = useState('');
     const [inviteSuccess, setInviteSuccess] = useState('');
 
+    // Remove Company Member & Leave Company State
+    const [memberToRemove, setMemberToRemove] = useState<User | null>(null);
+    const [isRemoveMemberModalOpen, setIsRemoveMemberModalOpen] = useState(false);
+    const [companyToLeave, setCompanyToLeave] = useState<{ accountId: string; name: string } | null>(null);
+    const [isLeaveCompanyModalOpen, setIsLeaveCompanyModalOpen] = useState(false);
+
+    // 48h Quota Selection State
+    const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
+    const [selectedQuotaProjectIds, setSelectedQuotaProjectIds] = useState<string[]>([]);
+    const [quotaActionLoading, setQuotaActionLoading] = useState(false);
+
     const [hasMounted, setHasMounted] = useState(false);
     useEffect(() => {
         setHasMounted(true);
@@ -171,6 +190,16 @@ export default function Home() {
             clearInterval(pollInterval);
         };
     }, [syncFromServer]);
+
+    // Verificação de prazos de regularização de obras (48h)
+    useEffect(() => {
+        if (!hasMounted || !isInitialized) return;
+        checkProjectQuotaDeadlines?.();
+        const deadlineInterval = setInterval(() => {
+            checkProjectQuotaDeadlines?.();
+        }, 60000);
+        return () => clearInterval(deadlineInterval);
+    }, [hasMounted, isInitialized, checkProjectQuotaDeadlines]);
 
     // Convite aceite de empresa associada (se o utilizador for membro/convidado de outra empresa)
     const associatedCompanyInvitation = useMemo(() => {
@@ -356,20 +385,16 @@ export default function Home() {
         });
     }, [joinedProjects, searchQuery]);
 
-    // Company Members
+    // Company Members (estritamente da conta própria do utilizador)
     const companyMembers = useMemo(() => {
-        // Se a conta for de plano pago, foca nela; senão, se tiver empresa associada, foca na empresa associada
-        const targetAccountId = userAccount && userAccount.plan !== 'free'
-            ? userAccount.id
-            : (currentUser?.associatedCompanyId || associatedCompanyAccount?.id || userAccount?.id || currentUser?.accountId);
-
+        const targetAccountId = userAccount?.id || currentUser?.accountId;
         if (!targetAccountId) return currentUser ? [currentUser] : [];
 
         // Membros diretos com accountId atribuído
         const directMembers = users.filter(u => u.accountId === targetAccountId);
         const memberEmails = new Set(directMembers.map(u => (u.email || '').toLowerCase().trim()));
 
-        // Membros que têm associatedCompanyId para esta conta
+        // Membros que têm esta conta como empresa associada (convidados)
         const associatedMembers = users.filter(u => u.associatedCompanyId === targetAccountId && !memberEmails.has((u.email || '').toLowerCase().trim()));
         for (const am of associatedMembers) {
             memberEmails.add((am.email || '').toLowerCase().trim());
@@ -405,11 +430,41 @@ export default function Home() {
         }
 
         const all = [...directMembers, ...associatedMembers, ...syntheticFromInvs];
-        if (currentUser && (currentUser.accountId === targetAccountId || currentUser.associatedCompanyId === targetAccountId) && !memberEmails.has((currentUser.email || '').toLowerCase().trim())) {
+        if (currentUser && currentUser.accountId === targetAccountId && !memberEmails.has((currentUser.email || '').toLowerCase().trim())) {
             all.unshift(currentUser);
         }
         return all;
-    }, [users, userAccount, currentUser, associatedCompanyAccount, companyInvitations]);
+    }, [users, userAccount, currentUser, companyInvitations]);
+
+    // Empresas a que o utilizador está associado como Convidado/Membro (excluindo a sua própria conta)
+    const myAssociatedCompanies = useMemo(() => {
+        if (!currentUser?.email) return [];
+        const myEmail = currentUser.email.toLowerCase().trim();
+        const matchingInvs = (companyInvitations || []).filter(
+            inv => (inv.invitedEmail || '').toLowerCase().trim() === myEmail && inv.status === 'accepted'
+        );
+        const accIds = new Set(matchingInvs.map(i => i.accountId));
+        if (currentUser.associatedCompanyId) {
+            accIds.add(currentUser.associatedCompanyId);
+        }
+
+        // Não listar a própria conta primária
+        if (currentUser.accountId) {
+            accIds.delete(currentUser.accountId);
+        }
+
+        return Array.from(accIds).map(aid => {
+            const acc = accounts.find(a => a.id === aid);
+            const inv = matchingInvs.find(i => i.accountId === aid);
+            return {
+                accountId: aid,
+                name: acc?.name || inv?.accountName || 'Empresa Parceira',
+                plan: acc?.plan || 'premium',
+                vatNumber: acc?.vatNumber,
+                joinedAt: inv?.resolvedAt || inv?.createdAt
+            };
+        });
+    }, [currentUser, companyInvitations, accounts]);
 
     // Access Requests (apenas para obras que o utilizador gere no seu workplace)
     const managedProjectIds = useMemo(() => {
@@ -898,6 +953,91 @@ export default function Home() {
                             )}
                         </div>
                     </div>
+
+                    {/* ── ALERTA DE LIMITE DE 5 OBRAS EXCEDIDO (PRAZO DE 48H) ── */}
+                    {currentUser?.pendingQuotaSelection && (
+                        <div className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 text-amber-950 dark:text-amber-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-start gap-3.5">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-sm mt-0.5">
+                                    <AlertTriangle size={22} />
+                                </div>
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                            Limite de 5 Obras Excedido (Prazo de 48h Ativo)
+                                        </h4>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white uppercase animate-pulse">
+                                            Ação Necessária
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
+                                        {currentUser.removedFromCompanyNotification?.companyName && (
+                                            <>Foi desassociado da empresa <strong>{currentUser.removedFromCompanyNotification.companyName}</strong>. </>
+                                        )}
+                                        O seu plano gratuito tem um limite de <strong>5 obras em simultâneo</strong>, mas mantém atualmente acesso a <strong>{joinedProjects.length} obras</strong>.
+                                        Dispõe de um prazo de <strong>48 horas</strong> (até {currentUser.projectQuotaDeadline ? new Date(currentUser.projectQuotaDeadline).toLocaleString('pt-PT') : 'breve'}) para escolher as 5 obras a manter. Caso contrário, o sistema revogará automaticamente o acesso às últimas obras adicionadas.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSelectedQuotaProjectIds(joinedProjects.slice(0, 5).map(p => p.id));
+                                    setIsQuotaModalOpen(true);
+                                }}
+                                className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all flex items-center gap-2 shrink-0 self-start md:self-auto cursor-pointer"
+                            >
+                                <FolderCheck size={16} /> Selecionar Obras a Manter (máx 5)
+                            </button>
+                        </div>
+                    )}
+
+                    {/* ── EMPRESAS A QUE ESTOU ASSOCIADO (COM OPÇÃO DE SAIR) ── */}
+                    {myAssociatedCompanies.length > 0 && (
+                        <div className="p-4 sm:p-5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border)] shadow-sm space-y-3 animate-in fade-in">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-2">
+                                    <Building2 size={16} className="text-primary" /> Empresas a que estou associado ({myAssociatedCompanies.length})
+                                </h3>
+                                <span className="text-[11px] text-[var(--text-muted)]">
+                                    Bónus atribuído: <strong>+10 acessos a obras parceiras</strong> (total de 15 obras simultâneas)
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                                {myAssociatedCompanies.map(comp => (
+                                    <div key={comp.accountId} className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 hover:bg-[var(--bg-input)]/70 transition-all flex flex-col justify-between gap-3">
+                                        <div>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="font-bold text-xs text-[var(--text)] truncate">{comp.name}</span>
+                                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-primary/10 text-primary border border-primary/20">
+                                                    {comp.plan}
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                                                {comp.vatNumber ? `NIF: ${comp.vatNumber} • ` : ''}Perfil: <strong className="text-blue-600 dark:text-blue-400">Convidado</strong>
+                                            </p>
+                                        </div>
+                                        <div className="pt-2 border-t border-[var(--border)]/60 flex items-center justify-between">
+                                            <span className="text-[10px] text-[var(--text-muted)]">
+                                                {comp.joinedAt ? `Desde ${new Date(comp.joinedAt).toLocaleDateString('pt-PT')}` : 'Membro ativo'}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setCompanyToLeave(comp);
+                                                    setIsLeaveCompanyModalOpen(true);
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/40 transition-colors cursor-pointer"
+                                                title="Sair desta empresa e revogar acessos aos seus projetos"
+                                            >
+                                                Sair da Empresa
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* ── Notificação Visual de Convites de Empresa Recebidos pelo Utilizador ── */}
                     {myReceivedCompanyInvitations.length > 0 && (
@@ -1448,11 +1588,9 @@ export default function Home() {
 
                     {/* ════════ TAB 3: MEMBROS DA EMPRESA ════════ */}
                     {activeTab === 'company' && (() => {
-                        const targetCompanyAccount = userAccount && userAccount.plan !== 'free'
-                            ? userAccount
-                            : (associatedCompanyAccount || userAccount);
-                        const targetAccountId = targetCompanyAccount?.id;
-                        const isAccountOwnerAdmin = (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin') && targetAccountId === userAccount?.id;
+                        const targetCompanyAccount = userAccount;
+                        const targetAccountId = targetCompanyAccount?.id || currentUser?.accountId;
+                        const isAccountOwnerAdmin = (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin') && (currentUser?.accountId === targetAccountId || currentUser?.role === 'superadmin');
 
                         return (
                         <div className="space-y-6">
@@ -1462,7 +1600,7 @@ export default function Home() {
                                         <div className="flex items-center gap-2">
                                             <Building2 size={20} className="text-primary" />
                                             <h3 className="text-base font-bold text-[var(--text)]">
-                                                {targetCompanyAccount?.name || userAccount?.name || 'A Minha Empresa'}
+                                                {targetCompanyAccount?.name || 'A Minha Empresa'}
                                             </h3>
                                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase">
                                                 {targetCompanyAccount?.plan || currentPlan}
@@ -1481,7 +1619,7 @@ export default function Home() {
                                                 setInviteSuccess('');
                                                 setIsInviteOpen(true);
                                             }}
-                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 shrink-0 self-start sm:self-auto"
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-sm transition-all flex items-center gap-2 shrink-0 self-start sm:self-auto cursor-pointer"
                                         >
                                             <UserPlus size={15} /> Associar Utilizador
                                         </button>
@@ -1489,12 +1627,14 @@ export default function Home() {
                                 </div>
 
                                 {/* Bonus project accesses banner */}
-                                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-start gap-3 mb-6">
-                                    <Sparkles size={18} className="text-primary shrink-0 mt-0.5" />
-                                    <div className="text-xs text-blue-950 dark:text-blue-200">
-                                        <strong className="font-bold">Bónus de Acessos a Obras:</strong> No seu plano com subscrição, cada utilizador associado à sua empresa tem direito a <strong>+10 acessos a obras parceiras</strong> (total de 15 obras simultâneas em vez das 5 gratuitas).
+                                {userAccount?.plan !== 'free' && (
+                                    <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-start gap-3 mb-6">
+                                        <Sparkles size={18} className="text-primary shrink-0 mt-0.5" />
+                                        <div className="text-xs text-blue-950 dark:text-blue-200">
+                                            <strong className="font-bold">Bónus de Acessos a Obras:</strong> No seu plano com subscrição, cada utilizador associado à sua empresa tem direito a <strong>+10 acessos a obras parceiras</strong> (total de 15 obras simultâneas em vez das 5 gratuitas).
+                                        </div>
                                     </div>
-                                </div>
+                                )}
 
                                 {/* Members Table */}
                                 <div className="overflow-x-auto">
@@ -1512,7 +1652,7 @@ export default function Home() {
                                         <tbody className="divide-y divide-[var(--border)]">
                                             {companyMembers.map(member => {
                                                 const isSuspended = member.status === 'suspended';
-                                                const canManage = (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin') && member.id !== currentUser.id;
+                                                const canManage = isAccountOwnerAdmin && member.id !== currentUser?.id;
                                                 const cleanMemberEmail = (member.email || '').toLowerCase().trim();
 
                                                 const isGuest = member.associatedCompanyId === targetAccountId ||
@@ -1577,27 +1717,41 @@ export default function Home() {
                                                         </td>
                                                         <td className="py-3 px-3 text-right">
                                                             {canManage ? (
-                                                                isSuspended ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => reactivateUser(member.id)}
-                                                                        className="px-2.5 py-1 rounded text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
-                                                                    >
-                                                                        Reativar
-                                                                    </button>
-                                                                ) : (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            setSelectedUserForAction(member);
-                                                                            setSuspensionReasonInput('');
-                                                                            setIsSuspendModalOpen(true);
-                                                                        }}
-                                                                        className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200"
-                                                                    >
-                                                                        Suspender
-                                                                    </button>
-                                                                )
+                                                                <div className="flex items-center justify-end gap-1.5">
+                                                                    {isGuest ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setMemberToRemove(member);
+                                                                                setIsRemoveMemberModalOpen(true);
+                                                                            }}
+                                                                            className="px-2.5 py-1 rounded text-[10px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
+                                                                            title="Remover este colaborador convidado da empresa"
+                                                                        >
+                                                                            Remover
+                                                                        </button>
+                                                                    ) : isSuspended ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => reactivateUser(member.id)}
+                                                                            className="px-2.5 py-1 rounded text-[10px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-pointer"
+                                                                        >
+                                                                            Reativar
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setSelectedUserForAction(member);
+                                                                                setSuspensionReasonInput('');
+                                                                                setIsSuspendModalOpen(true);
+                                                                            }}
+                                                                            className="px-2.5 py-1 rounded text-[10px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 cursor-pointer"
+                                                                        >
+                                                                            Suspender
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             ) : (
                                                                 <span className="text-[10px] text-gray-400">—</span>
                                                             )}
@@ -3242,6 +3396,258 @@ export default function Home() {
                                 className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50"
                             >
                                 {isProcessingAction ? 'A processar limpeza...' : `Executar Limpeza (${cleanupThresholdDays}d)`}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* ════════ MODAL: REMOVER CONVIDADO DA EMPRESA ════════ */}
+                <Modal
+                    title="Remover Convidado da Empresa"
+                    isOpen={isRemoveMemberModalOpen}
+                    onClose={() => {
+                        setIsRemoveMemberModalOpen(false);
+                        setMemberToRemove(null);
+                    }}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 flex items-start gap-3">
+                            <AlertTriangle className="text-rose-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-rose-950 dark:text-rose-200 leading-relaxed">
+                                Tem a certeza de que pretende remover <strong>{memberToRemove?.name}</strong> ({memberToRemove?.email}) da sua empresa?
+                            </div>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/50 border border-[var(--border)] text-xs text-[var(--text-muted)] space-y-2">
+                            <p className="font-semibold text-[var(--text)]">Consequências da remoção:</p>
+                            <ul className="list-disc pl-4 space-y-1">
+                                <li>O colaborador deixará de pertencer à sua equipa empresarial e perderá o bónus de acessos a obras concedido pela sua subscrição.</li>
+                                <li>Ficará <strong>imediatamente desassociado de todas as obras</strong> criadas pela sua empresa.</li>
+                                <li>Se ainda mantiver mais de 5 obras parceiras, receberá um prazo de <strong>48 horas</strong> para escolher quais pretende reter no plano gratuito.</li>
+                            </ul>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton
+                                onClick={() => {
+                                    setIsRemoveMemberModalOpen(false);
+                                    setMemberToRemove(null);
+                                }}
+                                className="text-xs"
+                            >
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={quotaActionLoading}
+                                onClick={async () => {
+                                    if (!memberToRemove || !userAccount?.id) return;
+                                    setQuotaActionLoading(true);
+                                    try {
+                                        await removeCompanyMember(userAccount.id, memberToRemove.id || memberToRemove.email);
+                                        setIsRemoveMemberModalOpen(false);
+                                        setMemberToRemove(null);
+                                    } finally {
+                                        setQuotaActionLoading(false);
+                                    }
+                                }}
+                                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                {quotaActionLoading ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin" /> A remover...
+                                    </>
+                                ) : (
+                                    <>
+                                        <UserX size={14} /> Confirmar Remoção
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* ════════ MODAL: SAIR DA EMPRESA ════════ */}
+                <Modal
+                    title="Sair da Empresa Associada"
+                    isOpen={isLeaveCompanyModalOpen}
+                    onClose={() => {
+                        setIsLeaveCompanyModalOpen(false);
+                        setCompanyToLeave(null);
+                    }}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-start gap-3">
+                            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-amber-950 dark:text-amber-200 leading-relaxed">
+                                Tem a certeza de que pretende sair da empresa <strong>{companyToLeave?.name}</strong>?
+                            </div>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-[var(--bg-input)]/50 border border-[var(--border)] text-xs text-[var(--text-muted)] space-y-2">
+                            <p className="font-semibold text-[var(--text)]">Ao sair desta empresa:</p>
+                            <ul className="list-disc pl-4 space-y-1">
+                                <li>Deixará de ser membro convidado desta organização e perderá o respetivo bónus (+10 obras).</li>
+                                <li>Ficará <strong>imediatamente desassociado</strong> de todas as obras sob gestão desta empresa.</li>
+                                <li>Se tiver mais do que 5 obras ativas no total, terá <strong>48 horas</strong> para regularizar e escolher as 5 obras que pretende manter ativas na sua conta gratuita.</li>
+                            </ul>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton
+                                onClick={() => {
+                                    setIsLeaveCompanyModalOpen(false);
+                                    setCompanyToLeave(null);
+                                }}
+                                className="text-xs"
+                            >
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={quotaActionLoading}
+                                onClick={async () => {
+                                    if (!companyToLeave) return;
+                                    setQuotaActionLoading(true);
+                                    try {
+                                        await leaveCompany(companyToLeave.accountId);
+                                        setIsLeaveCompanyModalOpen(false);
+                                        setCompanyToLeave(null);
+                                    } finally {
+                                        setQuotaActionLoading(false);
+                                    }
+                                }}
+                                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                {quotaActionLoading ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin" /> A sair...
+                                    </>
+                                ) : (
+                                    <>
+                                        <LogOut size={14} /> Confirmar Saída
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+
+                {/* ════════ MODAL: SELEÇÃO DE OBRAS A MANTER (REGULARIZAÇÃO DE QUOTA) ════════ */}
+                <Modal
+                    title="Regularização de Obras (Limite Gratuito: 5)"
+                    isOpen={isQuotaModalOpen}
+                    onClose={() => setIsQuotaModalOpen(false)}
+                >
+                    <div className="space-y-4">
+                        <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-start gap-3">
+                            <Clock className="text-amber-600 shrink-0 mt-0.5" size={18} />
+                            <div className="text-xs text-amber-950 dark:text-amber-200 leading-relaxed">
+                                Com a desassociação da empresa parceira, a sua conta regressou ao limite de <strong>5 obras simultâneas</strong> do plano gratuito. Tem atualmente <strong>{joinedProjects.length} obras</strong> associadas.
+                                {currentUser?.projectQuotaDeadline && (
+                                    <div className="mt-1 font-semibold text-rose-700 dark:text-rose-300">
+                                        Prazo limite: {new Date(currentUser.projectQuotaDeadline).toLocaleString('pt-PT')}. Caso não confirme até ao termo, as obras adicionadas mais recentemente serão desassociadas de forma automática.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-[var(--text)]">
+                                Selecione as obras a manter:
+                            </span>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                                selectedQuotaProjectIds.length === 5 
+                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' 
+                                    : selectedQuotaProjectIds.length > 5
+                                        ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300'
+                                        : 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300'
+                            }`}>
+                                {selectedQuotaProjectIds.length} / 5 selecionadas
+                            </span>
+                        </div>
+
+                        <div className="max-h-60 overflow-y-auto space-y-2 border border-[var(--border)] rounded-xl p-2 bg-[var(--bg-card)]">
+                            {joinedProjects.map(proj => {
+                                const isSelected = selectedQuotaProjectIds.includes(proj.id);
+                                const isMaxReached = selectedQuotaProjectIds.length >= 5 && !isSelected;
+
+                                return (
+                                    <label
+                                        key={proj.id}
+                                        className={`flex items-center justify-between p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
+                                            isSelected
+                                                ? 'border-primary bg-primary/5 font-semibold text-[var(--text)]'
+                                                : isMaxReached
+                                                    ? 'border-[var(--border)] opacity-50 cursor-not-allowed bg-[var(--bg-input)]/20 text-[var(--text-muted)]'
+                                                    : 'border-[var(--border)] hover:bg-[var(--bg-input)] text-[var(--text)]'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2.5 overflow-hidden">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                disabled={isMaxReached}
+                                                onChange={() => {
+                                                    if (isSelected) {
+                                                        setSelectedQuotaProjectIds(prev => prev.filter(id => id !== proj.id));
+                                                    } else {
+                                                        if (selectedQuotaProjectIds.length < 5) {
+                                                            setSelectedQuotaProjectIds(prev => [...prev, proj.id]);
+                                                        }
+                                                    }
+                                                }}
+                                                className="rounded border-[var(--border)] text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                                            />
+                                            <div className="truncate">
+                                                <div className="truncate font-medium">{proj.name}</div>
+                                                <div className="text-[10px] text-[var(--text-muted)] truncate">
+                                                    {proj.code ? `Cód: ${proj.code} • ` : ''}{proj.address || 'Sem localização'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <span className="text-[10px] text-[var(--text-muted)] shrink-0 px-1.5 py-0.5 rounded bg-[var(--bg-input)]">
+                                            {currentUser?.projectAccess?.find(pa => pa.projectId === proj.id)?.role || (proj.creatorId === currentUser?.id ? 'admin' : 'membro')}
+                                        </span>
+                                    </label>
+                                );
+                            })}
+                        </div>
+
+                        {selectedQuotaProjectIds.length > 5 && (
+                            <p className="text-[11px] text-rose-600 font-semibold">
+                                O limite máximo é de 5 obras. Por favor desmarque {selectedQuotaProjectIds.length - 5} obra(s).
+                            </p>
+                        )}
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton onClick={() => setIsQuotaModalOpen(false)} className="text-xs">
+                                Decidir Mais Tarde
+                            </SecondaryButton>
+                            <button
+                                type="button"
+                                disabled={selectedQuotaProjectIds.length === 0 || selectedQuotaProjectIds.length > 5 || quotaActionLoading}
+                                onClick={async () => {
+                                    if (!currentUser) return;
+                                    setQuotaActionLoading(true);
+                                    try {
+                                        await resolveProjectQuotaSelection(currentUser.id, selectedQuotaProjectIds);
+                                        setIsQuotaModalOpen(false);
+                                    } finally {
+                                        setQuotaActionLoading(false);
+                                    }
+                                }}
+                                className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                {quotaActionLoading ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin" /> A guardar...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle2 size={14} /> Confirmar Obras ({selectedQuotaProjectIds.length})
+                                    </>
+                                )}
                             </button>
                         </div>
                     </div>

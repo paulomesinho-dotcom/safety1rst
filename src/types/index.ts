@@ -35,6 +35,14 @@ export interface User {
     activeProjectsCount?: number;
     hasActiveProjects?: boolean;
     canManageCompanyData?: boolean; // Permissão concedida pelo Admin da Conta para o Manager aceder e atualizar/criar dados em "A Minha Empresa"
+    projectQuotaExceededAt?: string; // Data em que o limite de 5 obras foi excedido após desassociação
+    projectQuotaDeadline?: string;   // Data/hora limite de 48h para escolha de projetos
+    pendingQuotaSelection?: boolean; // Se o utilizador tem de escolher os 5 projetos a reter
+    removedFromCompanyNotification?: {
+        companyName: string;
+        removedAt: string;
+        excessProjectsCount: number;
+    };
     createdAt: string;
 }
 
@@ -855,7 +863,7 @@ export interface CompanyRequest {
     createdAt: string;
 }
 
-export type CompanyInvitationStatus = 'pending' | 'accepted' | 'rejected' | 'canceled';
+export type CompanyInvitationStatus = 'pending' | 'accepted' | 'rejected' | 'canceled' | 'removed';
 
 export interface CompanyInvitation {
     id: string;
