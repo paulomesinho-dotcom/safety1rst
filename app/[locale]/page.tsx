@@ -22,7 +22,7 @@ import {
     FlatBriefcaseIcon, FlatRequestsIcon, FlatWorkersIcon, 
     FlatCrownIcon, FlatCompaniesIcon, FlatShieldUserIcon 
 } from '@/components/FlatIcons';
-import type { PlanType, ProjectRole, User, Account, Project, Company } from '@/types';
+import type { PlanType, ProjectRole, User, Account, Project, Company, CompanyInvitation } from '@/types';
 
 type WorkplaceTab = 'projects' | 'requests' | 'company' | 'subscriptions' | 'client_management' | 'users_management';
 
@@ -213,6 +213,21 @@ export default function Home() {
         return () => clearInterval(deadlineInterval);
     }, [hasMounted, isInitialized, checkProjectQuotaDeadlines]);
 
+    // Helper para obter o Nome Oficial da Empresa Convidante
+    const getInvitationOfficialCompanyName = (inv: CompanyInvitation) => {
+        const aid = inv.accountId;
+        const acc = accounts.find(a => a.id === aid);
+        const comp = companies.find(c => (c.accountId === aid || c.id === `comp_acc_${aid}`) && !c.projectId && c.id !== 'comp_master') ||
+                     companies.find(c => (c.accountId === aid || c.id === `comp_acc_${aid}`) && !c.projectId) ||
+                     companies.find(c => c.accountId === aid);
+        const inviter = users.find(u => u.id === inv.invitedByUserId);
+        const inviterComp = inviter ? (
+            companies.find(c => (c.accountId === inviter.accountId || c.id === `comp_acc_${inviter.accountId}` || c.id === `comp_usr_${inviter.id}`) && !c.projectId && c.id !== 'comp_master') ||
+            companies.find(c => (c.accountId === inviter.accountId || c.id === `comp_usr_${inviter.id}`) && !c.projectId)
+        ) : undefined;
+        return comp?.name?.trim() || inviterComp?.name?.trim() || acc?.name?.trim() || inv.accountName;
+    };
+
     // Convite aceite de empresa associada (se o utilizador for membro/convidado de outra empresa)
     const associatedCompanyInvitation = useMemo(() => {
         if (!currentUser?.email) return null;
@@ -225,8 +240,18 @@ export default function Home() {
     const associatedCompanyAccount = useMemo(() => {
         const accId = currentUser?.associatedCompanyId || associatedCompanyInvitation?.accountId;
         if (!accId) return null;
-        return accounts.find(a => a.id === accId) || null;
-    }, [currentUser, associatedCompanyInvitation, accounts]);
+        const acc = accounts.find(a => a.id === accId) || null;
+        const comp = companies.find(c => (c.accountId === accId || c.id === `comp_acc_${accId}`) && !c.projectId && c.id !== 'comp_master') ||
+                     companies.find(c => (c.accountId === accId || c.id === `comp_acc_${accId}`) && !c.projectId);
+        if (!acc && !comp) return null;
+        return {
+            ...(acc || {}),
+            id: accId,
+            name: comp?.name?.trim() || acc?.name || 'Empresa Parceira',
+            plan: acc?.plan || 'premium',
+            vatNumber: comp?.nif?.trim() || acc?.vatNumber
+        } as Account;
+    }, [currentUser, associatedCompanyInvitation, accounts, companies]);
 
     // Auto-reconciliação: se o utilizador livre tiver sido indevidamente associado ao accountId da empresa que o convidou,
     // restaurar a sua conta própria pessoal Free para que o seu Workplace permaneça Free e o bónus seja aplicado.
@@ -478,15 +503,39 @@ export default function Home() {
         return Array.from(accIds).map(aid => {
             const acc = accounts.find(a => a.id === aid);
             const inv = matchingInvs.find(i => i.accountId === aid);
+
+            // 1. Procurar empresa corporativa oficial associada à conta (onde reside o Nome Oficial)
+            const masterComp = companies.find(c => (c.accountId === aid || c.id === `comp_acc_${aid}`) && !c.projectId && c.id !== 'comp_master') ||
+                               companies.find(c => (c.accountId === aid || c.id === `comp_acc_${aid}`) && !c.projectId) ||
+                               companies.find(c => c.accountId === aid && c.id !== 'comp_master') ||
+                               companies.find(c => c.accountId === aid);
+
+            // 2. Se o utilizador convidante ou admin dessa conta tiver uma empresa atribuída
+            const adminUser = users.find(u => u.accountId === aid && (u.role === 'admin' || u.role === 'client_admin'));
+            const adminComp = adminUser ? (
+                companies.find(c => (c.accountId === adminUser.accountId || c.id === `comp_usr_${adminUser.id}` || c.id === `comp_acc_${adminUser.accountId}`) && !c.projectId && c.id !== 'comp_master') ||
+                companies.find(c => (c.accountId === adminUser.accountId || c.id === `comp_usr_${adminUser.id}`) && !c.projectId)
+            ) : undefined;
+
+            // 3. Se houver convite com invitedByUserId
+            const inviter = inv?.invitedByUserId ? users.find(u => u.id === inv.invitedByUserId) : undefined;
+            const inviterComp = inviter ? (
+                companies.find(c => (c.accountId === inviter.accountId || c.id === `comp_usr_${inviter.id}` || c.id === `comp_acc_${inviter.accountId}`) && !c.projectId && c.id !== 'comp_master') ||
+                companies.find(c => (c.accountId === inviter.accountId || c.id === `comp_usr_${inviter.id}`) && !c.projectId)
+            ) : undefined;
+
+            const officialName = masterComp?.name?.trim() || adminComp?.name?.trim() || inviterComp?.name?.trim() || acc?.name?.trim() || inv?.accountName?.trim() || 'Empresa Parceira';
+            const officialVat = masterComp?.nif?.trim() || adminComp?.nif?.trim() || inviterComp?.nif?.trim() || acc?.vatNumber?.trim();
+
             return {
                 accountId: aid,
-                name: acc?.name || inv?.accountName || 'Empresa Parceira',
+                name: officialName,
                 plan: acc?.plan || 'premium',
-                vatNumber: acc?.vatNumber,
+                vatNumber: officialVat,
                 joinedAt: inv?.resolvedAt || inv?.createdAt
             };
         });
-    }, [currentUser, companyInvitations, accounts]);
+    }, [currentUser, companyInvitations, accounts, companies, users]);
 
     // Access Requests (apenas para obras que o utilizador gere no seu workplace)
     const managedProjectIds = useMemo(() => {
@@ -1035,7 +1084,7 @@ export default function Home() {
                                         <div>
                                             <div className="flex items-center gap-2">
                                                 <h4 className="text-sm sm:text-base font-bold text-[var(--text)]">
-                                                    Convite para Ingressar na Empresa &ldquo;{inv.accountName}&rdquo;
+                                                    Convite para Ingressar na Empresa &ldquo;{getInvitationOfficialCompanyName(inv)}&rdquo;
                                                 </h4>
                                                 <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse uppercase">
                                                     Ação Necessária
@@ -1364,7 +1413,7 @@ export default function Home() {
                                                         <td className="py-3 px-3 font-semibold text-[var(--text)]">
                                                             <div className="flex items-center gap-2">
                                                                 <Building2 size={14} className="text-primary" />
-                                                                <span>{inv.accountName}</span>
+                                                                <span>{getInvitationOfficialCompanyName(inv)}</span>
                                                             </div>
                                                         </td>
                                                         <td className="py-3 px-3 text-[var(--text-muted)]">

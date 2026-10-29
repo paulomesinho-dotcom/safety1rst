@@ -212,48 +212,83 @@ export async function GET() {
 }
 
 // PATCH /api/platform/clients
-// Atualização ágil de plano de cliente no PostgreSQL
+// Atualização ágil de plano e dados de cliente (Tenant) no PostgreSQL
 export async function PATCH(req: NextRequest) {
     try {
         const body = await req.json();
-        const { accountId, plan } = body;
+        const { accountId, plan, name, vatNumber } = body;
 
-        if (!accountId || !plan) {
+        if (!accountId) {
             return NextResponse.json(
-                { error: 'ID da conta e plano são obrigatórios.' },
+                { error: 'ID da conta é obrigatório.' },
                 { status: 400 }
             );
         }
 
-        let maxProjects = 0;
-        let accessLimit = 600;
-        let maxUsers = 1;
+        const dataToUpdate: any = {};
+        let maxUsers: number | undefined;
+        let maxProjects: number | undefined;
+        let accessLimit: number | undefined;
 
-        if (plan === 'basic') {
-            maxProjects = 1;
-            accessLimit = 1200;
-            maxUsers = 5;
-        } else if (plan === 'premium') {
-            maxProjects = 3;
-            accessLimit = 3600;
-            maxUsers = 10;
-        } else if (plan === 'enterprise') {
-            maxProjects = -1;
-            accessLimit = -1;
-            maxUsers = 50;
+        if (plan) {
+            maxProjects = 0;
+            accessLimit = 600;
+            maxUsers = 1;
+
+            if (plan === 'basic') {
+                maxProjects = 1;
+                accessLimit = 1200;
+                maxUsers = 5;
+            } else if (plan === 'premium') {
+                maxProjects = 3;
+                accessLimit = 3600;
+                maxUsers = 10;
+            } else if (plan === 'enterprise') {
+                maxProjects = -1;
+                accessLimit = -1;
+                maxUsers = 50;
+            }
+
+            dataToUpdate.plan = plan;
+            dataToUpdate.maxProjects = maxProjects;
+            dataToUpdate.accessControlLimit = accessLimit;
+        }
+
+        if (name && typeof name === 'string' && name.trim()) {
+            dataToUpdate.name = name.trim();
         }
 
         // 1. Atualizar Tenant se existir no Prisma
         const tenant = await prisma.tenant.findUnique({ where: { id: accountId } }).catch(() => null);
-        if (tenant) {
+        if (tenant && Object.keys(dataToUpdate).length > 0) {
             await prisma.tenant.update({
                 where: { id: accountId },
-                data: {
-                    plan,
-                    maxProjects,
-                    accessControlLimit: accessLimit,
-                },
+                data: dataToUpdate,
             });
+        }
+
+        // 2. Se o nome oficial da empresa foi atualizado, sincronizar com os convites
+        if (name && typeof name === 'string' && name.trim()) {
+            const trimmedName = name.trim();
+            try {
+                await prisma.$queryRawUnsafe(
+                    `UPDATE "company_invitations" SET "accountName" = $1 WHERE "accountId" = $2`,
+                    trimmedName,
+                    accountId
+                );
+            } catch {}
+
+            try {
+                const invitationsFile = path.join(process.cwd(), '.data', 'company_invitations.json');
+                if (fs.existsSync(invitationsFile)) {
+                    const raw = fs.readFileSync(invitationsFile, 'utf-8');
+                    const fileInvs = JSON.parse(raw);
+                    if (Array.isArray(fileInvs)) {
+                        const updated = fileInvs.map((i) => i.accountId === accountId ? { ...i, accountName: trimmedName } : i);
+                        fs.writeFileSync(invitationsFile, JSON.stringify(updated, null, 2), 'utf-8');
+                    }
+                }
+            } catch {}
         }
 
         return NextResponse.json({

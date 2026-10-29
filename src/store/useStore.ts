@@ -1687,6 +1687,12 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
     updateAccount: (id, updates) => set((state) => {
         dbUpdate('accounts', id, updates).catch(console.error);
+        fetch('/api/platform/clients', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accountId: id, ...updates })
+        }).catch(console.error);
+
         const updatedInvitations = updates.name ? (state.companyInvitations || []).map(inv =>
             inv.accountId === id ? { ...inv, accountName: updates.name! } : inv
         ) : state.companyInvitations;
@@ -1915,7 +1921,34 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             });
         }
 
-        return { companies: [...state.companies, newCompany] };
+        let updatedAccounts = state.accounts;
+        let updatedAccount = state.account;
+        let updatedInvitations = state.companyInvitations;
+
+        if (!newCompany.projectId && newCompany.name && newCompany.accountId) {
+            const trimmedName = newCompany.name.trim();
+            dbUpdate('accounts', newCompany.accountId, { name: trimmedName, vatNumber: newCompany.nif }).catch(console.error);
+            fetch('/api/platform/clients', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accountId: newCompany.accountId, name: trimmedName, vatNumber: newCompany.nif })
+            }).catch(console.error);
+
+            updatedAccounts = state.accounts.map(a => a.id === newCompany.accountId ? { ...a, name: trimmedName, vatNumber: newCompany.nif || a.vatNumber } : a);
+            if (state.account?.id === newCompany.accountId) {
+                updatedAccount = { ...state.account, name: trimmedName, vatNumber: newCompany.nif || state.account.vatNumber };
+            }
+            updatedInvitations = (state.companyInvitations || []).map(inv =>
+                inv.accountId === newCompany.accountId ? { ...inv, accountName: trimmedName } : inv
+            );
+        }
+
+        return { 
+            companies: [...state.companies, newCompany],
+            accounts: updatedAccounts,
+            account: updatedAccount,
+            companyInvitations: updatedInvitations
+        };
     }),
 
     updateCompany: (id, updates) => set((state) => {
@@ -1969,9 +2002,35 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             newWorkflowLogs = [...newWorkflowLogs, log];
         }
 
+        // Se for a empresa corporativa-mestre (sem projectId), propagar o Nome Oficial para a Conta e Convites
+        let updatedAccounts = state.accounts;
+        let updatedAccount = state.account;
+        let updatedInvitations = state.companyInvitations;
+
+        if (!company.projectId && updates.name && company.accountId) {
+            const trimmedName = updates.name.trim();
+            dbUpdate('accounts', company.accountId, { name: trimmedName, vatNumber: updates.nif || company.nif }).catch(console.error);
+            fetch('/api/platform/clients', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accountId: company.accountId, name: trimmedName, vatNumber: updates.nif || company.nif })
+            }).catch(console.error);
+
+            updatedAccounts = state.accounts.map(a => a.id === company.accountId ? { ...a, name: trimmedName, vatNumber: updates.nif || a.vatNumber } : a);
+            if (state.account?.id === company.accountId) {
+                updatedAccount = { ...state.account, name: trimmedName, vatNumber: updates.nif || state.account.vatNumber };
+            }
+            updatedInvitations = (state.companyInvitations || []).map(inv =>
+                inv.accountId === company.accountId ? { ...inv, accountName: trimmedName } : inv
+            );
+        }
+
         dbUpdate('companies', id, finalUpdates).catch(console.error);
         return {
             companies: state.companies.map(c => c.id === id ? { ...c, ...finalUpdates } : c),
+            accounts: updatedAccounts,
+            account: updatedAccount,
+            companyInvitations: updatedInvitations,
             workflowLogs: newWorkflowLogs
         };
     }),
