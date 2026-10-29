@@ -799,6 +799,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         insurance_at: true, insurance_rc: true, finance_ss: true, finance_fin: true,
                         ss_discount: true, pss_acceptance: true, work_schedule: true
                     },
+                    subjectFolders: {
+                        insurance_policies: 'Seguros e Apólices',
+                        state_obligations: 'Obrigações do Estado',
+                        site_documents: 'Documentos de Obra'
+                    },
                     customDocuments: [], isSystem: false, createdAt: new Date().toISOString()
                 };
 
@@ -815,6 +820,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     standardUploads: {
                         medical_fitness: true, induction: true, epi: true, specific_training: true, contract: true
                     },
+                    subjectFolders: {
+                        worker_health: 'Aptidão Médica e Segurança',
+                        worker_training: 'Formação e Acolhimento',
+                        worker_contract: 'Documentação Legal e Contratual'
+                    },
                     customDocuments: [], isSystem: false, createdAt: new Date().toISOString()
                 };
 
@@ -830,6 +840,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     requirements: { maintenance: true, inspection: true, insurance: true, property_title: true },
                     standardUploads: {
                         maintenance: true, inspection: true, insurance: true, property_title: true
+                    },
+                    subjectFolders: {
+                        equip_maintenance: 'Manutenção e Inspeções',
+                        equip_insurance: 'Seguro e Conformidade',
+                        equip_property: 'Registo e Propriedade'
                     },
                     customDocuments: [], isSystem: false, createdAt: new Date().toISOString()
                 };

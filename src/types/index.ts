@@ -392,6 +392,7 @@ export interface CustomDocumentDefinition {
     isExpirationDate?: boolean; // Se a data expirar, gera ticket de retificação
     toleranceDays?: number; // Extra days after the date before considered expired (0 = day-after default)
     subject?: string; // Assunto / Grupo de agregação (ex: "Seguros e Apólices", "Obrigações do Estado", "Documentos de Obra")
+    cdeFolder?: string; // Pasta de destino no CDE (opcional, por defeito a pasta do assunto)
 }
 
 export interface CompanyProfile {
@@ -410,6 +411,7 @@ export interface CompanyProfile {
     };
     standardUploads?: Record<string, boolean>; // Defines if standard requirement requires file upload
     standardDocConfig?: Record<string, { isExpirationDate: boolean; toleranceDays: number }>; // Per-field expiry config
+    subjectFolders?: Record<string, string>; // Mapeamento: ID ou nome do assunto -> Pasta CDE de destino
     // Custom defined docs
     customDocuments: CustomDocumentDefinition[];
     isSystem?: boolean;
@@ -441,6 +443,7 @@ export interface WorkerProfile {
     };
     standardUploads?: Record<string, boolean>;
     standardDocConfig?: Record<string, { isExpirationDate: boolean; toleranceDays: number }>;
+    subjectFolders?: Record<string, string>; // Mapeamento: ID ou nome do assunto -> Pasta CDE de destino
     customDocuments: CustomDocumentDefinition[];
     isSystem?: boolean;
     createdAt: string;
@@ -464,6 +467,7 @@ export interface EquipmentProfile {
         property_title?: boolean;
     };
     standardUploads?: Record<string, boolean>;
+    subjectFolders?: Record<string, string>; // Mapeamento: ID ou nome do assunto -> Pasta CDE de destino
     customDocuments: CustomDocumentDefinition[];
     isSystem?: boolean;
     createdAt: string;

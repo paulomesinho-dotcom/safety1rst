@@ -148,9 +148,34 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                         }
                     }
 
+                    let uploadedFolderPath: string | undefined;
+
                     if (effectiveCdeConfig?.connected) {
                         console.log(`DocumentUpload: Uploading to CDE Cloud (${effectiveCdeConfig.provider})...`);
                         const versionTag = prevActiveDoc ? `v${prevActiveDoc.version || 1}` : undefined;
+
+                        // Resolver nome da empresa para a raiz em projeto e perfil ativo para a pasta de assunto
+                        let companyNameForPath = '';
+                        let activeProfile: any = null;
+
+                        if (entityType === 'company') {
+                            companyNameForPath = entityName;
+                            activeProfile = storeState.companyProfiles.find(p => p.id === company?.profileId) ||
+                                            storeState.companyProfiles.find(p => p.id === project?.defaultCompanyProfileId) ||
+                                            storeState.companyProfiles.find(p => p.projectId === projectId);
+                        } else if (entityType === 'worker') {
+                            const workerComp = storeState.companies.find(c => c.id === worker?.companyId);
+                            companyNameForPath = workerComp?.name || company?.name || 'A Minha Empresa';
+                            activeProfile = storeState.workerProfiles.find(p => p.id === worker?.profileId) ||
+                                            storeState.workerProfiles.find(p => p.id === project?.defaultWorkerProfileId) ||
+                                            storeState.workerProfiles.find(p => p.projectId === projectId);
+                        } else if (entityType === 'equipment') {
+                            const equipComp = storeState.companies.find(c => c.id === equipment?.companyId);
+                            companyNameForPath = equipComp?.name || company?.name || 'A Minha Empresa';
+                            activeProfile = storeState.equipmentProfiles.find(p => p.id === equipment?.profileId) ||
+                                            storeState.equipmentProfiles.find(p => p.id === project?.defaultEquipmentProfileId) ||
+                                            storeState.equipmentProfiles.find(p => p.projectId === projectId);
+                        }
 
                         const uploadRes = await uploadToEntityFolder(
                             effectiveCdeConfig,
@@ -158,11 +183,19 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                             entityName,
                             entityIdentifier,
                             fileToUpload,
-                            versionTag
+                            versionTag,
+                            undefined,
+                            {
+                                projectId: projectId || undefined,
+                                companyName: companyNameForPath,
+                                category,
+                                profile: activeProfile
+                            }
                         );
                         fileUrl = uploadRes.webViewLink;
                         cdeFileId = uploadRes.id;
-                        console.log('Uploaded to CDE:', fileUrl);
+                        uploadedFolderPath = uploadRes.folderPath;
+                        console.log('Uploaded to CDE:', fileUrl, 'FolderPath:', uploadedFolderPath);
 
                         if (onOperation && uploadRes.id) {
                             onOperation({
@@ -216,6 +249,7 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                         entityId,
                         projectId: projectId,
                         category: category,
+                        folderPath: uploadedFolderPath,
                         provider: (effectiveCdeConfig?.connected ? provider : 'local') as any,
                         status: status,
                         version: nextDocVersion,

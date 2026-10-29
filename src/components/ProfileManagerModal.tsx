@@ -22,12 +22,14 @@ import {
     FileBadge,
     Layers,
     FolderPlus,
+    Folder,
     Info,
     Sparkles,
 } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { cn } from '../lib/utils';
 import { CustomDocumentDefinition } from '../types';
+import { CDE_THEMES } from '../lib/cde-manager';
 import { useTranslations } from 'next-intl';
 
 export type ProfileType = 'company' | 'worker' | 'equipment';
@@ -66,6 +68,8 @@ export interface SubjectDefinition {
     icon: React.ComponentType<{ size?: number; className?: string }>;
     colorClass: string;
     standardDocIds: string[];
+    defaultFolder: string;
+    suggestedFolders: string[];
 }
 
 // Agrupamento por assunto (DL 273/2003 para empresas, normas de segurança para trabalhadores e equipamentos)
@@ -77,7 +81,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Apólices e recibos de seguros obrigatórios (Acidentes de Trabalho e Responsabilidade Civil).',
             icon: Shield,
             colorClass: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/40',
-            standardDocIds: ['insurance_at', 'insurance_rc']
+            standardDocIds: ['insurance_at', 'insurance_rc'],
+            defaultFolder: 'Seguros e Apólices',
+            suggestedFolders: ['Seguros e Apólices', '01-Seguros', 'Apólices e Recibos']
         },
         {
             id: 'state_obligations',
@@ -85,7 +91,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Declarações fiscais, certidões da Segurança Social e folhas de remunerações/descontos.',
             icon: Landmark,
             colorClass: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/40',
-            standardDocIds: ['finance_ss', 'finance_fin', 'ss_discount']
+            standardDocIds: ['finance_ss', 'finance_fin', 'ss_discount'],
+            defaultFolder: 'Obrigações do Estado',
+            suggestedFolders: ['Obrigações do Estado', '02-Certidões e Impostos', 'Finanças e Segurança Social']
         },
         {
             id: 'site_documents',
@@ -93,7 +101,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Aceitação formal do Plano de Segurança e Saúde (PSS) e horários de trabalho autorizados.',
             icon: HardHat,
             colorClass: 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/40',
-            standardDocIds: ['pss_acceptance', 'work_schedule']
+            standardDocIds: ['pss_acceptance', 'work_schedule'],
+            defaultFolder: 'Documentos de Obra',
+            suggestedFolders: ['Documentos de Obra', '03-Documentos de Estaleiro', 'PSS e Horários']
         }
     ],
     worker: [
@@ -103,7 +113,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Fichas de aptidão médica e comprovativos de receção de Equipamentos de Proteção Individual.',
             icon: HeartPulse,
             colorClass: 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/40',
-            standardDocIds: ['medical_fitness', 'epi']
+            standardDocIds: ['medical_fitness', 'epi'],
+            defaultFolder: 'Aptidão Médica e Segurança',
+            suggestedFolders: ['Aptidão Médica e Segurança', '01-Medicina e EPI', 'Saúde Ocupacional']
         },
         {
             id: 'worker_training',
@@ -111,7 +123,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Acolhimento na obra e certificados de formação técnica específica.',
             icon: GraduationCap,
             colorClass: 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800/40',
-            standardDocIds: ['induction', 'specific_training']
+            standardDocIds: ['induction', 'specific_training'],
+            defaultFolder: 'Formação e Acolhimento',
+            suggestedFolders: ['Formação e Acolhimento', '02-Formação Técnica', 'Certificados']
         },
         {
             id: 'worker_contract',
@@ -119,7 +133,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Contratos de trabalho, certidões e autorizações legais.',
             icon: FileCheck,
             colorClass: 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800/40',
-            standardDocIds: ['contract']
+            standardDocIds: ['contract'],
+            defaultFolder: 'Documentação Legal e Contratual',
+            suggestedFolders: ['Documentação Legal e Contratual', '03-Contratos', 'Identificação e Vistos']
         }
     ],
     equipment: [
@@ -129,7 +145,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Relatórios de manutenção preventiva e certificados de inspeção periódica obrigatória.',
             icon: Wrench,
             colorClass: 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/40 border-orange-200 dark:border-orange-800/40',
-            standardDocIds: ['maintenance', 'inspection']
+            standardDocIds: ['maintenance', 'inspection'],
+            defaultFolder: 'Manutenção e Inspeções',
+            suggestedFolders: ['Manutenção e Inspeções', '01-Manutenção', 'Relatórios Periódicos']
         },
         {
             id: 'equip_insurance',
@@ -137,7 +155,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Apólice de seguro de máquinas e declarações de conformidade CE.',
             icon: ShieldCheck,
             colorClass: 'text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/40 border-teal-200 dark:border-teal-800/40',
-            standardDocIds: ['insurance']
+            standardDocIds: ['insurance'],
+            defaultFolder: 'Seguro e Conformidade',
+            suggestedFolders: ['Seguro e Conformidade', '02-Seguros e CE', 'Conformidade Legal']
         },
         {
             id: 'equip_property',
@@ -145,7 +165,9 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Título de registo de propriedade e documentos de identificação do equipamento.',
             icon: FileBadge,
             colorClass: 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 border-purple-200 dark:border-purple-800/40',
-            standardDocIds: ['property_title']
+            standardDocIds: ['property_title'],
+            defaultFolder: 'Registo e Propriedade',
+            suggestedFolders: ['Registo e Propriedade', '03-Livrete e Matrícula', 'Títulos']
         }
     ]
 };
@@ -208,6 +230,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                 requirements: data.requirements || {},
                 standardUploads: data.standardUploads || {},
                 standardDocConfig: data.standardDocConfig || {},
+                subjectFolders: data.subjectFolders || {},
                 customDocuments: data.customDocuments || [],
                 createdAt: new Date().toISOString()
             };
@@ -220,6 +243,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                 requirements: data.requirements,
                 standardUploads: data.standardUploads,
                 standardDocConfig: data.standardDocConfig || {},
+                subjectFolders: data.subjectFolders || {},
                 customDocuments: data.customDocuments
             };
             if (entityType === 'company') store.updateCompanyProfile(editingId!, updates);
@@ -243,6 +267,10 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
             const defaultRequirements = allStandardDocIds.reduce((acc, id) => ({ ...acc, [id]: true }), {});
             const defaultUploads = allStandardDocIds.reduce((acc, id) => ({ ...acc, [id]: true }), {});
 
+            const defaultFolders: Record<string, string> = {};
+            subjects.forEach(s => {
+                defaultFolders[s.id] = s.defaultFolder;
+            });
             const newProfile = {
                 id: stdId,
                 projectId,
@@ -250,6 +278,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                 requirements: defaultRequirements,
                 standardUploads: defaultUploads,
                 standardDocConfig: defaultConfig,
+                subjectFolders: defaultFolders,
                 customDocuments: [],
                 isSystem: false,
                 createdAt: new Date().toISOString()
@@ -267,6 +296,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
         requirements: Record<string, boolean>;
         standardUploads: Record<string, boolean>;
         standardDocConfig: Record<string, { isExpirationDate: boolean; toleranceDays: number }>;
+        subjectFolders: Record<string, string>;
         customDocuments: CustomDocumentDefinition[];
         isSystem?: boolean;
     }>({
@@ -274,6 +304,7 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
         requirements: {},
         standardUploads: {},
         standardDocConfig: {},
+        subjectFolders: {},
         customDocuments: []
     });
 
@@ -304,11 +335,19 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                 toleranceDays: 0,
             };
         });
+        const initialFolders: Record<string, string> = {};
+        subjects.forEach(s => {
+            initialFolders[s.id] = profile.subjectFolders?.[s.id] || profile.subjectFolders?.[s.title] || s.defaultFolder;
+        });
+        if (profile.subjectFolders) {
+            Object.assign(initialFolders, profile.subjectFolders);
+        }
         setFormState({
             name: profile.name,
             requirements: profile.requirements || {},
             standardUploads: profile.standardUploads || {},
             standardDocConfig: defaultConfig,
+            subjectFolders: initialFolders,
             customDocuments: profile.customDocuments || [],
             isSystem: profile.isSystem
         });
@@ -321,11 +360,16 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
         Object.entries(STANDARD_DATE_DOC_CONFIG).forEach(([docId, meta]) => {
             defaultConfig[docId] = { isExpirationDate: meta.defaultExpiry, toleranceDays: 0 };
         });
+        const defaultFolders: Record<string, string> = {};
+        subjects.forEach(s => {
+            defaultFolders[s.id] = s.defaultFolder;
+        });
         setFormState({
             name: '',
             requirements: allStandardDocIds.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
             standardUploads: allStandardDocIds.reduce((acc, id) => ({ ...acc, [id]: true }), {}),
             standardDocConfig: defaultConfig,
+            subjectFolders: defaultFolders,
             customDocuments: []
         });
         setIsAddingCustomDoc(false);
@@ -829,6 +873,50 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                                                 </span>
                                             </div>
 
+                                            {/* Configuração da Pasta de Destino no CDE */}
+                                            <div className="px-4 py-2.5 bg-blue-50/50 dark:bg-blue-950/20 border-b border-gray-200/80 dark:border-[#444746] flex flex-wrap items-center justify-between gap-3 text-xs">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="flex items-center gap-1.5 font-bold text-gray-700 dark:text-gray-200">
+                                                        <Folder size={14} className="text-primary" />
+                                                        <span>Pasta de Destino CDE:</span>
+                                                    </div>
+                                                    <div className="relative">
+                                                        <input
+                                                            type="text"
+                                                            list={`folders-${subject.id}`}
+                                                            value={formState.subjectFolders?.[subject.id] ?? subject.defaultFolder}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                setFormState(prev => ({
+                                                                    ...prev,
+                                                                    subjectFolders: {
+                                                                        ...(prev.subjectFolders || {}),
+                                                                        [subject.id]: val
+                                                                    }
+                                                                }));
+                                                            }}
+                                                            className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-300 dark:border-[#444746] bg-white dark:bg-[#131314] text-gray-900 dark:text-white focus:ring-1 focus:ring-primary outline-none shadow-2xs"
+                                                            placeholder={subject.defaultFolder}
+                                                        />
+                                                        <datalist id={`folders-${subject.id}`}>
+                                                            {subject.suggestedFolders.map(f => (
+                                                                <option key={f} value={f} />
+                                                            ))}
+                                                        </datalist>
+                                                    </div>
+                                                </div>
+
+                                                {/* Pré-visualização do Caminho no CDE */}
+                                                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                                                    <span className="text-gray-400">Destino:</span>
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-[#131314] border border-gray-200 dark:border-gray-700 font-mono text-[10px] text-primary dark:text-primary-light font-semibold">
+                                                        {projectId
+                                                            ? `[Empresa] / ${CDE_THEMES[entityType]} / ${formState.subjectFolders?.[subject.id] || subject.defaultFolder}`
+                                                            : `${CDE_THEMES[entityType]} / ${formState.subjectFolders?.[subject.id] || subject.defaultFolder}`}
+                                                    </span>
+                                                </div>
+                                            </div>
+
                                             {/* Lista de Documentos do Assunto */}
                                             <div className="p-3 space-y-2.5">
                                                 {/* Documentos Padrão */}
@@ -1024,6 +1112,41 @@ export const ProfileManagerModal: React.FC<Props> = ({ isOpen, onClose, projectI
                                                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
                                                     {extraDocs.length} Personalizado{extraDocs.length > 1 ? 's' : ''}
                                                 </span>
+                                            </div>
+
+                                            {/* Configuração da Pasta de Destino no CDE para Assunto Personalizado */}
+                                            <div className="px-4 py-2.5 bg-purple-50/50 dark:bg-purple-950/20 border-b border-gray-200/80 dark:border-[#444746] flex flex-wrap items-center justify-between gap-3 text-xs">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="flex items-center gap-1.5 font-bold text-gray-700 dark:text-gray-200">
+                                                        <Folder size={14} className="text-purple-600" />
+                                                        <span>Pasta de Destino CDE:</span>
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        value={formState.subjectFolders?.[subjectTitle] ?? subjectTitle}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            setFormState(prev => ({
+                                                                ...prev,
+                                                                subjectFolders: {
+                                                                    ...(prev.subjectFolders || {}),
+                                                                    [subjectTitle]: val
+                                                                }
+                                                            }));
+                                                        }}
+                                                        className="px-2.5 py-1 text-xs font-medium rounded-lg border border-gray-300 dark:border-[#444746] bg-white dark:bg-[#131314] text-gray-900 dark:text-white focus:ring-1 focus:ring-primary outline-none shadow-2xs"
+                                                        placeholder={subjectTitle}
+                                                    />
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                                                    <span className="text-gray-400">Destino:</span>
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-[#131314] border border-gray-200 dark:border-gray-700 font-mono text-[10px] text-purple-600 dark:text-purple-400 font-semibold">
+                                                        {projectId
+                                                            ? `📁 [Nome da Empresa] / ${CDE_THEMES[entityType]} / ${formState.subjectFolders?.[subjectTitle] || subjectTitle}`
+                                                            : `📁 ${CDE_THEMES[entityType]} / ${formState.subjectFolders?.[subjectTitle] || subjectTitle}`}
+                                                    </span>
+                                                </div>
                                             </div>
 
                                             <div className="p-3 space-y-2">

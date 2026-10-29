@@ -851,34 +851,31 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         logs.push(`Pasta base no SharePoint: ${baseFolder.name || config.folderPath || 'Raiz'} (ID ${baseFolderId})`);
 
         const COMPANY_STANDARD_FOLDERS = [
-            '01-Empresa',
-            '02-Trabalhadores',
-            '03-Equipamentos',
-            '04-Formação e Qualificações',
-            '05-Segurança e Saúde (SST)',
-            '06-Modelos e Minutas'
+            'Organizações',
+            'Pessoas',
+            'Equipamentos',
+            '04-Controlo de Acessos',
+            '05-Sinistralidade',
+            '06-Formação'
         ];
 
         const COMPANY_SPECIAL_SUBFOLDERS: Record<string, string[]> = {
-            '01-Empresa': [
-                '01-Certidão Comercial',
-                '02-Seguros',
-                '03-Certidões Não Dívida (AT e SS)',
-                '04-Alvará e Título Registo',
-                '05-Medicina no Trabalho',
-                '06-Folhas de Remunerações',
+            'Organizações': [
+                'Seguros e Apólices',
+                'Obrigações do Estado',
+                'Documentos de Obra',
                 'Arquivo'
             ],
-            '04-Formação e Qualificações': [
-                'Planos de Formação',
-                'Manuais de Acolhimento',
-                'Certificados',
+            'Pessoas': [
+                'Aptidão Médica e Segurança',
+                'Formação e Acolhimento',
+                'Documentação Legal e Contratual',
                 'Arquivo'
             ],
-            '05-Segurança e Saúde (SST)': [
-                'Avaliações de Risco',
-                'Procedimentos de Trabalho Seguro',
-                'Registos de Acidentes',
+            'Equipamentos': [
+                'Manutenção e Inspeções',
+                'Seguro e Conformidade',
+                'Registo e Propriedade',
                 'Arquivo'
             ]
         };
@@ -951,9 +948,9 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         logs.push(`Pasta base no SharePoint: ${baseFolder.name || config.folderPath || 'Raiz'} (ID ${baseFolderId})`);
 
         const STANDARD_FOLDERS = [
-            '01-Empresas',
-            '02-Trabalhadores',
-            '03-Equipamentos',
+            'Organizações',
+            'Pessoas',
+            'Equipamentos',
             '04-Controlo de Acessos',
             '05-Sinistralidade',
             '06-Formação',
@@ -962,7 +959,24 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             '09-Modelos e Minutas'
         ];
         const SPECIAL_SUBFOLDERS: Record<string, string[]> = {
-            '01-Empresas': ['00-Reports']
+            'Organizações': [
+                'Seguros e Apólices',
+                'Obrigações do Estado',
+                'Documentos de Obra',
+                'Arquivo'
+            ],
+            'Pessoas': [
+                'Aptidão Médica e Segurança',
+                'Formação e Acolhimento',
+                'Documentação Legal e Contratual',
+                'Arquivo'
+            ],
+            'Equipamentos': [
+                'Manutenção e Inspeções',
+                'Seguro e Conformidade',
+                'Registo e Propriedade',
+                'Arquivo'
+            ]
         };
         const createdFolders: Record<string, string> = {};
 
