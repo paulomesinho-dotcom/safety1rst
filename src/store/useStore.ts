@@ -907,7 +907,44 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                                     }
                                 }
                             }
-                            return { companyInvitations: curInvs };
+
+                            // Reconciliar utilizadores para convites aceites
+                            let updatedUsers = [...s.users];
+                            for (const inv of curInvs) {
+                                if (inv.status === 'accepted') {
+                                    const clean = (inv.invitedEmail || '').toLowerCase().trim();
+                                    const matchIdx = updatedUsers.findIndex(u => (u.email || '').toLowerCase().trim() === clean);
+                                    if (matchIdx !== -1) {
+                                        if (updatedUsers[matchIdx].accountId !== inv.accountId) {
+                                            updatedUsers[matchIdx] = { ...updatedUsers[matchIdx], accountId: inv.accountId };
+                                            dbUpdate('users', updatedUsers[matchIdx].id, { accountId: inv.accountId }).catch(() => {});
+                                        }
+                                    } else {
+                                        const newUserRecord: User = {
+                                            id: `user_${inv.id}`,
+                                            name: inv.invitedName || clean.split('@')[0],
+                                            email: inv.invitedEmail,
+                                            accountId: inv.accountId,
+                                            role: 'user',
+                                            status: 'active',
+                                            createdAt: inv.createdAt,
+                                            projectAccess: []
+                                        };
+                                        updatedUsers.push(newUserRecord);
+                                        dbInsert('users', newUserRecord).catch(() => {});
+                                    }
+                                }
+                            }
+
+                            const updatedCurrentUser = s.currentUser
+                                ? (updatedUsers.find(u => u.id === s.currentUser!.id || (u.email && s.currentUser!.email && u.email.toLowerCase() === s.currentUser!.email.toLowerCase())) || s.currentUser)
+                                : null;
+
+                            return {
+                                companyInvitations: curInvs,
+                                users: updatedUsers,
+                                currentUser: updatedCurrentUser
+                            };
                         });
                     }
                 })
@@ -1191,7 +1228,44 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                                 }
                             }
                         }
-                        return { companyInvitations: mergedCompanyInvs };
+
+                        // Reconciliar utilizadores para convites aceites
+                        let updatedUsers = [...state.users];
+                        for (const inv of mergedCompanyInvs) {
+                            if (inv.status === 'accepted') {
+                                const clean = (inv.invitedEmail || '').toLowerCase().trim();
+                                const matchIdx = updatedUsers.findIndex(u => (u.email || '').toLowerCase().trim() === clean);
+                                if (matchIdx !== -1) {
+                                    if (updatedUsers[matchIdx].accountId !== inv.accountId) {
+                                        updatedUsers[matchIdx] = { ...updatedUsers[matchIdx], accountId: inv.accountId };
+                                        dbUpdate('users', updatedUsers[matchIdx].id, { accountId: inv.accountId }).catch(() => {});
+                                    }
+                                } else {
+                                    const newUserRecord: User = {
+                                        id: `user_${inv.id}`,
+                                        name: inv.invitedName || clean.split('@')[0],
+                                        email: inv.invitedEmail,
+                                        accountId: inv.accountId,
+                                        role: 'user',
+                                        status: 'active',
+                                        createdAt: inv.createdAt,
+                                        projectAccess: []
+                                    };
+                                    updatedUsers.push(newUserRecord);
+                                    dbInsert('users', newUserRecord).catch(() => {});
+                                }
+                            }
+                        }
+
+                        const updatedCurrentUser = state.currentUser
+                            ? (updatedUsers.find(u => u.id === state.currentUser!.id || (u.email && state.currentUser!.email && u.email.toLowerCase() === state.currentUser!.email.toLowerCase())) || state.currentUser)
+                            : null;
+
+                        return {
+                            companyInvitations: mergedCompanyInvs,
+                            users: updatedUsers,
+                            currentUser: updatedCurrentUser
+                        };
                     });
                 }
             } catch (invErr) {
@@ -2564,9 +2638,50 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const updatedInvitations = (s.companyInvitations || []).map(i =>
                 i.id === invitationId ? { ...i, status: 'accepted' as const, resolvedAt } : i
             );
-            const updatedUsers = s.users.map(u =>
-                u.email.toLowerCase().trim() === cleanEmail ? { ...u, accountId: inv.accountId } : u
-            );
+
+            let userFound = false;
+            const updatedUsers = s.users.map(u => {
+                if (u.email.toLowerCase().trim() === cleanEmail) {
+                    userFound = true;
+                    return { ...u, accountId: inv.accountId };
+                }
+                return u;
+            });
+
+            if (!userFound) {
+                const newUserRecord: User = {
+                    id: targetUser?.id || `user_${inv.id}`,
+                    name: inv.invitedName || targetUser?.name || cleanEmail.split('@')[0],
+                    email: inv.invitedEmail,
+                    accountId: inv.accountId,
+                    role: 'user',
+                    status: 'active',
+                    createdAt: inv.createdAt,
+                    projectAccess: []
+                };
+                updatedUsers.push(newUserRecord);
+                dbInsert('users', newUserRecord).catch(() => {});
+            }
+
+            // Assegurar que a conta da empresa existe no store do utilizador que aceita
+            let updatedAccounts = [...s.accounts];
+            if (!updatedAccounts.some(a => a.id === inv.accountId)) {
+                const newAcc: Account = {
+                    id: inv.accountId,
+                    name: inv.accountName,
+                    plan: 'premium',
+                    status: 'active',
+                    subscriptionStatus: 'active',
+                    maxProjects: 3,
+                    accessControlLimit: 3600,
+                    maxCompanyUsers: 10,
+                    modules: ['companies', 'workers', 'equipment', 'access-control'],
+                    createdAt: inv.createdAt
+                };
+                updatedAccounts.push(newAcc);
+                dbInsert('accounts', newAcc).catch(() => {});
+            }
+
             const updatedCurrentUser = s.currentUser?.email.toLowerCase().trim() === cleanEmail
                 ? { ...s.currentUser, accountId: inv.accountId }
                 : s.currentUser;
@@ -2574,6 +2689,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             return {
                 companyInvitations: updatedInvitations,
                 users: updatedUsers,
+                accounts: updatedAccounts,
                 currentUser: updatedCurrentUser
             };
         });

@@ -41,7 +41,40 @@ export default function AccountDashboardPage() {
     // Data Context
     const currentAccountId = currentUser?.accountId;
     const accountProjects = projects.filter(p => p.accountId === currentAccountId);
-    const accountUsers = users.filter(u => u.accountId === currentAccountId);
+    const accountUsers = React.useMemo(() => {
+        if (!currentAccountId) return [];
+        const direct = users.filter(u => u.accountId === currentAccountId);
+        const emails = new Set(direct.map(u => (u.email || '').toLowerCase().trim()));
+
+        const acceptedInvs = (companyInvitations || []).filter(
+            i => i.accountId === currentAccountId && i.status === 'accepted'
+        );
+
+        const synthetic: User[] = [];
+        for (const inv of acceptedInvs) {
+            const cleanInvEmail = (inv.invitedEmail || '').toLowerCase().trim();
+            if (cleanInvEmail && !emails.has(cleanInvEmail)) {
+                const match = users.find(u => (u.email || '').toLowerCase().trim() === cleanInvEmail);
+                if (match) {
+                    synthetic.push({ ...match, accountId: currentAccountId });
+                } else {
+                    synthetic.push({
+                        id: `member_${inv.id}`,
+                        name: inv.invitedName || cleanInvEmail.split('@')[0],
+                        email: inv.invitedEmail,
+                        accountId: currentAccountId,
+                        role: 'user',
+                        status: 'active',
+                        createdAt: inv.createdAt,
+                        projectAccess: []
+                    });
+                }
+                emails.add(cleanInvEmail);
+            }
+        }
+        return [...direct, ...synthetic];
+    }, [users, currentAccountId, companyInvitations]);
+
     const pendingInvitations = (companyInvitations || []).filter(
         i => i.accountId === currentAccountId && i.status === 'pending'
     );

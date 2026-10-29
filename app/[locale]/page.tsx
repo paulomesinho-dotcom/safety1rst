@@ -287,9 +287,47 @@ export default function Home() {
 
     // Company Members
     const companyMembers = useMemo(() => {
-        if (!userAccount) return currentUser ? [currentUser] : [];
-        return users.filter(u => u.accountId === userAccount.id);
-    }, [users, userAccount, currentUser]);
+        const targetAccountId = userAccount?.id || currentUser?.accountId;
+        if (!targetAccountId) return currentUser ? [currentUser] : [];
+
+        // Membros diretos com accountId atribuído
+        const directMembers = users.filter(u => u.accountId === targetAccountId);
+        const memberEmails = new Set(directMembers.map(u => (u.email || '').toLowerCase().trim()));
+
+        // Incluir também colaboradores com convite aceite para esta conta
+        const acceptedInvs = (companyInvitations || []).filter(
+            inv => inv.accountId === targetAccountId && inv.status === 'accepted'
+        );
+
+        const syntheticFromInvs: User[] = [];
+        for (const inv of acceptedInvs) {
+            const cleanInvEmail = (inv.invitedEmail || '').toLowerCase().trim();
+            if (cleanInvEmail && !memberEmails.has(cleanInvEmail)) {
+                const matchUser = users.find(u => (u.email || '').toLowerCase().trim() === cleanInvEmail);
+                if (matchUser) {
+                    syntheticFromInvs.push({ ...matchUser, accountId: targetAccountId });
+                } else {
+                    syntheticFromInvs.push({
+                        id: `member_${inv.id}`,
+                        name: inv.invitedName || cleanInvEmail.split('@')[0],
+                        email: inv.invitedEmail,
+                        accountId: targetAccountId,
+                        role: 'user',
+                        status: 'active',
+                        createdAt: inv.createdAt,
+                        projectAccess: []
+                    });
+                }
+                memberEmails.add(cleanInvEmail);
+            }
+        }
+
+        const all = [...directMembers, ...syntheticFromInvs];
+        if (currentUser && currentUser.accountId === targetAccountId && !memberEmails.has((currentUser.email || '').toLowerCase().trim())) {
+            all.unshift(currentUser);
+        }
+        return all;
+    }, [users, userAccount, currentUser, companyInvitations]);
 
     // Access Requests (apenas para obras que o utilizador gere no seu workplace)
     const managedProjectIds = useMemo(() => {
