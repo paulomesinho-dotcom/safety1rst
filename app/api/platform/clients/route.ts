@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma, ensureSubscriptionTable, ensureUserColumns, ensureProjectRequestTable } from '@/lib/prisma';
+import { prisma, ensureSubscriptionTable, ensureUserColumns, ensureProjectRequestTable, ensureCompanyInvitationTable } from '@/lib/prisma';
 
 // GET /api/platform/clients
 // Retorna todos os Tenants, Users e SubscriptionRequests da base de dados PostgreSQL
@@ -8,6 +8,7 @@ export async function GET() {
         await ensureSubscriptionTable();
         await ensureUserColumns();
         await ensureProjectRequestTable();
+        await ensureCompanyInvitationTable();
 
         const [tenants, dbUsers, requests] = await Promise.all([
             prisma.tenant.findMany({
@@ -33,6 +34,13 @@ export async function GET() {
             rawProjectRequests = await prisma.$queryRawUnsafe(`SELECT * FROM "project_access_requests" ORDER BY "createdAt" DESC`);
         } catch {
             rawProjectRequests = [];
+        }
+
+        let rawCompanyInvitations: any[] = [];
+        try {
+            rawCompanyInvitations = await prisma.$queryRawUnsafe(`SELECT * FROM "company_invitations" ORDER BY "createdAt" DESC`);
+        } catch {
+            rawCompanyInvitations = [];
         }
 
         const accounts = tenants.map(t => {
@@ -130,6 +138,19 @@ export async function GET() {
             code: `PRJ-${p.id.substring(0, 4).toUpperCase()}-${p.createdAt.getFullYear()}`,
         })));
 
+        const companyInvitations = rawCompanyInvitations.map(r => ({
+            id: r.id,
+            accountId: r.accountId,
+            accountName: r.accountName,
+            invitedEmail: r.invitedEmail,
+            invitedName: r.invitedName || undefined,
+            invitedByUserId: r.invitedByUserId || undefined,
+            invitedByUserName: r.invitedByUserName || undefined,
+            status: r.status,
+            createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+            resolvedAt: r.resolvedAt ? new Date(r.resolvedAt).toISOString() : undefined,
+        }));
+
         return NextResponse.json({
             success: true,
             accounts,
@@ -137,11 +158,12 @@ export async function GET() {
             subscriptionRequests,
             projects: allProjects,
             projectRequests,
+            companyInvitations,
         });
     } catch (error: any) {
         console.error('[API Platform Clients GET] Error:', error);
         return NextResponse.json(
-            { success: false, error: 'Erro ao carregar clientes.', accounts: [], users: [], subscriptionRequests: [] },
+            { success: false, error: 'Erro ao carregar clientes.', accounts: [], users: [], subscriptionRequests: [], companyInvitations: [] },
             { status: 500 }
         );
     }

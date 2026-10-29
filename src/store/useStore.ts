@@ -956,7 +956,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             const res = await fetch('/api/platform/clients');
             const data = await res.json();
             if (res.ok && data.success) {
-                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs, projects: srvProjects, projectRequests: srvProjectRequests } = data;
+                const { accounts: srvAccounts, users: srvUsers, subscriptionRequests: srvReqs, projects: srvProjects, projectRequests: srvProjectRequests, companyInvitations: srvCompanyInvitations } = data;
                 let newPendingCount = 0;
 
                 set((state) => {
@@ -1076,6 +1076,25 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         }
                     }
 
+                    // Sincronizar Company Invitations (convites de associação a empresas)
+                    const existingInvIds = new Set((state.companyInvitations || []).map(i => i.id));
+                    const mergedCompanyInvs = [...(state.companyInvitations || [])];
+                    if (Array.isArray(srvCompanyInvitations)) {
+                        for (const inv of srvCompanyInvitations) {
+                            if (!existingInvIds.has(inv.id)) {
+                                mergedCompanyInvs.push(inv);
+                                existingInvIds.add(inv.id);
+                                dbInsert('company_invitations', inv).catch(() => {});
+                            } else {
+                                const idx = mergedCompanyInvs.findIndex(i => i.id === inv.id);
+                                if (idx !== -1 && (mergedCompanyInvs[idx].status !== inv.status || mergedCompanyInvs[idx].resolvedAt !== inv.resolvedAt)) {
+                                    mergedCompanyInvs[idx] = { ...mergedCompanyInvs[idx], ...inv };
+                                    dbUpdate('company_invitations', inv.id, inv).catch(() => {});
+                                }
+                            }
+                        }
+                    }
+
                     return {
                         accounts: mergedAccounts,
                         users: mergedUsers,
@@ -1083,6 +1102,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         subscriptionRequests: mergedReqs,
                         projects: mergedProjects,
                         projectRequests: mergedProjReqs,
+                        companyInvitations: mergedCompanyInvs,
                     };
                 });
 
@@ -2418,6 +2438,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         };
 
         dbInsert('company_invitations', newInvitation).catch(console.error);
+        fetch('/api/platform/company-invitations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newInvitation)
+        }).catch(console.error);
 
         set((s) => ({
             companyInvitations: [newInvitation, ...(s.companyInvitations || [])]
@@ -2453,6 +2478,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }
 
         dbUpdate('company_invitations', inv.id, { status: 'accepted', resolvedAt }).catch(console.error);
+        fetch('/api/platform/company-invitations', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invitationId, status: 'accepted' })
+        }).catch(console.error);
 
         set((s) => {
             const updatedInvitations = (s.companyInvitations || []).map(i =>
@@ -2483,6 +2513,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
         const resolvedAt = new Date().toISOString();
         dbUpdate('company_invitations', inv.id, { status: 'rejected', resolvedAt }).catch(console.error);
+        fetch('/api/platform/company-invitations', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invitationId, status: 'rejected' })
+        }).catch(console.error);
 
         set((s) => ({
             companyInvitations: (s.companyInvitations || []).map(i =>
@@ -2500,6 +2535,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
         const resolvedAt = new Date().toISOString();
         dbUpdate('company_invitations', inv.id, { status: 'canceled', resolvedAt }).catch(console.error);
+        fetch('/api/platform/company-invitations', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invitationId, status: 'canceled' })
+        }).catch(console.error);
 
         set((s) => ({
             companyInvitations: (s.companyInvitations || []).map(i =>

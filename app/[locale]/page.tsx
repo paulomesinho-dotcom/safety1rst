@@ -151,6 +151,17 @@ export default function Home() {
 
     useEffect(() => {
         syncFromServer?.().catch(() => {});
+        const handleFocus = () => {
+            syncFromServer?.().catch(() => {});
+        };
+        window.addEventListener('focus', handleFocus);
+        const pollInterval = setInterval(() => {
+            syncFromServer?.().catch(() => {});
+        }, 15000);
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            clearInterval(pollInterval);
+        };
     }, [syncFromServer]);
 
     // Active Account & Subscription Details — strictly isolated per user

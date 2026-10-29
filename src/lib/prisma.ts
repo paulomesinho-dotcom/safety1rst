@@ -151,6 +151,33 @@ export async function ensureProjectRequestTable() {
     }
 }
 
+let companyInvitationTableEnsured = false;
+export async function ensureCompanyInvitationTable() {
+    if (companyInvitationTableEnsured) return;
+    if (!process.env.DATABASE_URL) return;
+    try {
+        await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS "company_invitations" (
+                "id" TEXT NOT NULL PRIMARY KEY,
+                "accountId" TEXT NOT NULL,
+                "accountName" TEXT NOT NULL,
+                "invitedEmail" TEXT NOT NULL,
+                "invitedName" TEXT,
+                "invitedByUserId" TEXT,
+                "invitedByUserName" TEXT,
+                "status" TEXT NOT NULL DEFAULT 'pending',
+                "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                "resolvedAt" TIMESTAMP(3)
+            );
+            CREATE INDEX IF NOT EXISTS "idx_company_invitations_email" ON "company_invitations" ("invitedEmail");
+            CREATE INDEX IF NOT EXISTS "idx_company_invitations_account" ON "company_invitations" ("accountId");
+        `);
+        companyInvitationTableEnsured = true;
+    } catch (e: any) {
+        console.warn('[Prisma] ensureCompanyInvitationTable warning:', e?.message || e);
+    }
+}
+
 export default prisma;
 
 
