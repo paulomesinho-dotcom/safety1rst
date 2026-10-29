@@ -9,8 +9,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { 
-    initializeProjectStructure, 
-    createOneDriveFolder, 
+        createOneDriveFolder, 
     archiveCDEFile, 
     uploadToCDEFolder 
 } from '@/lib/cde-manager';
@@ -58,9 +57,6 @@ export default function ProjectDocumentsPage() {
     // Actions & Modals State
     const [isNewMenuOpen, setIsNewMenuOpen] = useState(false);
     const [isCdeModalOpen, setIsCdeModalOpen] = useState(false);
-    const [isInitializingFolders, setIsInitializingFolders] = useState(false);
-    const [isInitResultModalOpen, setIsInitResultModalOpen] = useState(false);
-    const [initResultLogs, setInitResultLogs] = useState<string[]>([]);
     const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
     const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
@@ -202,47 +198,6 @@ export default function ProjectDocumentsPage() {
         }
     };
 
-    // Initialize Standard Folders
-    const handleInitializeFolders = async () => {
-        if (!cdeConfig?.connected) {
-            addNotification('warning', 'Ligue primeiro o CDE da obra para criar a estrutura de pastas tipo.');
-            setIsCdeModalOpen(true);
-            return;
-        }
-
-        const targetFolderName = cdeConfig.folderPath || (cdeConfig.provider === 'onedrive' ? 'SharePoint (Raiz)' : 'CDE');
-        const hasExisting = driveItems.length > 0 ||
-            (treeData['root'] && treeData['root'].length > 0) ||
-            (cdeConfig.folderId && treeData[cdeConfig.folderId] && treeData[cdeConfig.folderId].length > 0);
-
-        const confirmMsg = hasExisting
-            ? `As pastas tipo já parecem existir ou já foram criadas pastas na pasta:\n"${targetFolderName}"\n\nDeseja verificar e criar novamente a estrutura de pastas tipo?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`
-            : `Deseja verificar e criar a estrutura normalizada de pastas tipo na pasta:\n"${targetFolderName}"?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`;
-
-        if (!window.confirm(confirmMsg)) return;
-
-        setIsInitializingFolders(true);
-        try {
-            const logs = await initializeProjectStructure({
-                ...cdeConfig,
-                projectId,
-                connected: true,
-                provider: cdeConfig.provider,
-                folderPath: cdeConfig.folderPath || ''
-            } as any);
-
-            setInitResultLogs(logs);
-            setIsInitResultModalOpen(true);
-            addNotification('success', 'Estrutura documental normalizada da obra verificada no CDE com sucesso!');
-            await loadProjectCdeView(undefined, true);
-        } catch (err: any) {
-            console.error('Erro ao inicializar pastas do projeto:', err);
-            addNotification('error', `Falha ao criar pastas: ${err.message || 'Erro desconhecido'}`);
-            alert(`Erro ao criar pastas tipo: ${err.message || 'Erro desconhecido'}`);
-        } finally {
-            setIsInitializingFolders(false);
-        }
-    };
 
     // Create New Folder in Current Path
     const handleCreateNewFolder = async (e: React.FormEvent) => {
@@ -376,22 +331,6 @@ export default function ProjectDocumentsPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
-                    {/* Button: Pastas Tipo */}
-                    <button
-                        type="button"
-                        onClick={handleInitializeFolders}
-                        disabled={isInitializingFolders}
-                        className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all cursor-pointer shadow-xs disabled:opacity-50"
-                        title="Inicializar estrutura de pastas padronizada no CDE da Obra"
-                    >
-                        {isInitializingFolders ? (
-                            <RotateCw size={14} className="animate-spin text-primary" />
-                        ) : (
-                            <FolderPlus size={15} className="text-primary" />
-                        )}
-                        <span>Pastas Tipo</span>
-                    </button>
-
                     {/* Button: Dropdown Novo */}
                     <div className="relative">
                         <button
@@ -692,13 +631,6 @@ export default function ProjectDocumentsPage() {
                                                         >
                                                             <RotateCw size={12} /> Recarregar Conteúdos
                                                         </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleInitializeFolders}
-                                                            className="px-3 py-1.5 rounded-full text-xs font-semibold bg-primary text-white hover:bg-primary-hover shadow-xs transition-all cursor-pointer inline-flex items-center gap-1.5"
-                                                        >
-                                                            <FolderPlus size={12} /> Criar Pastas Tipo
-                                                        </button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -844,45 +776,6 @@ export default function ProjectDocumentsPage() {
                 </form>
             </Modal>
 
-            {/* ════════ MODAL: RESULTADO DA CRIAÇÃO DE PASTAS ════════ */}
-            <Modal
-                maxWidth="max-w-lg"
-                title={
-                    <div className="flex items-center gap-2">
-                        <FolderCheck size={18} className="text-emerald-500" />
-                        <span className="font-bold text-sm text-[var(--text)]">Estrutura de Pastas Normalizada</span>
-                    </div>
-                }
-                isOpen={isInitResultModalOpen}
-                onClose={() => setIsInitResultModalOpen(false)}
-            >
-                <div className="space-y-4">
-                    <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
-                        <div className="font-bold flex items-center gap-1.5">
-                            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
-                            <span>Estrutura da Obra Criada com Sucesso</span>
-                        </div>
-                        <p className="text-[11px] leading-relaxed">
-                            As pastas tipo foram geradas e normalizadas segundo os requisitos legais da construção civil e arquivo ISO 19650.
-                        </p>
-                    </div>
-
-                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 p-3 max-h-60 overflow-y-auto space-y-1 font-mono text-[11px] text-[var(--text-muted)]">
-                        {initResultLogs.map((log, idx) => (
-                            <div key={idx} className="flex items-center gap-1.5">
-                                <span className="text-primary font-bold">&rsaquo;</span>
-                                <span>{log}</span>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="flex justify-end pt-2 border-t border-[var(--border)]">
-                        <PrimaryButton type="button" onClick={() => setIsInitResultModalOpen(false)}>
-                            Fechar
-                        </PrimaryButton>
-                    </div>
-                </div>
-            </Modal>
 
             {/* ════════ MODAL: CONFIGURAÇÕES CDE ════════ */}
             <CDESettingsModal

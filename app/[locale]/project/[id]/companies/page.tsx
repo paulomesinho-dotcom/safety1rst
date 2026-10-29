@@ -53,6 +53,7 @@ import {
   Activity,
   Info,
   Forklift,
+  FolderPlus,
   ExternalLink,
 } from "lucide-react";
 import { EntityTicketThread } from "@/components/EntityTicketThread";
@@ -77,6 +78,7 @@ import { WorkflowHistory } from "@/components/WorkflowHistory";
 import { TableActionMenu } from "@/components/TableActionMenu";
 import {
   archiveCDEFile,
+  initializeProjectCompanyStructure,
   uploadToEntityFolder,
   deleteCDEFile,
   moveCDEFile,
@@ -177,7 +179,7 @@ const ListView: React.FC<{
   globalSequenceMap: Map<string, number>;
   onRowClick: (c: Company) => void;
   onAction: (
-    action: "view" | "edit" | "delete" | "restore",
+    action: "view" | "edit" | "delete" | "restore" | "create_cde_folders",
     c: Company,
   ) => void;
   canEdit: boolean;
@@ -342,6 +344,18 @@ const ListView: React.FC<{
                           <Edit2 size={16} /> {t("actions.editCompany")}
                         </button>
                       )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenuId(null);
+                          onAction("create_cde_folders", company);
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-2 cursor-pointer"
+                        title="Criar ou recriar a estrutura de pastas desta empresa no CDE"
+                      >
+                        <FolderPlus size={16} className="text-primary" />
+                        <span>Criar Pastas no CDE</span>
+                      </button>
                       <div className="h-px bg-gray-100 dark:bg-surface my-1" />
                       {canDelete &&
                         (company.archived ? (
@@ -719,6 +733,7 @@ export default function CompaniesPage() {
     equipment,
     accidents,
     workers,
+    addNotification,
   } = useStore(
     useShallow((state) => ({
       companies: state.companies,
@@ -763,9 +778,11 @@ export default function CompaniesPage() {
       equipment: state.equipment,
       accidents: state.accidents,
       workers: state.workers,
+      addNotification: state.addNotification,
     })),
   );
   const currentProject = projects.find((p) => p.id === projectId);
+  const project = currentProject;
 
   // Run Expiration Check on Mount
   useEffect(() => {
@@ -3055,10 +3072,43 @@ export default function CompaniesPage() {
     setIsModalOpen(true);
   };
 
+  const handleCreateCompanyCdeFolders = async (company: Company) => {
+    if (!project?.cdeConfig?.connected) {
+      alert("O CDE não está conectado neste projeto. Ligue o CDE primeiro nas definições.");
+      return;
+    }
+    const compName = (company.name || "").trim();
+    if (!compName) {
+      alert("Nome da empresa inválido.");
+      return;
+    }
+
+    if (!confirm(`Deseja criar/verificar a estrutura de pastas da empresa "${compName}" no CDE da obra?\n\nEstrutura a criar:\n📁 ${compName}/\n   ├── 📁 Organizações/\n   ├── 📁 Pessoas/\n   └── 📁 Equipamentos/\n\n(Os ficheiros existentes não serão apagados.)`)) {
+      return;
+    }
+
+    try {
+      addNotification("info", `A criar estrutura de pastas no CDE para "${compName}"...`);
+      const logs = await initializeProjectCompanyStructure(
+        { ...project.cdeConfig, projectId } as any,
+        compName
+      );
+      addNotification("success", `Estrutura de pastas da empresa "${compName}" criada no CDE com sucesso!`);
+    } catch (err: any) {
+      console.error("Erro ao criar pastas da empresa no CDE:", err);
+      addNotification("error", `Falha ao criar pastas no CDE: ${err.message || "Erro desconhecido"}`);
+      alert(`Falha ao criar pastas: ${err.message || "Erro desconhecido"}`);
+    }
+  };
+
   const handleAction = (
-    action: "view" | "edit" | "delete" | "restore",
+    action: "view" | "edit" | "delete" | "restore" | "create_cde_folders",
     company: Company,
   ) => {
+    if (action === "create_cde_folders") {
+      handleCreateCompanyCdeFolders(company);
+      return;
+    }
     if (action === "view") {
       setCorrectedFields({});
       setPendingTicketActions(new Map());
@@ -6005,6 +6055,24 @@ export default function CompaniesPage() {
                         delete (fieldsToSave as any).draftAuthorId;
 
                         updateCompany((newItem as any).id, fieldsToSave);
+
+                        // Auto-create company folder structure in project CDE when transitioning from draft to data_requested
+                        if (currentStatus === "draft" && project?.cdeConfig?.connected) {
+                          const compName = (fieldsToSave.name || newItem.name || "").trim();
+                          if (compName) {
+                            initializeProjectCompanyStructure(
+                              { ...project.cdeConfig, projectId } as any,
+                              compName
+                            )
+                              .then((logs) => {
+                                console.log(`[CDE] Estrutura da empresa "${compName}" criada no CDE:`, logs);
+                                addNotification("success", `Estrutura de pastas da empresa "${compName}" criada no CDE.`);
+                              })
+                              .catch((err) => {
+                                console.warn(`[CDE] Falha ao criar pastas para "${compName}":`, err);
+                              });
+                          }
+                        }
 
                         // Promote manager's uploaded documents so they become official and visible
                         const companyDraftDocs = documents.filter((d) => d.entityId === (newItem as any).id && d.draftAuthorId);

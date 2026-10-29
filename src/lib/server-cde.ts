@@ -940,6 +940,74 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         return { success: true, logs, createdFolders };
     }
 
+    if (action === 'initialize_project_company_structure') {
+        const { companyName } = payload;
+        if (!companyName || !companyName.trim()) {
+            throw new Error('Nome da empresa é obrigatório.');
+        }
+        const logs: string[] = [];
+        const baseFolder = await resolveBaseFolder();
+        const baseFolderId = baseFolder.id;
+        const driveId = baseFolder.driveId;
+        const cleanCompanyName = companyName.trim();
+        logs.push(`Pasta base no SharePoint: ${baseFolder.name || config.folderPath || 'Raiz'} (ID ${baseFolderId})`);
+
+        // 1. Criar pasta raiz da empresa no projeto: 📁 [Nome da Empresa]
+        const companyFolderRes = await ensureSharePointFolder(baseFolderId, cleanCompanyName, driveId);
+        logs.push(companyFolderRes.exists ? `Pasta da Empresa existente: ${cleanCompanyName}` : `Pasta da Empresa criada: ${cleanCompanyName}`);
+        const companyFolderId = companyFolderRes.id;
+
+        // 2. Estrutura sob [Nome da Empresa]:
+        // 📁 Organizações/ (Seguros e Apólices, Obrigações do Estado, Documentos de Obra)
+        // 📁 Pessoas/ (Aptidão Médica e Segurança, Formação e Acolhimento, Documentação Legal e Contratual)
+        // 📁 Equipamentos/ (Manutenção e Inspeções, Seguro e Conformidade, Registo e Propriedade)
+        const PROJECT_COMPANY_THEMES: Record<string, string[]> = {
+            'Organizações': [
+                'Seguros e Apólices',
+                'Obrigações do Estado',
+                'Documentos de Obra'
+            ],
+            'Pessoas': [
+                'Aptidão Médica e Segurança',
+                'Formação e Acolhimento',
+                'Documentação Legal e Contratual'
+            ],
+            'Equipamentos': [
+                'Manutenção e Inspeções',
+                'Seguro e Conformidade',
+                'Registo e Propriedade'
+            ]
+        };
+
+        for (const [themeName, subjects] of Object.entries(PROJECT_COMPANY_THEMES)) {
+            try {
+                const themeRes = await ensureSharePointFolder(companyFolderId, themeName, driveId);
+                logs.push(themeRes.exists ? `  📁 ${themeName} (existente)` : `  📁 ${themeName} (criada)`);
+
+                for (const sub of subjects) {
+                    try {
+                        const subRes = await ensureSharePointFolder(themeRes.id, sub, driveId);
+                        logs.push(subRes.exists ? `    └─ 📁 ${sub}` : `    └─ 📁 ${sub} (criada)`);
+
+                        // Subpasta Arquivo dentro de cada assunto
+                        try {
+                            const archRes = await ensureSharePointFolder(subRes.id, 'Arquivo', driveId);
+                            logs.push(archRes.exists ? `       └─ 📁 Arquivo` : `       └─ 📁 Arquivo (criada)`);
+                        } catch (archErr: any) {
+                            logs.push(`       └─ Erro Arquivo em ${sub}: ${archErr.message}`);
+                        }
+                    } catch (subErr: any) {
+                        logs.push(`    └─ Erro ao criar ${sub}: ${subErr.message}`);
+                    }
+                }
+            } catch (themeErr: any) {
+                logs.push(`  Erro em ${themeName}: ${themeErr.message}`);
+            }
+        }
+
+        return { success: true, logs, companyFolderId };
+    }
+
     if (action === 'initialize_project_structure') {
         const logs: string[] = [];
         const baseFolder = await resolveBaseFolder();

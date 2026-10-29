@@ -473,6 +473,118 @@ export async function initializeProjectStructure(
  * Inicializa a estrutura documental tipo para o ambiente corporativo da empresa.
  * Cria pastas normalizadas para a Empresa, Trabalhadores e Equipamentos.
  */
+/**
+ * Inicializa a estrutura de pastas de uma empresa específica num projeto:
+ * 📁 [Nome da Empresa]/
+ *    ├── 📁 Organizações/ (com subpastas e Arquivo/)
+ *    ├── 📁 Pessoas/ (com subpastas e Arquivo/)
+ *    └── 📁 Equipamentos/ (com subpastas e Arquivo/)
+ */
+export async function initializeProjectCompanyStructure(
+    config: CDEConfig,
+    companyName: string
+): Promise<string[]> {
+    if (!config.connected) throw new Error('CDE not connected');
+    const cleanCompanyName = (companyName || '').trim();
+    if (!cleanCompanyName) throw new Error('Nome da empresa é obrigatório.');
+
+    const compOrProjId = (config as any).projectId || (config as any).id || (config as any).companyId || 'comp_master';
+
+    // 1. Tentar executar via servidor (garante SharePoint, OneDrive e consistência na BD)
+    try {
+        const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'initialize_project_company_structure',
+                payload: { companyName: cleanCompanyName }
+            })
+        });
+        const srvData = await srvRes.json().catch(() => ({}));
+        if (srvRes.ok && srvData.result?.logs) {
+            return srvData.result.logs;
+        }
+    } catch (srvErr) {
+        console.warn('[CDE] Server initialize_project_company_structure fallback:', srvErr);
+    }
+
+    // 2. Fallback de cliente para Google Drive, Dropbox ou quando servidor direto não está disponível
+    const rootId = (config.provider === 'gdrive' ? (config.folderId || 'root') :
+        config.provider === 'dropbox' ? (config.folderPath || '') :
+            (config.folderId || 'root'));
+
+    const logs: string[] = [];
+    const PROJECT_COMPANY_THEMES: Record<string, string[]> = {
+        'Organizações': [
+            'Seguros e Apólices',
+            'Obrigações do Estado',
+            'Documentos de Obra'
+        ],
+        'Pessoas': [
+            'Aptidão Médica e Segurança',
+            'Formação e Acolhimento',
+            'Documentação Legal e Contratual'
+        ],
+        'Equipamentos': [
+            'Manutenção e Inspeções',
+            'Seguro e Conformidade',
+            'Registo e Propriedade'
+        ]
+    };
+
+    // Criar pasta raiz da empresa
+    let compFolder: CreateFolderResult | null = null;
+    if (config.provider === 'gdrive') {
+        compFolder = await createGoogleDriveFolder(config.accessToken!, rootId, cleanCompanyName);
+    } else if (config.provider === 'dropbox') {
+        compFolder = await createDropboxFolder(config.accessToken!, rootId, cleanCompanyName);
+    } else {
+        compFolder = await createOneDriveFolder(config, rootId, cleanCompanyName);
+    }
+
+    logs.push(compFolder.exists ? `Pasta da Empresa existente: ${cleanCompanyName}` : `Pasta da Empresa criada: ${cleanCompanyName}`);
+
+    // Criar Temas e Assuntos com Arquivo
+    for (const [themeName, subjects] of Object.entries(PROJECT_COMPANY_THEMES)) {
+        let themeFolder: CreateFolderResult | null = null;
+        if (config.provider === 'gdrive') {
+            themeFolder = await createGoogleDriveFolder(config.accessToken!, compFolder.id, themeName);
+        } else if (config.provider === 'dropbox') {
+            themeFolder = await createDropboxFolder(config.accessToken!, compFolder.id, themeName);
+        } else {
+            themeFolder = await createOneDriveFolder(config, compFolder.id, themeName);
+        }
+
+        logs.push(themeFolder.exists ? `  📁 ${themeName} (existente)` : `  📁 ${themeName} (criada)`);
+
+        for (const sub of subjects) {
+            let subFolder: CreateFolderResult | null = null;
+            if (config.provider === 'gdrive') {
+                subFolder = await createGoogleDriveFolder(config.accessToken!, themeFolder.id, sub);
+            } else if (config.provider === 'dropbox') {
+                subFolder = await createDropboxFolder(config.accessToken!, themeFolder.id, sub);
+            } else {
+                subFolder = await createOneDriveFolder(config, themeFolder.id, sub);
+            }
+
+            logs.push(subFolder.exists ? `    └─ 📁 ${sub}` : `    └─ 📁 ${sub} (criada)`);
+
+            // Arquivo
+            let archFolder: CreateFolderResult | null = null;
+            if (config.provider === 'gdrive') {
+                archFolder = await createGoogleDriveFolder(config.accessToken!, subFolder.id, 'Arquivo');
+            } else if (config.provider === 'dropbox') {
+                archFolder = await createDropboxFolder(config.accessToken!, subFolder.id, 'Arquivo');
+            } else {
+                archFolder = await createOneDriveFolder(config, subFolder.id, 'Arquivo');
+            }
+            logs.push(archFolder.exists ? `       └─ 📁 Arquivo` : `       └─ 📁 Arquivo (criada)`);
+        }
+    }
+
+    return logs;
+}
+
 export async function initializeCompanyStructure(
     config: CDEConfig,
     company: { name: string; nif?: string },
