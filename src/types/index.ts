@@ -852,6 +852,21 @@ export interface CompanyRequest {
     createdAt: string;
 }
 
+export type CompanyInvitationStatus = 'pending' | 'accepted' | 'rejected' | 'canceled';
+
+export interface CompanyInvitation {
+    id: string;
+    accountId: string;
+    accountName: string;
+    invitedEmail: string;
+    invitedName?: string;
+    invitedByUserId: string;
+    invitedByUserName?: string;
+    status: CompanyInvitationStatus;
+    createdAt: string;
+    resolvedAt?: string;
+}
+
 export interface Notification {
     id: string;
     type: 'success' | 'error' | 'info' | 'warning';

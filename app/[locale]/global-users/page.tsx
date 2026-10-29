@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { ArrowLeft, Plus, Folder, Users, Settings, Search, LayoutGrid, List, MoreVertical, X, Check, Shield } from 'lucide-react';
+import { ArrowLeft, Plus, Folder, Users, Settings, Search, LayoutGrid, List, MoreVertical, X, Check, Shield, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Modal, InputGroup, PrimaryButton } from '@/components/Modal';
 import { cn } from '@/lib/utils';
 import type { User, ProjectRole } from '@/types';
@@ -16,8 +16,10 @@ export default function AccountDashboardPage() {
         projects,
         users,
         account,
+        companyInvitations,
         addProject,
-        addUser,
+        associateCompanyUser,
+        cancelCompanyInvitation,
         updateUser
     } = useStore();
 
@@ -40,6 +42,9 @@ export default function AccountDashboardPage() {
     const currentAccountId = currentUser?.accountId;
     const accountProjects = projects.filter(p => p.accountId === currentAccountId);
     const accountUsers = users.filter(u => u.accountId === currentAccountId);
+    const pendingInvitations = (companyInvitations || []).filter(
+        i => i.accountId === currentAccountId && i.status === 'pending'
+    );
 
     const [userViewMode, setUserViewMode] = useState<'list' | 'grid'>('grid');
     const [searchTerm, setSearchTerm] = useState('');
@@ -52,6 +57,8 @@ export default function AccountDashboardPage() {
     // State for Forms
     const [newProject, setNewProject] = useState({ name: '', address: '', description: '' });
     const [newUser, setNewUser] = useState({ name: '', email: '', role: 'user', password: '' });
+    const [userModalError, setUserModalError] = useState('');
+    const [userModalSuccess, setUserModalSuccess] = useState('');
     const [selectedUserForAccess, setSelectedUserForAccess] = useState<User | null>(null);
 
     const handleCreateProject = (e: React.FormEvent) => {
@@ -68,16 +75,30 @@ export default function AccountDashboardPage() {
 
     const handleCreateUser = (e: React.FormEvent) => {
         e.preventDefault();
-        addUser({
-            name: newUser.name,
-            email: newUser.email,
-            role: newUser.role as any,
-            accountId: currentAccountId!,
-            password: newUser.password || '123456',
-            projectAccess: []
-        });
-        setIsUserModalOpen(false);
-        setNewUser({ name: '', email: '', role: 'user', password: '' });
+        setUserModalError('');
+        setUserModalSuccess('');
+
+        if (!currentAccountId) {
+            setUserModalError('Conta de empresa não identificada.');
+            return;
+        }
+
+        if (!newUser.email.trim()) {
+            setUserModalError('Por favor introduza o email do colaborador.');
+            return;
+        }
+
+        const res = associateCompanyUser(currentAccountId, newUser.email.trim(), newUser.name.trim() || undefined);
+        if (res.success) {
+            setUserModalSuccess(res.message);
+            setTimeout(() => {
+                setIsUserModalOpen(false);
+                setNewUser({ name: '', email: '', role: 'user', password: '' });
+                setUserModalSuccess('');
+            }, 1800);
+        } else {
+            setUserModalError(res.message);
+        }
     };
 
     const handleOpenAccessModal = (user: User) => {
@@ -325,6 +346,60 @@ export default function AccountDashboardPage() {
                                 </table>
                             </div>
                         )}
+
+                        {/* Pending Company Association Invitations */}
+                        {pendingInvitations.length > 0 && (
+                            <div className="mt-8 p-5 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                                        <Clock size={16} className="text-amber-600" />
+                                        Convites de Associação Pendentes de Aceitação ({pendingInvitations.length})
+                                    </h3>
+                                </div>
+                                <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mb-3">
+                                    Estes colaboradores foram convidados para a empresa, mas ainda precisam de aceder à sua conta Safety1irst e aceitar o convite para ficarem ativos.
+                                </p>
+                                <div className="overflow-x-auto bg-white dark:bg-surface border border-amber-200/80 dark:border-amber-900/40 rounded-lg">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-amber-100/50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 font-semibold border-b border-amber-200/80 dark:border-amber-900/40">
+                                            <tr>
+                                                <th className="px-4 py-2.5">Nome / Email</th>
+                                                <th className="px-4 py-2.5">Data de Envio</th>
+                                                <th className="px-4 py-2.5">Estado</th>
+                                                <th className="px-4 py-2.5 text-right">Ação</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-amber-100/70 dark:divide-amber-900/30">
+                                            {pendingInvitations.map(inv => (
+                                                <tr key={inv.id}>
+                                                    <td className="px-4 py-2.5">
+                                                        <div className="font-semibold text-gray-900 dark:text-white">{inv.invitedName || inv.invitedEmail.split('@')[0]}</div>
+                                                        <div className="text-[11px] text-gray-500 font-mono">{inv.invitedEmail}</div>
+                                                    </td>
+                                                    <td className="px-4 py-2.5 text-gray-500">
+                                                        {inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('pt-PT') : 'Hoje'}
+                                                    </td>
+                                                    <td className="px-4 py-2.5">
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300">
+                                                            <Clock size={10} /> Aguardar Aceitação do Utilizador
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2.5 text-right">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => cancelCompanyInvitation(inv.id)}
+                                                            className="text-red-600 hover:text-red-800 font-bold text-xs cursor-pointer"
+                                                        >
+                                                            Cancelar
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
                     </section>
                 </div>
 
@@ -346,29 +421,40 @@ export default function AccountDashboardPage() {
                     </form>
                 </Modal>
 
-                <Modal title="Add New Team Member" isOpen={isUserModalOpen} onClose={() => setIsUserModalOpen(false)}>
+                <Modal title="Convidar Membro para a Empresa" isOpen={isUserModalOpen} onClose={() => {
+                    setIsUserModalOpen(false);
+                    setUserModalError('');
+                    setUserModalSuccess('');
+                }}>
                     <form onSubmit={handleCreateUser} className="space-y-4">
-                        <InputGroup label="Full Name">
-                            <input required type="text" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"
-                                value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} placeholder="John Doe" />
+                        <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
+                            Ao convidar um colaborador, ser-lhe-á enviado um pedido de adesão. O utilizador deve <strong>aceder à sua conta Safety1irst e aceitar o convite</strong> para ficar associado à empresa.
+                        </div>
+
+                        <InputGroup label="Nome Completo">
+                            <input required type="text" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all text-xs"
+                                value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} placeholder="ex: João Silva" />
                         </InputGroup>
-                        <InputGroup label="Email Address">
-                            <input required type="email" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"
-                                value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} placeholder="john@company.com" />
+                        <InputGroup label="Email Corporativo *">
+                            <input required type="email" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all text-xs"
+                                value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} placeholder="joao@empresa.com" />
                         </InputGroup>
-                        <InputGroup label="Palavra-passe">
-                            <input required type="password" className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"
-                                value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="••••••••" />
-                        </InputGroup>
-                        <InputGroup label="Role">
-                            <select className="w-full p-2.5 border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-purple-500 transition-all"
-                                value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })}>
-                                <option value="user">Standard User</option>
-                                <option value="manager">Manager</option>
-                            </select>
-                            <p className="text-xs text-gray-500 mt-1">Managers have more permissions within assigned projects.</p>
-                        </InputGroup>
-                        <PrimaryButton type="submit">Add Member</PrimaryButton>
+
+                        {userModalError && (
+                            <div className="text-red-600 text-xs bg-red-50 p-2.5 rounded-lg border border-red-200 flex items-center gap-2">
+                                <AlertCircle size={14} className="shrink-0" />
+                                <span>{userModalError}</span>
+                            </div>
+                        )}
+
+                        {userModalSuccess && (
+                            <div className="text-emerald-700 text-xs bg-emerald-50 p-2.5 rounded-lg border border-emerald-200 flex items-center gap-2">
+                                <CheckCircle2 size={14} className="shrink-0" />
+                                <span>{userModalSuccess}</span>
+                            </div>
+                        )}
+
+                        <PrimaryButton type="submit">Enviar Convite de Associação</PrimaryButton>
                     </form>
                 </Modal>
 

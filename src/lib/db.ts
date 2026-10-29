@@ -411,6 +411,18 @@ const createSchema = async () => {
             nif TEXT,
             status TEXT DEFAULT 'pending',
             created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        `CREATE TABLE IF NOT EXISTS company_invitations (
+            id TEXT PRIMARY KEY,
+            account_id TEXT NOT NULL,
+            account_name TEXT NOT NULL,
+            invited_email TEXT NOT NULL,
+            invited_name TEXT,
+            invited_by_user_id TEXT,
+            invited_by_user_name TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at TEXT DEFAULT (datetime('now')),
+            resolved_at TEXT
         )`
     ];
 

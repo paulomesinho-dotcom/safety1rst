@@ -56,7 +56,11 @@ export default function Home() {
         cleanupInactiveUsers,
         deleteAccount,
         cleanupOrphanAccounts,
-        platformPlans
+        platformPlans,
+        companyInvitations,
+        acceptCompanyInvitation,
+        rejectCompanyInvitation,
+        cancelCompanyInvitation
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
         currentUser: state.currentUser,
@@ -84,6 +88,10 @@ export default function Home() {
         deleteAccount: state.deleteAccount,
         cleanupOrphanAccounts: state.cleanupOrphanAccounts,
         platformPlans: state.platformPlans,
+        companyInvitations: state.companyInvitations,
+        acceptCompanyInvitation: state.acceptCompanyInvitation,
+        rejectCompanyInvitation: state.rejectCompanyInvitation,
+        cancelCompanyInvitation: state.cancelCompanyInvitation,
     })));
 
     // Active Navigation Tab
@@ -283,6 +291,21 @@ export default function Home() {
         if (!currentUser) return [];
         return projectRequests.filter(r => r.userId === currentUser.id);
     }, [projectRequests, currentUser]);
+
+    // Convites de Empresa recebidos pelo utilizador atual
+    const myReceivedCompanyInvitations = useMemo(() => {
+        if (!currentUser?.email) return [];
+        const myEmail = currentUser.email.toLowerCase().trim();
+        return (companyInvitations || []).filter(inv =>
+            inv.invitedEmail.toLowerCase().trim() === myEmail && inv.status === 'pending'
+        );
+    }, [companyInvitations, currentUser]);
+
+    // Convites de Empresa enviados pela conta da empresa do utilizador
+    const myAccountInvitations = useMemo(() => {
+        if (!userAccount) return [];
+        return (companyInvitations || []).filter(inv => inv.accountId === userAccount.id);
+    }, [companyInvitations, userAccount]);
 
     // Efeito para preencher automaticamente os dados da empresa caso o utilizador tenha conta
     useEffect(() => {
@@ -723,6 +746,50 @@ export default function Home() {
                         </div>
                     </div>
 
+                    {/* ── Notificação Visual de Convites de Empresa Recebidos pelo Utilizador ── */}
+                    {myReceivedCompanyInvitations.length > 0 && (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                            {myReceivedCompanyInvitations.map(inv => (
+                                <div key={inv.id} className="bg-gradient-to-r from-blue-500/10 via-primary/10 to-indigo-500/10 border-2 border-primary/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                                    <div className="flex items-center gap-3.5">
+                                        <div className="w-12 h-12 rounded-2xl bg-primary text-white flex items-center justify-center font-bold shrink-0 shadow-md">
+                                            <Building2 size={24} />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="text-sm sm:text-base font-bold text-[var(--text)]">
+                                                    Convite para Ingressar na Empresa &ldquo;{inv.accountName}&rdquo;
+                                                </h4>
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse uppercase">
+                                                    Ação Necessária
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-[var(--text-muted)] mt-1">
+                                                {inv.invitedByUserName ? `${inv.invitedByUserName} enviou-lhe` : 'Foi-lhe enviado'} um pedido para associar a sua conta ({inv.invitedEmail}) como membro oficial de <strong>{inv.accountName}</strong>.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+                                        <button
+                                            type="button"
+                                            onClick={() => rejectCompanyInvitation(inv.id)}
+                                            className="px-4 py-2 rounded-xl border border-[var(--border)] hover:bg-[var(--bg-input)] text-xs font-semibold text-[var(--text-muted)] hover:text-red-600 transition-colors cursor-pointer"
+                                        >
+                                            Recusar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => acceptCompanyInvitation(inv.id)}
+                                            className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02]"
+                                        >
+                                            <Check size={14} /> Aceitar e Ingressar
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     {/* ── Notificação Visual de Pedidos de Acesso Pendentes ── */}
                     {receivedRequests.length > 0 && activeTab !== 'requests' && (
                         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2">
@@ -770,9 +837,9 @@ export default function Home() {
                             }`}
                         >
                             <FlatRequestsIcon size={16} /> Solicitações de Acesso
-                            {receivedRequests.length > 0 && (
+                            {(receivedRequests.length > 0 || myReceivedCompanyInvitations.length > 0) && (
                                 <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-400 text-amber-950">
-                                    {receivedRequests.length}
+                                    {receivedRequests.length + myReceivedCompanyInvitations.length}
                                 </span>
                             )}
                         </button>
@@ -986,6 +1053,78 @@ export default function Home() {
                     {/* ════════ TAB 2: SOLICITAÇÕES DE ACESSO ════════ */}
                     {activeTab === 'requests' && (
                         <div className="space-y-6">
+                            {/* Convites de Empresa Recebidos pelo Utilizador */}
+                            {myReceivedCompanyInvitations.length > 0 && (
+                                <div className="bg-[var(--bg-card)] rounded-lg border-2 border-primary/30 p-6 shadow-sm">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-[var(--text)] flex items-center gap-2">
+                                                <Building2 size={16} className="text-primary" /> Convites de Empresa Recebidos
+                                            </h3>
+                                            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                                                Empresas que o convidaram para associar a sua conta como membro oficial da organização.
+                                            </p>
+                                        </div>
+                                        <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-primary/10 text-primary">
+                                            {myReceivedCompanyInvitations.length} convite(s)
+                                        </span>
+                                    </div>
+
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs border-collapse">
+                                            <thead>
+                                                <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
+                                                    <th className="py-2.5 px-3">Empresa Convidante</th>
+                                                    <th className="py-2.5 px-3">Convidado por</th>
+                                                    <th className="py-2.5 px-3">Email de Destino</th>
+                                                    <th className="py-2.5 px-3">Data</th>
+                                                    <th className="py-2.5 px-3 text-right">Ação</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-[var(--border)]">
+                                                {myReceivedCompanyInvitations.map(inv => (
+                                                    <tr key={inv.id} className="hover:bg-primary/5">
+                                                        <td className="py-3 px-3 font-semibold text-[var(--text)]">
+                                                            <div className="flex items-center gap-2">
+                                                                <Building2 size={14} className="text-primary" />
+                                                                <span>{inv.accountName}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="py-3 px-3 text-[var(--text-muted)]">
+                                                            {inv.invitedByUserName || 'Administrador'}
+                                                        </td>
+                                                        <td className="py-3 px-3 font-mono text-[11px] text-[var(--text-muted)]">
+                                                            {inv.invitedEmail}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-[11px] text-[var(--text-muted)]">
+                                                            {inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('pt-PT') : 'Hoje'}
+                                                        </td>
+                                                        <td className="py-3 px-3 text-right whitespace-nowrap">
+                                                            <div className="flex items-center justify-end gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => rejectCompanyInvitation(inv.id)}
+                                                                    className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                                                                >
+                                                                    Recusar
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => acceptCompanyInvitation(inv.id)}
+                                                                    className="px-3.5 py-1.5 text-xs font-bold bg-primary hover:bg-primary-hover text-white rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                                                                >
+                                                                    <Check size={14} /> Aceitar Convite
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Pedidos Recebidos (Aprovação pelo Gestor) */}
                             <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] p-6 shadow-sm">
                                 <div className="flex items-center justify-between mb-4">
@@ -1276,6 +1415,61 @@ export default function Home() {
                                         </tbody>
                                     </table>
                                 </div>
+
+                                {/* Convites de Associação Pendentes de Aceitação */}
+                                {myAccountInvitations.filter(i => i.status === 'pending').length > 0 && (
+                                    <div className="mt-8 pt-6 border-t border-[var(--border)]">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-2">
+                                                <Clock size={14} className="text-amber-500" /> Convites Enviados a Aguardar Aceitação ({myAccountInvitations.filter(i => i.status === 'pending').length})
+                                            </h4>
+                                        </div>
+                                        <div className="overflow-x-auto border border-[var(--border)] rounded-xl bg-[var(--bg-card)]">
+                                            <table className="w-full text-left text-xs border-collapse">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
+                                                        <th className="py-2.5 px-3">Colaborador Convidado</th>
+                                                        <th className="py-2.5 px-3">Email</th>
+                                                        <th className="py-2.5 px-3">Data do Convite</th>
+                                                        <th className="py-2.5 px-3">Estado</th>
+                                                        <th className="py-2.5 px-3 text-right">Ação</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border)]">
+                                                    {myAccountInvitations.filter(i => i.status === 'pending').map(inv => (
+                                                        <tr key={inv.id} className="hover:bg-primary/5">
+                                                            <td className="py-2.5 px-3 font-semibold text-[var(--text)]">
+                                                                {inv.invitedName || inv.invitedEmail.split('@')[0]}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 font-mono text-[11px] text-[var(--text-muted)]">
+                                                                {inv.invitedEmail}
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-[11px] text-[var(--text-muted)]">
+                                                                {inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('pt-PT') : 'Hoje'}
+                                                            </td>
+                                                            <td className="py-2.5 px-3">
+                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300">
+                                                                    <Clock size={11} className="text-amber-600" />
+                                                                    Aguardar Aceitação na Conta
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-2.5 px-3 text-right">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => cancelCompanyInvitation(inv.id)}
+                                                                    className="px-2.5 py-1 rounded text-[10px] font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 border border-red-200 dark:border-red-900/40 transition-colors cursor-pointer"
+                                                                    title="Cancelar este convite"
+                                                                >
+                                                                    Cancelar Convite
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -2417,13 +2611,13 @@ export default function Home() {
 
                 {/* ════════ MODAL: ASSOCIAR MEMBRO À EMPRESA ════════ */}
                 <Modal 
-                    title="Associar Utilizador à Empresa" 
+                    title="Convidar Colaborador para a Empresa" 
                     isOpen={isInviteOpen} 
                     onClose={() => setIsInviteOpen(false)}
                 >
                     <form onSubmit={handleInviteSubmit} className="space-y-4">
                         <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 text-xs text-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
-                            Os colaboradores associados à sua empresa beneficiam de <strong>+10 acessos a obras parceiras</strong> ao abrigo da sua subscrição ({currentPlan.toUpperCase()}).
+                            Ao associar um utilizador, é enviado um pedido de adesão para o email indicado. O colaborador deve <strong>aceder à sua conta Safety1irst e aceitar o convite</strong> para ficar associado à sua empresa e usufruir dos benefícios do plano ({currentPlan.toUpperCase()}).
                         </div>
 
                         <InputGroup label="Nome do Colaborador">
@@ -2462,7 +2656,7 @@ export default function Home() {
                         )}
 
                         <PrimaryButton type="submit" className="w-full py-2.5 text-xs font-bold">
-                            Associar Colaborador
+                            Enviar Convite de Associação
                         </PrimaryButton>
                     </form>
                 </Modal>

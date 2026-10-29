@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation } from '../types';
 import { DEFAULT_PLATFORM_PLANS } from '../types';
 
 export interface ProjectRequest {
@@ -52,6 +52,7 @@ export interface AppState {
     modules: Module[];
     projectRequests: ProjectRequest[];
     companyRequests: CompanyRequest[];
+    companyInvitations: CompanyInvitation[];
     subscriptionRequests: SubscriptionRequest[];
     templates: PDFTemplate[];
     documents: Document[];
@@ -182,6 +183,9 @@ export interface AppState {
     resolveProjectRequest: (requestId: string, status: 'approved' | 'rejected', role?: ProjectRole) => void;
     changeAccountPlan: (accountId: string, newPlan: PlanType) => void;
     associateCompanyUser: (companyAccountId: string, userEmail: string, userName?: string) => { success: boolean; message: string };
+    acceptCompanyInvitation: (invitationId: string) => { success: boolean; message: string };
+    rejectCompanyInvitation: (invitationId: string) => void;
+    cancelCompanyInvitation: (invitationId: string) => void;
 
     // Company Requests
     addCompanyRequest: (userId: string, companyId: string, projectId: string, updates: Partial<Company>) => void;
@@ -529,6 +533,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
     projectRequests: [],
     companyRequests: [],
+    companyInvitations: [],
     subscriptionRequests: [],
     platformPlans: DEFAULT_PLATFORM_PLANS,
     templates: [],
@@ -691,13 +696,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 accounts, users, projects, companies, workers, equipment,
                 accessPoints, trainings, accidents, riskAssessments, accessLogs, documents, companyProfiles,
                 workerProfiles, equipmentProfiles, tickets, ticketMessages, courses, trainingSessions, workerTrainingRecords,
-                subscriptionRequests, projectRequests
+                subscriptionRequests, projectRequests, companyInvitations
             ] = await Promise.all([
                 load('accounts'), load('users'), load('projects'), load('companies'), load('workers'), load('equipment'),
                 load('access_points'), load('trainings'), load('accidents'), load('risk_assessments'), load('access_logs'), load('documents'), load('company_profiles'),
                 load('worker_profiles'), load('equipment_profiles'), load('tickets'), load('ticket_messages'),
                 load('courses'), load('training_sessions'), load('worker_training_records'),
-                load('subscription_requests'), load('project_requests')
+                load('subscription_requests'), load('project_requests'), load('company_invitations')
             ]);
 
             const members = (await load('project_members')) as any[];
@@ -852,7 +857,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 trainingSessions: trainingSessions || [],
                 workerTrainingRecords: workerTrainingRecords || [],
                 subscriptionRequests: subscriptionRequests || [],
-                projectRequests: projectRequests || []
+                projectRequests: projectRequests || [],
+                companyInvitations: companyInvitations || []
             });
             console.log(`[Store] Initialization Complete. Loaded ${documents?.length || 0} documents.`);
 
@@ -2366,37 +2372,142 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         else if (plan === 'enterprise') maxUsers = 50;
 
         const currentMembers = state.users.filter(u => u.accountId === companyAccountId);
-        if (currentMembers.length >= maxUsers) {
+        const pendingInvitations = (state.companyInvitations || []).filter(
+            inv => inv.accountId === companyAccountId && inv.status === 'pending'
+        );
+
+        if (currentMembers.length + pendingInvitations.length >= maxUsers) {
             return {
                 success: false,
-                message: `Limite de utilizadores atingido (${currentMembers.length}/${maxUsers}) para o plano ${plan.toUpperCase()}. Faça upgrade para associar mais membros.`
+                message: `Limite de utilizadores atingido (${currentMembers.length} ativos + ${pendingInvitations.length} convite(s) pendente(s) / máx ${maxUsers}) para o plano ${plan.toUpperCase()}. Faça upgrade para convidar mais membros.`
             };
         }
 
         const cleanEmail = userEmail.trim().toLowerCase();
         const targetUser = state.users.find(u => u.email.trim().toLowerCase() === cleanEmail);
 
-        if (targetUser) {
-            dbUpdate('users', targetUser.id, { accountId: companyAccountId }).catch(() => {});
-            set((s) => ({
-                users: s.users.map(u => u.id === targetUser.id ? { ...u, accountId: companyAccountId } : u)
-            }));
-            return { success: true, message: `Utilizador ${targetUser.name} associado com sucesso à sua empresa!` };
-        } else {
-            const newUser: User = {
-                id: nanoid(),
-                email: cleanEmail,
-                name: userName || cleanEmail.split('@')[0],
-                role: 'user',
-                accountId: companyAccountId,
-                createdAt: new Date().toISOString()
+        if (targetUser && targetUser.accountId === companyAccountId) {
+            return {
+                success: false,
+                message: `O utilizador ${targetUser.name || cleanEmail} já é membro ativo da sua empresa.`
             };
-            dbInsert('users', newUser).catch(() => {});
-            set((s) => ({
-                users: [...s.users, newUser]
-            }));
-            return { success: true, message: `Convite registado e utilizador ${newUser.name} associado à sua empresa!` };
         }
+
+        const existingPending = (state.companyInvitations || []).find(
+            inv => inv.accountId === companyAccountId &&
+                   inv.invitedEmail.toLowerCase().trim() === cleanEmail &&
+                   inv.status === 'pending'
+        );
+        if (existingPending) {
+            return {
+                success: false,
+                message: `Já existe um convite pendente para ${cleanEmail}. O utilizador deve aceder à sua conta para aceitar o pedido.`
+            };
+        }
+
+        const newInvitation: CompanyInvitation = {
+            id: nanoid(),
+            accountId: companyAccountId,
+            accountName: account.name,
+            invitedEmail: cleanEmail,
+            invitedName: userName || targetUser?.name || cleanEmail.split('@')[0],
+            invitedByUserId: state.currentUser?.id || '',
+            invitedByUserName: state.currentUser?.name || '',
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        };
+
+        dbInsert('company_invitations', newInvitation).catch(console.error);
+
+        set((s) => ({
+            companyInvitations: [newInvitation, ...(s.companyInvitations || [])]
+        }));
+
+        get().addNotification(
+            'info',
+            `Convite de associação enviado para ${cleanEmail}. O utilizador deverá aceitar o pedido na respetiva conta.`
+        );
+
+        return {
+            success: true,
+            message: `Convite enviado com sucesso para ${cleanEmail}! O utilizador deve aceitar o pedido na sua conta para ingressar na empresa.`
+        };
+    },
+
+    acceptCompanyInvitation: (invitationId: string) => {
+        const state = get();
+        const inv = (state.companyInvitations || []).find(i => i.id === invitationId);
+        if (!inv || inv.status !== 'pending') {
+            return { success: false, message: 'Convite não encontrado ou já processado.' };
+        }
+
+        const resolvedAt = new Date().toISOString();
+        const cleanEmail = inv.invitedEmail.toLowerCase().trim();
+        let targetUser = state.users.find(u => u.email.toLowerCase().trim() === cleanEmail);
+
+        if (targetUser) {
+            dbUpdate('users', targetUser.id, { accountId: inv.accountId }).catch(console.error);
+        } else if (state.currentUser && state.currentUser.email.toLowerCase().trim() === cleanEmail) {
+            targetUser = state.currentUser;
+            dbUpdate('users', targetUser.id, { accountId: inv.accountId }).catch(console.error);
+        }
+
+        dbUpdate('company_invitations', inv.id, { status: 'accepted', resolvedAt }).catch(console.error);
+
+        set((s) => {
+            const updatedInvitations = (s.companyInvitations || []).map(i =>
+                i.id === invitationId ? { ...i, status: 'accepted' as const, resolvedAt } : i
+            );
+            const updatedUsers = s.users.map(u =>
+                u.email.toLowerCase().trim() === cleanEmail ? { ...u, accountId: inv.accountId } : u
+            );
+            const updatedCurrentUser = s.currentUser?.email.toLowerCase().trim() === cleanEmail
+                ? { ...s.currentUser, accountId: inv.accountId }
+                : s.currentUser;
+
+            return {
+                companyInvitations: updatedInvitations,
+                users: updatedUsers,
+                currentUser: updatedCurrentUser
+            };
+        });
+
+        get().addNotification('success', `Aceitou o convite com sucesso! Agora faz parte da empresa ${inv.accountName}.`);
+        return { success: true, message: `Conta associada com sucesso à empresa ${inv.accountName}!` };
+    },
+
+    rejectCompanyInvitation: (invitationId: string) => {
+        const state = get();
+        const inv = (state.companyInvitations || []).find(i => i.id === invitationId);
+        if (!inv || inv.status !== 'pending') return;
+
+        const resolvedAt = new Date().toISOString();
+        dbUpdate('company_invitations', inv.id, { status: 'rejected', resolvedAt }).catch(console.error);
+
+        set((s) => ({
+            companyInvitations: (s.companyInvitations || []).map(i =>
+                i.id === invitationId ? { ...i, status: 'rejected' as const, resolvedAt } : i
+            )
+        }));
+
+        get().addNotification('info', `Recusou o convite para ingressar na empresa ${inv.accountName}.`);
+    },
+
+    cancelCompanyInvitation: (invitationId: string) => {
+        const state = get();
+        const inv = (state.companyInvitations || []).find(i => i.id === invitationId);
+        if (!inv || inv.status !== 'pending') return;
+
+        const resolvedAt = new Date().toISOString();
+        dbUpdate('company_invitations', inv.id, { status: 'canceled', resolvedAt }).catch(console.error);
+
+        set((s) => ({
+            companyInvitations: (s.companyInvitations || []).map(i =>
+                i.id === invitationId ? { ...i, status: 'canceled' as const, resolvedAt } : i
+            )
+        }));
+
+        get().addNotification('info', `Convite para ${inv.invitedEmail} foi cancelado.`);
     },
 
     addCompanyRequest: (userId, companyId, projectId, updates) => set((state) => ({
