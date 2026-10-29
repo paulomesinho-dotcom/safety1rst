@@ -59,152 +59,130 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                 let status = 'synced';
 
                 try {
-                    // Debug Logs
                     console.log('DocumentUpload: Starting Upload for', file.name);
-
                     let cdeFileId: string | undefined;
-                    console.log('DocumentUpload: Project Config:', project?.cdeConfig);
-                    console.log('DocumentUpload: Connected?', project?.cdeConfig?.connected);
 
-                    // Check CDE Connection
+                    // 1. Resolve Entity details (Worker, Equipment, Company)
                     const storeState = useStore.getState();
-                    const companyForCde = storeState.companies.find(c => c.id === entityId || c.id === projectId || (!c.projectId && c.accountId === storeState.currentUser?.accountId));
+                    const worker = storeState.workers.find(w => w.id === entityId);
+                    const equipment = storeState.equipment.find(e => e.id === entityId);
+                    let company = storeState.companies.find(c => c.id === entityId);
+                    if (!company) {
+                        company = storeState.companies.find(c =>
+                            c.accountId === storeState.currentUser?.accountId && (!c.projectId || c.id !== 'comp_master')
+                        );
+                    }
+                    if (!company && projectId) {
+                        company = storeState.companies.find(c => c.id === entityId || c.projectId === projectId);
+                    }
+
+                    let entityType: 'company' | 'worker' | 'equipment' = 'company';
+                    let entityName = '';
+                    let entityIdentifier = '';
+                    let ifcRole = 'subempreiteiro';
+
+                    if (worker) {
+                        entityType = 'worker';
+                        entityName = worker.name;
+                        entityIdentifier = worker.nif || worker.id;
+                        ifcRole = 'worker';
+                    } else if (equipment) {
+                        entityType = 'equipment';
+                        entityName = equipment.name;
+                        entityIdentifier = equipment.serialNumber || equipment.id;
+                        ifcRole = 'equipment';
+                    } else {
+                        entityType = 'company';
+                        entityName = company?.name || storeState.currentUser?.name || 'A Minha Empresa';
+                        entityIdentifier = company?.nif || company?.number || 'PT500000000';
+                        ifcRole = company?.companyRole || (company as any)?.ifcActorRole || 'subempreiteiro';
+                    }
+
+                    // 2. Determine Version & Existing Docs according to ISO 19650
+                    const currentDocs = storeState.documents;
+                    const existingDocs = currentDocs.filter(d =>
+                        d.entityId === entityId &&
+                        (category ? d.category === category : true)
+                    );
+                    const maxVersion = existingDocs.reduce((max, d) => Math.max(max, d.version || 1), 0);
+                    const nextDocVersion = existingDocs.length > 0 ? maxVersion + 1 : 1;
+                    const prevActiveDoc = existingDocs.find(d => !d.archived);
+
+                    // 3. Standardized ISO 19650 / IFC Naming - ALWAYS generated regardless of CDE connection
+                    const ifcStandardName = generateIfcIsoDocumentName({
+                        entityIdentifier: entityIdentifier || 'ENT',
+                        ifcRole: ifcRole,
+                        category: category || 'general',
+                        version: nextDocVersion,
+                        originalFileName: file.name
+                    });
+
+                    console.log(`DocumentUpload: Renaming '${file.name}' to ISO 19650/IFC '${ifcStandardName}' (Version ${nextDocVersion})`);
+                    fileToUpload = new File([file], ifcStandardName, { type: file.type });
+
+                    // 4. Check CDE Connection
+                    const companyForCde = company || storeState.companies.find(c => c.id === entityId || c.id === projectId || (!c.projectId && c.accountId === storeState.currentUser?.accountId));
                     const effectiveCdeConfig = project?.cdeConfig || (companyForCde as any)?.cdeConfig;
 
                     if (effectiveCdeConfig?.connected) {
-                        // Find Entity details to get Name/Identifier
-                        let company = storeState.companies.find(c => c.id === entityId);
-                        if (!company && (entityId === 'comp_master' || entityId?.startsWith('comp_'))) {
-                            company = companyForCde;
-                        }
-                        const worker = storeState.workers.find(w => w.id === entityId);
-                        const equipment = storeState.equipment.find(e => e.id === entityId);
+                        console.log(`DocumentUpload: Uploading to Entity Folder (${entityType})...`);
+                        const versionTag = prevActiveDoc ? `v${prevActiveDoc.version || 1}` : undefined;
 
-                        console.log('DocumentUpload: Searching entityId', entityId);
-                        console.log('DocumentUpload: Found:', { company, worker, equipment });
+                        const uploadRes = await uploadToEntityFolder(
+                            effectiveCdeConfig,
+                            entityType,
+                            entityName,
+                            entityIdentifier,
+                            fileToUpload,
+                            versionTag
+                        );
+                        fileUrl = uploadRes.webViewLink;
+                        cdeFileId = uploadRes.id;
+                        console.log('Uploaded to CDE:', fileUrl);
 
-                        let entityType: 'company' | 'worker' | 'equipment' | null = null;
-                        let entityName = '';
-                        let entityIdentifier = '';
-
-                        if (company) {
-                            entityType = 'company';
-                            entityName = company.name;
-                            entityIdentifier = company.number || company.nif;
-                        } else if (worker) {
-                            entityType = 'worker';
-                            entityName = worker.name;
-                            entityIdentifier = worker.nif || worker.id;
-                        } else if (equipment) {
-                            entityType = 'equipment';
-                            entityName = equipment.name;
-                            entityIdentifier = equipment.id; // Or serialNumber if available
-                            if (equipment.serialNumber) entityIdentifier = equipment.serialNumber;
-                        }
-
-                        if (entityType) {
-                            console.log(`DocumentUpload: Uploading to Entity Folder (${entityType})...`);
-
-                            // Determine Version & Archiving according to ISO 19650 / IFC
-                            const documents = useStore.getState().documents;
-                            const existingActiveDoc = documents.find(d =>
-                                d.entityId === entityId &&
-                                d.category === category &&
-                                !d.archived
-                            );
-
-                            const nextVersion = existingActiveDoc ? (existingActiveDoc.version || 1) + 1 : 1;
-                            const versionTag = existingActiveDoc ? `v${existingActiveDoc.version || 1}` : undefined;
-
-                            // Standardized ISO 19650 / IFC Naming
-                            const ifcRole = company?.companyRole || (company as any)?.ifcActorRole || 'subempreiteiro';
-                            const ifcStandardName = generateIfcIsoDocumentName({
-                                entityIdentifier: entityIdentifier || company?.nif || 'ENT',
-                                ifcRole: ifcRole,
-                                category: category || 'general',
-                                version: nextVersion,
-                                originalFileName: file.name
+                        if (onOperation && uploadRes.id) {
+                            onOperation({
+                                type: 'upload',
+                                fileId: uploadRes.id,
+                                archivedId: uploadRes.archivedId,
+                                archivedParentId: uploadRes.archivedParentId
                             });
+                        }
 
-                            console.log(`DocumentUpload: Renaming '${file.name}' to ISO 19650/IFC '${ifcStandardName}' (Version ${nextVersion})`);
-                            fileToUpload = new File([file], ifcStandardName, { type: file.type });
-
-                            const uploadRes = await uploadToEntityFolder(
-                                effectiveCdeConfig,
-                                entityType,
-                                entityName,
-                                entityIdentifier,
-                                fileToUpload,
-                                versionTag
-                            );
-                            fileUrl = uploadRes.webViewLink; // Use CDE Link
-                            cdeFileId = uploadRes.id;
-                            console.log('Uploaded to CDE:', fileUrl);
-
-                            if (onOperation && uploadRes.id) {
-                                onOperation({
-                                    type: 'upload',
-                                    fileId: uploadRes.id,
-                                    archivedId: uploadRes.archivedId,
-                                    archivedParentId: uploadRes.archivedParentId
+                        // Update Archived File Integrity (e.g. Dropbox Path Change)
+                        if (uploadRes.archivedId && (uploadRes.archivedNewId || uploadRes.archivedNewName)) {
+                            console.log('DocumentUpload: Archived detected. ID:', uploadRes.archivedId, 'NewName:', uploadRes.archivedNewName);
+                            const oldDoc = currentDocs.find(d => d.cdeFileId === uploadRes.archivedId);
+                            if (oldDoc) {
+                                updateDocument(oldDoc.id, {
+                                    cdeFileId: uploadRes.archivedNewId,
+                                    name: uploadRes.archivedNewName || oldDoc.name
                                 });
                             }
-
-                            // Update Archived File Integrity (e.g. Dropbox Path Change)
-                            if (uploadRes.archivedId && (uploadRes.archivedNewId || uploadRes.archivedNewName)) {
-                                console.log('DocumentUpload: Archived detected. ID:', uploadRes.archivedId, 'NewName:', uploadRes.archivedNewName);
-                                const oldDoc = documents.find(d => d.cdeFileId === uploadRes.archivedId);
-
-                                if (oldDoc) {
-                                    console.log('DocumentUpload: Found Matching Active Doc:', oldDoc.name, 'ID:', oldDoc.id);
-                                    updateDocument(oldDoc.id, {
-                                        cdeFileId: uploadRes.archivedNewId,
-                                        name: uploadRes.archivedNewName || oldDoc.name
-                                    });
-                                    console.log('DocumentUpload: Sent updateDocument command.');
-                                } else {
-                                    console.warn('DocumentUpload: NO MATCHING DOC FOUND for ID:', uploadRes.archivedId);
-                                    // Debug: Log all doc CDE IDs to see why we missed
-                                    console.log('Available Docs CDE IDs:', documents.map(d => d.cdeFileId));
-                                }
-                            }
-                        } else {
-                            console.warn('Entity not found for CDE Upload, falling back to local simulation');
-                            alert('System Warning: Could not find Entity context for CDE Upload. Saving locally.');
-                            // Fallback
-                            fileUrl = URL.createObjectURL(file);
-                            status = 'pending';
                         }
-
                     } else {
                         // Local Simulation
-                        const toBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+                        const toBase64 = (f: File) => new Promise<string>((resolve, reject) => {
                             const reader = new FileReader();
-                            reader.readAsDataURL(file);
+                            reader.readAsDataURL(f);
                             reader.onload = () => resolve(reader.result as string);
                             reader.onerror = error => reject(error);
                         });
                         if (file.size < 2 * 1024 * 1024) fileUrl = await toBase64(file);
                         else fileUrl = URL.createObjectURL(file);
+                        cdeFileId = `local_${Date.now()}`;
                     }
 
-                    // Archive previous active document in store if replacing
-                    const currentDocs = useStore.getState().documents;
-                    const prevDocToArchive = currentDocs.find(d =>
-                        d.entityId === entityId &&
-                        d.category === category &&
-                        !d.archived
-                    );
-                    if (prevDocToArchive) {
-                        updateDocument(prevDocToArchive.id, {
+                    // 5. Archive previous active document in store if replacing
+                    if (prevActiveDoc) {
+                        updateDocument(prevActiveDoc.id, {
                             archived: true,
                             archivedAt: new Date().toISOString()
                         });
-                        console.log(`DocumentUpload: Archived previous active document ${prevDocToArchive.name} (v${prevDocToArchive.version || 1})`);
+                        console.log(`DocumentUpload: Archived previous active document ${prevActiveDoc.name} (v${prevActiveDoc.version || 1})`);
                     }
 
-                    const nextDocVersion = prevDocToArchive ? (prevDocToArchive.version || 1) + 1 : 1;
-
+                    // 6. Save new document in store with standardized name and calculated version
                     addDocument({
                         name: fileToUpload.name,
                         size: formatFileSize(file.size),
@@ -214,7 +192,7 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                         entityId,
                         projectId: projectId,
                         category: category,
-                        provider: provider as any,
+                        provider: (effectiveCdeConfig?.connected ? provider : 'local') as any,
                         status: status,
                         version: nextDocVersion,
                         archived: false,
@@ -250,7 +228,7 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
             if (onUploadComplete) onUploadComplete();
         }, 500);
 
-    }, [entityId, projectId, category, provider, addDocument, onUploadComplete, enableAI, aiType, onSmartComplete, project, draftAuthorId]);
+    }, [entityId, projectId, category, provider, addDocument, updateDocument, onUploadComplete, enableAI, aiType, onSmartComplete, project, draftAuthorId, label, systemLabel, onOperation]);
 
     const { getRootProps, getInputProps, isDragActive, open } = useDropzone({ onDrop, noClick: layout === 'button' });
 

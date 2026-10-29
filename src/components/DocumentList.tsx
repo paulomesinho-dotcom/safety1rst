@@ -45,10 +45,12 @@ export const DocumentList: React.FC<DocumentListProps> = ({ projectId, entityId,
         // No filter needed for category/archive state here, just entityId which is already done.
     }
 
-    // Sort by date desc
-    const sortedDocs = [...entityDocs].sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    // Sort: Active first, then by version desc, then by date desc
+    const sortedDocs = [...entityDocs].sort((a, b) => {
+        if (a.archived !== b.archived) return a.archived ? 1 : -1;
+        if ((b.version || 1) !== (a.version || 1)) return (b.version || 1) - (a.version || 1);
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
     const handleDelete = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
@@ -135,8 +137,15 @@ export const DocumentList: React.FC<DocumentListProps> = ({ projectId, entityId,
 
                                     {/* Title Cell Removed */}
 
-                                    <td className="px-4 py-3 text-gray-500">
-                                        v{doc.version || 1}.0
+                                    <td className="px-4 py-3">
+                                        <span className={cn(
+                                            "inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-bold tracking-wide",
+                                            doc.archived
+                                                ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                                                : "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                        )}>
+                                            V{String(doc.version || 1).padStart(2, '0')}
+                                        </span>
                                     </td>
                                     <td className="px-4 py-3 text-gray-500">
                                         {new Date(doc.createdAt).toLocaleDateString()}

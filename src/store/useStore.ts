@@ -3272,48 +3272,41 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     addDocument: (doc) => set((state) => {
         const id = nanoid();
 
-        // Versioning Logic
-        let newVersion = 1;
-
-        // If category is provided, check for existing versions
-        let updatedDocuments = state.documents;
-
-        if (doc.category && doc.category !== 'general') { // General docs might not need versioning or unique constraint? Assuming unique per category for fields.
+        // Versioning Logic: respect explicit doc.version or calculate from existing docs (including archived)
+        let finalVersion = doc.version;
+        if (!finalVersion) {
             const existingDocs = state.documents.filter(d =>
                 d.entityId === doc.entityId &&
-                d.category === doc.category &&
-                !d.archived
+                (doc.category ? d.category === doc.category : true)
             );
+            const maxVersion = existingDocs.reduce((max, d) => Math.max(max, d.version || 1), 0);
+            finalVersion = existingDocs.length > 0 ? maxVersion + 1 : 1;
+        }
 
-            if (existingDocs.length > 0) {
-                // Find max version
-                const maxVersion = Math.max(...existingDocs.map(d => d.version || 1));
-                newVersion = maxVersion + 1;
-
-                // Archive existing
-                updatedDocuments = state.documents.map(d => {
-                    if (d.entityId === doc.entityId && d.category === doc.category && !d.archived) {
-                        // Persist Archive Status
-                        dbUpdate('documents', d.id, { archived: true })
-                            .then(() => console.log(`[Store] Archived previous version: ${d.id}`))
-                            .catch(err => console.error(`[Store] Failed to archive document ${d.id}:`, err));
-
-                        return { ...d, archived: true };
-                    }
-                    return d;
-                });
-            }
+        // Archive any previous active document for this entity & category
+        let updatedDocuments = state.documents;
+        if (doc.category) {
+            const nowIso = new Date().toISOString();
+            updatedDocuments = state.documents.map(d => {
+                if (d.entityId === doc.entityId && d.category === doc.category && !d.archived && d.id !== id) {
+                    dbUpdate('documents', d.id, { archived: true, archivedAt: nowIso })
+                        .catch(err => console.error(`[Store] Failed to archive document ${d.id}:`, err));
+                    return { ...d, archived: true, archivedAt: nowIso };
+                }
+                return d;
+            });
         }
 
         const newDoc = {
             ...doc,
             id,
-            version: newVersion,
+            version: finalVersion,
+            archived: false,
             createdAt: new Date().toISOString()
         };
 
         dbInsert('documents', newDoc)
-            .then(() => console.log('[Store] Document persisted to DB:', id))
+            .then(() => console.log('[Store] Document persisted to DB:', id, 'Name:', newDoc.name, 'Version:', newDoc.version))
             .catch(err => console.error('[Store] Failed to persist document:', err));
         return { documents: [...updatedDocuments, newDoc] };
     }),
