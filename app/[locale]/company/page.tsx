@@ -1622,8 +1622,9 @@ export default function MyCompanyPage() {
             } as any);
         }
 
-        if (userAccount?.id) {
-            updateAccount(userAccount.id, {
+        const targetAccId = userAccount?.id || currentUser?.accountId;
+        if (targetAccId) {
+            updateAccount(targetAccId, {
                 name: trimmedName,
                 vatNumber: trimmedNif,
                 contactEmail: companyForm.email.trim(),
@@ -2440,7 +2441,7 @@ export default function MyCompanyPage() {
                                 <header className="p-5 border-b border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-sm sticky top-0 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
                                     <div>
                                         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-1">
-                                            <span className="font-semibold text-primary">A Minha Empresa</span>
+                                            <span className="font-semibold text-primary">{companyForm.name || masterCompany?.name || "A Minha Empresa"}</span>
                                             <span>•</span>
                                             <span className="capitalize">{activeTab === 'organization' ? 'Organizações' : activeTab === 'settings' ? 'Configurações' : activeTab}</span>
                                         </div>

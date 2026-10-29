@@ -65,6 +65,7 @@ export default function Home() {
         leaveCompany,
         resolveProjectQuotaSelection,
         checkProjectQuotaDeadlines,
+        updateUser,
         isInitialized
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
@@ -101,6 +102,7 @@ export default function Home() {
         leaveCompany: state.leaveCompany,
         resolveProjectQuotaSelection: state.resolveProjectQuotaSelection,
         checkProjectQuotaDeadlines: state.checkProjectQuotaDeadlines,
+        updateUser: state.updateUser,
         isInitialized: state.isInitialized,
     })));
 
@@ -163,6 +165,16 @@ export default function Home() {
     const [isQuotaModalOpen, setIsQuotaModalOpen] = useState(false);
     const [selectedQuotaProjectIds, setSelectedQuotaProjectIds] = useState<string[]>([]);
     const [quotaActionLoading, setQuotaActionLoading] = useState(false);
+
+    // User Profile Modal State
+    const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
+    const [profileName, setProfileName] = useState('');
+    const [profileEmail, setProfileEmail] = useState('');
+    const [profilePhone, setProfilePhone] = useState('');
+    const [profilePassword, setProfilePassword] = useState('');
+    const [profileModalSuccess, setProfileModalSuccess] = useState('');
+    const [profileModalError, setProfileModalError] = useState('');
+    const [profileSaving, setProfileSaving] = useState(false);
 
     const [hasMounted, setHasMounted] = useState(false);
     useEffect(() => {
@@ -275,6 +287,16 @@ export default function Home() {
         if (!currentUser || currentUser.role === 'superadmin') return null;
         return accounts.find(a => a.id === currentUser.accountId) || null;
     }, [accounts, currentUser]);
+
+    // Master Company e Nome Oficial da Empresa
+    const myMasterCompany = useMemo(() => {
+        const accId = userAccount?.id || currentUser?.accountId;
+        if (!accId) return undefined;
+        return companies.find(c => c.accountId === accId && !c.projectId && c.id !== 'comp_master') ||
+               companies.find(c => c.accountId === accId && !c.projectId);
+    }, [companies, userAccount, currentUser]);
+
+    const officialCompanyName = myMasterCompany?.name?.trim() || userAccount?.name?.trim() || 'A Minha Empresa';
 
     // Paid & Free Accounts Split for SuperAdmin
     const paidAccounts = useMemo(() => accounts.filter(a => a.plan !== 'free'), [accounts]);
@@ -852,17 +874,31 @@ export default function Home() {
                         <div className="text-right hidden lg:block">
                             <span className="block text-xs font-bold text-[var(--text)]">{currentUser.name}</span>
                             <span className="block text-[11px] text-[var(--text-muted)] truncate max-w-[160px]">
-                                {userAccount?.name || currentUser.email}
+                                {officialCompanyName}
                             </span>
                         </div>
 
                         <div className="flex items-center gap-2.5">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-blue-600 text-white flex items-center justify-center text-xs font-bold shadow-sm">
-                                {currentUser.name.charAt(0).toUpperCase()}
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (!currentUser) return;
+                                    setProfileName(currentUser.name || '');
+                                    setProfileEmail(currentUser.email || '');
+                                    setProfilePhone((currentUser as any).phone || '');
+                                    setProfilePassword('');
+                                    setProfileModalError('');
+                                    setProfileModalSuccess('');
+                                    setIsUserProfileModalOpen(true);
+                                }}
+                                className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-blue-600 text-white flex items-center justify-center text-xs font-bold shadow-sm hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer"
+                                title="Os Meus Dados / Perfil do Utilizador"
+                            >
+                                {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                            </button>
                             <button 
                                 onClick={handleLogout} 
-                                className="p-2 rounded-lg text-[var(--text-muted)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors" 
+                                className="p-2 rounded-lg text-[var(--text-muted)] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer" 
                                 title="Terminar Sessão"
                             >
                                 <LogOut size={18} />
@@ -881,13 +917,8 @@ export default function Home() {
                             </h1>
                             <p className="text-xs text-[var(--text-muted)] mt-0.5 flex items-center gap-2 flex-wrap">
                                 <span>
-                                    {userAccount?.name ? `${userAccount.name} • ` : ''}Plano <strong className="uppercase text-primary">{currentPlan}</strong> &bull; {joinedProjects.length}/{maxJoinedProjects === Infinity ? '∞' : maxJoinedProjects} obras em acesso
+                                    {officialCompanyName} • Plano <strong className="uppercase text-primary">{currentPlan}</strong> &bull; {joinedProjects.length}/{maxJoinedProjects === Infinity ? '∞' : maxJoinedProjects} obras em acesso
                                 </span>
-                                {associatedCompanyAccount && (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                        <Building2 size={11} /> Convidado na empresa: {associatedCompanyAccount.name}
-                                    </span>
-                                )}
                             </p>
                         </div>
 
@@ -931,9 +962,9 @@ export default function Home() {
                                     router.push('/company');
                                 }}
                                 className="px-3.5 py-2 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                                title="Gerir a minha empresa, trabalhadores, equipamentos, formação e documentos"
+                                title={`Gerir a empresa ${officialCompanyName}, trabalhadores, equipamentos, formação e documentos`}
                             >
-                                <Building2 size={15} /> A Minha Empresa
+                                <Building2 size={15} /> {officialCompanyName}
                             </button>
 
                             {currentPlan !== 'free' && (
@@ -989,53 +1020,6 @@ export default function Home() {
                             >
                                 <FolderCheck size={16} /> Selecionar Obras a Manter (máx 5)
                             </button>
-                        </div>
-                    )}
-
-                    {/* ── EMPRESAS A QUE ESTOU ASSOCIADO (COM OPÇÃO DE SAIR) ── */}
-                    {myAssociatedCompanies.length > 0 && (
-                        <div className="p-4 sm:p-5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border)] shadow-sm space-y-3 animate-in fade-in">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-2">
-                                    <Building2 size={16} className="text-primary" /> Empresas a que estou associado ({myAssociatedCompanies.length})
-                                </h3>
-                                <span className="text-[11px] text-[var(--text-muted)]">
-                                    Bónus atribuído: <strong>+10 acessos a obras parceiras</strong> (total de 15 obras simultâneas)
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-                                {myAssociatedCompanies.map(comp => (
-                                    <div key={comp.accountId} className="p-3.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 hover:bg-[var(--bg-input)]/70 transition-all flex flex-col justify-between gap-3">
-                                        <div>
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="font-bold text-xs text-[var(--text)] truncate">{comp.name}</span>
-                                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-primary/10 text-primary border border-primary/20">
-                                                    {comp.plan}
-                                                </span>
-                                            </div>
-                                            <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                                                {comp.vatNumber ? `NIF: ${comp.vatNumber} • ` : ''}Perfil: <strong className="text-blue-600 dark:text-blue-400">Convidado</strong>
-                                            </p>
-                                        </div>
-                                        <div className="pt-2 border-t border-[var(--border)]/60 flex items-center justify-between">
-                                            <span className="text-[10px] text-[var(--text-muted)]">
-                                                {comp.joinedAt ? `Desde ${new Date(comp.joinedAt).toLocaleDateString('pt-PT')}` : 'Membro ativo'}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setCompanyToLeave(comp);
-                                                    setIsLeaveCompanyModalOpen(true);
-                                                }}
-                                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/40 transition-colors cursor-pointer"
-                                                title="Sair desta empresa e revogar acessos aos seus projetos"
-                                            >
-                                                Sair da Empresa
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
                         </div>
                     )}
 
@@ -1600,7 +1584,7 @@ export default function Home() {
                                         <div className="flex items-center gap-2">
                                             <Building2 size={20} className="text-primary" />
                                             <h3 className="text-base font-bold text-[var(--text)]">
-                                                {targetCompanyAccount?.name || 'A Minha Empresa'}
+                                                {officialCompanyName}
                                             </h3>
                                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary uppercase">
                                                 {targetCompanyAccount?.plan || currentPlan}
@@ -1817,6 +1801,76 @@ export default function Home() {
                                         </div>
                                     </div>
                                 )}
+                                {/* ── Empresas a que estou associado (Lista de Associações) ── */}
+                                {myAssociatedCompanies.length > 0 && (
+                                    <div className="mt-8 pt-6 border-t border-[var(--border)]">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                            <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-2">
+                                                <Building2 size={15} className="text-primary" /> Empresas a que estou associado ({myAssociatedCompanies.length})
+                                            </h4>
+                                            <span className="text-[11px] text-[var(--text-muted)]">
+                                                Bónus ativo: <strong>+10 acessos a obras parceiras</strong> (total de 15 obras simultâneas)
+                                            </span>
+                                        </div>
+                                        <div className="overflow-x-auto border border-[var(--border)] rounded-xl bg-[var(--bg-card)]">
+                                            <table className="w-full text-left text-xs border-collapse">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider bg-[var(--bg-input)]/50">
+                                                        <th className="py-2.5 px-3">Empresa</th>
+                                                        <th className="py-2.5 px-3">NIF</th>
+                                                        <th className="py-2.5 px-3">Plano</th>
+                                                        <th className="py-2.5 px-3">Perfil</th>
+                                                        <th className="py-2.5 px-3">Membro Desde</th>
+                                                        <th className="py-2.5 px-3 text-right">Ação</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border)]">
+                                                    {myAssociatedCompanies.map(comp => (
+                                                        <tr key={comp.accountId} className="hover:bg-primary/5 transition-colors">
+                                                            <td className="py-3 px-3 font-semibold text-[var(--text)]">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-6 h-6 rounded-md bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                                                                        <Building2 size={13} />
+                                                                    </div>
+                                                                    <span>{comp.name}</span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3 px-3 font-mono text-[11px] text-[var(--text-muted)]">
+                                                                {comp.vatNumber || '—'}
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-primary/10 text-primary border border-primary/20">
+                                                                    {comp.plan}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-3">
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                                    Convidado
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3 px-3 text-[11px] text-[var(--text-muted)]">
+                                                                {comp.joinedAt ? new Date(comp.joinedAt).toLocaleDateString('pt-PT') : 'Membro ativo'}
+                                                            </td>
+                                                            <td className="py-3 px-3 text-right">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setCompanyToLeave(comp);
+                                                                        setIsLeaveCompanyModalOpen(true);
+                                                                    }}
+                                                                    className="px-2.5 py-1 rounded text-[10px] font-bold text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/40 transition-colors cursor-pointer"
+                                                                    title="Sair desta empresa e revogar acessos aos seus projetos"
+                                                                >
+                                                                    Sair da Empresa
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                         );
@@ -1835,7 +1889,7 @@ export default function Home() {
                                             {currentPlan !== 'free' && <CheckCircle2 size={20} className="text-emerald-500" />}
                                         </h2>
                                         <p className="text-xs text-[var(--text-muted)] mt-1">
-                                            Empresa: <strong>{userAccount?.name || currentUser.name}</strong> • Estado: <strong className="text-emerald-600">Ativo</strong>
+                                            Empresa: <strong>{officialCompanyName}</strong> • Estado: <strong className="text-emerald-600">Ativo</strong>
                                         </p>
                                     </div>
 
@@ -3651,6 +3705,157 @@ export default function Home() {
                             </button>
                         </div>
                     </div>
+                </Modal>
+                {/* ════════ MODAL: DADOS DO UTILIZADOR / O MEU PERFIL ════════ */}
+                <Modal
+                    title="Os Meus Dados de Utilizador"
+                    isOpen={isUserProfileModalOpen}
+                    onClose={() => setIsUserProfileModalOpen(false)}
+                >
+                    <form
+                        onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!currentUser) return;
+                            if (!profileName.trim()) {
+                                setProfileModalError('O nome do utilizador é obrigatório.');
+                                return;
+                            }
+                            if (!profileEmail.trim() || !profileEmail.includes('@')) {
+                                setProfileModalError('Por favor insira um email válido.');
+                                return;
+                            }
+
+                            setProfileSaving(true);
+                            setProfileModalError('');
+                            try {
+                                const updates: Partial<User> = {
+                                    name: profileName.trim(),
+                                    email: profileEmail.trim(),
+                                    phone: profilePhone.trim() || undefined,
+                                };
+                                if (profilePassword.trim()) {
+                                    updates.password = profilePassword.trim();
+                                }
+
+                                updateUser(currentUser.id, updates);
+                                useStore.setState({
+                                    currentUser: {
+                                        ...currentUser,
+                                        ...updates
+                                    }
+                                });
+
+                                setProfileModalSuccess('Dados atualizados com sucesso!');
+                                addNotification('success', 'Os seus dados foram atualizados com sucesso!');
+                                setTimeout(() => {
+                                    setIsUserProfileModalOpen(false);
+                                    setProfileModalSuccess('');
+                                }, 1200);
+                            } catch (err: any) {
+                                setProfileModalError(err.message || 'Erro ao atualizar dados.');
+                            } finally {
+                                setProfileSaving(false);
+                            }
+                        }}
+                        className="space-y-4"
+                    >
+                        {/* User Card Header */}
+                        <div className="flex items-center gap-3.5 p-3.5 rounded-xl bg-[var(--bg-input)]/40 border border-[var(--border)]">
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-primary to-blue-600 text-white flex items-center justify-center text-lg font-bold shadow-md shrink-0">
+                                {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                            </div>
+                            <div className="overflow-hidden">
+                                <div className="font-bold text-sm text-[var(--text)] truncate">{currentUser?.name}</div>
+                                <div className="text-xs text-[var(--text-muted)] truncate">{currentUser?.email}</div>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-primary/10 text-primary border border-primary/20">
+                                        {currentUser?.role === 'superadmin' ? 'Super Administrador' :
+                                         currentUser?.role === 'admin' || currentUser?.role === 'client_admin' ? 'Administrador' :
+                                         currentUser?.role === 'manager' ? 'Gestor (Manager)' :
+                                         currentUser?.role === 'editor' ? 'Editor' : 'Colaborador'}
+                                    </span>
+                                    <span className="text-[10px] text-[var(--text-muted)]">
+                                        Empresa: <strong>{officialCompanyName}</strong>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {profileModalError && (
+                            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 text-xs font-medium border border-red-200 dark:border-red-800 flex items-center gap-2">
+                                <AlertCircle size={15} /> {profileModalError}
+                            </div>
+                        )}
+
+                        {profileModalSuccess && (
+                            <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-medium border border-emerald-200 dark:border-emerald-800 flex items-center gap-2">
+                                <CheckCircle2 size={15} /> {profileModalSuccess}
+                            </div>
+                        )}
+
+                        <InputGroup label="Nome Completo">
+                            <input
+                                type="text"
+                                required
+                                value={profileName}
+                                onChange={e => setProfileName(e.target.value)}
+                                className="w-full p-2.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:ring-2 focus:ring-primary outline-none"
+                                placeholder="O seu nome completo"
+                            />
+                        </InputGroup>
+
+                        <InputGroup label="Endereço de Email">
+                            <input
+                                type="email"
+                                required
+                                value={profileEmail}
+                                onChange={e => setProfileEmail(e.target.value)}
+                                className="w-full p-2.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:ring-2 focus:ring-primary outline-none"
+                                placeholder="exemplo@empresa.com"
+                            />
+                        </InputGroup>
+
+                        <InputGroup label="Contacto Telefónico (opcional)">
+                            <input
+                                type="tel"
+                                value={profilePhone}
+                                onChange={e => setProfilePhone(e.target.value)}
+                                className="w-full p-2.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:ring-2 focus:ring-primary outline-none"
+                                placeholder="+351 912 345 678"
+                            />
+                        </InputGroup>
+
+                        <InputGroup label="Palavra-passe (opcional)">
+                            <input
+                                type="password"
+                                value={profilePassword}
+                                onChange={e => setProfilePassword(e.target.value)}
+                                className="w-full p-2.5 text-xs bg-[var(--bg-card)] border border-[var(--border)] rounded-lg text-[var(--text)] focus:ring-2 focus:ring-primary outline-none"
+                                placeholder="Deixar em branco para manter a atual"
+                            />
+                        </InputGroup>
+
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                            <SecondaryButton onClick={() => setIsUserProfileModalOpen(false)} className="text-xs">
+                                Cancelar
+                            </SecondaryButton>
+                            <button
+                                type="submit"
+                                disabled={profileSaving}
+                                className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                            >
+                                {profileSaving ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin" /> A guardar...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Check size={14} /> Guardar Alterações
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </form>
                 </Modal>
             </div>
         </AuthGuard>

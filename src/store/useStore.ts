@@ -1687,9 +1687,19 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
     updateAccount: (id, updates) => set((state) => {
         dbUpdate('accounts', id, updates).catch(console.error);
+        const updatedInvitations = updates.name ? (state.companyInvitations || []).map(inv =>
+            inv.accountId === id ? { ...inv, accountName: updates.name! } : inv
+        ) : state.companyInvitations;
+
+        const updatedCompanies = updates.name ? state.companies.map(c =>
+            c.accountId === id && !c.projectId ? { ...c, name: updates.name!, nif: updates.vatNumber || c.nif } : c
+        ) : state.companies;
+
         return { 
             account: state.account?.id === id ? { ...state.account, ...updates } : state.account,
-            accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a) 
+            accounts: state.accounts.map(a => a.id === id ? { ...a, ...updates } : a),
+            companyInvitations: updatedInvitations,
+            companies: updatedCompanies
         };
     }),
 
@@ -2689,10 +2699,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             };
         }
 
+        const masterCompany = state.companies.find(c => c.accountId === companyAccountId && !c.projectId);
+        const officialAccountName = masterCompany?.name?.trim() || account.name;
+
         const newInvitation: CompanyInvitation = {
             id: nanoid(),
             accountId: companyAccountId,
-            accountName: account.name,
+            accountName: officialAccountName,
             invitedEmail: cleanEmail,
             invitedName: userName || targetUser?.name || cleanEmail.split('@')[0],
             invitedByUserId: state.currentUser?.id || '',
