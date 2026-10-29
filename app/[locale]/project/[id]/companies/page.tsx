@@ -48,6 +48,7 @@ import {
   Users,
   Wrench,
   ShieldAlert,
+  Activity,
   Info,
   Forklift,
   ExternalLink,
@@ -3803,7 +3804,81 @@ export default function CompaniesPage() {
     </div>
   );
 
-  // Footer Logic
+  // Helper para crachás de estado e validação (Paridade com Espaço Corporativo)
+  const renderFieldStatusBadge = (fieldId: string, hasValue: boolean, isRequired?: boolean) => {
+    const isValidated = newItem.fieldValidations?.[fieldId] === true;
+    const isApproved = newItem.workflowStatus === "approved";
+
+    return (
+      <div className="flex items-center justify-center gap-2">
+        {isValidated ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">
+            <Check size={12} strokeWidth={3} /> VALIDADO
+          </span>
+        ) : isApproved ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400">
+            <Shield size={12} strokeWidth={3} /> APROVADO
+          </span>
+        ) : hasValue ? (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase font-bold bg-gray-100 dark:bg-[#131314] text-gray-500 dark:text-gray-400">
+            PENDENTE
+          </span>
+        ) : (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] uppercase font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200/50">
+            {isRequired ? "OBRIGATÓRIO" : "NÃO DEFINIDO"}
+          </span>
+        )}
+
+        {isEditing && isManager && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              const nextVal = !isValidated;
+              toggleFieldValidation(newItem.id!, fieldId, nextVal);
+              setNewItem((prev: any) => ({
+                ...prev,
+                fieldValidations: {
+                  ...(prev.fieldValidations || {}),
+                  [fieldId]: nextVal,
+                },
+              }));
+            }}
+            title={isValidated ? "Clique para invalidar" : "Clique para validar"}
+            className={cn(
+              "w-5 h-5 rounded-full flex items-center justify-center transition-all border cursor-pointer",
+              isValidated
+                ? "bg-green-600 text-white border-green-700 hover:bg-green-700"
+                : "bg-white dark:bg-surface text-gray-400 hover:text-green-600 hover:border-green-300"
+            )}
+          >
+            <Check size={12} strokeWidth={3} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderDateStatusBadge = (fieldId: string, dateStr?: string, isRequired?: boolean) => {
+    if (dateStr) {
+      const d = new Date(dateStr);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (!isNaN(d.getTime()) && d < today) {
+        return (
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-100 dark:bg-red-950/40 text-red-700 dark:text-red-400">
+              <AlertCircle size={12} strokeWidth={2.5} /> EXPIRADO
+            </span>
+          </div>
+        );
+      }
+    }
+    return renderFieldStatusBadge(fieldId, !!dateStr, isRequired);
+  };
+
+
+    // Footer Logic
   // validation and isAllValidated now declared before drawerActions above
 
 
@@ -4145,7 +4220,7 @@ export default function CompaniesPage() {
           return (
             <form id="company-form" onSubmit={handleSubmit}>
               <div className="mt-4">
-                {activeTab === "info" && (
+                                {activeTab === "info" && (
                   <div className="animate-in fade-in duration-300 mb-8 mt-4 space-y-4">
                     <div className="flex gap-6 items-start">
                       <div
@@ -4154,479 +4229,426 @@ export default function CompaniesPage() {
                           showCompanyStats ? "w-3/4" : "w-full",
                         )}
                       >
-                        {/* Unified Identification & Site Info Table */}
-                        <div className="overflow-hidden">
+                        {/* Tabela de Identificação e Dados Fiscais com o mesmo visual do Espaço Corporativo */}
+                        <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
                           <div className="overflow-x-auto">
                             <table className="w-full text-left text-[13px]">
                               <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
                                 <tr>
-                                  <th className="px-4 py-3 min-w-[200px]">
-                                    Campo
-                                  </th>
-                                  <th className="px-4 py-3 min-w-[200px]">
-                                    Valor Registado
-                                  </th>
-                                  <th className="px-4 py-3 w-[150px] text-center">
-                                    Estado
-                                  </th>
+                                  <th className="px-4 py-3 min-w-[220px]">Campo</th>
+                                  <th className="px-4 py-3 min-w-[280px]">Valor Registado</th>
+                                  <th className="px-4 py-3 w-[150px] text-center">Estado</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                {/* Grupo: Identificação e Dados Fiscais */}
                                 <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
                                   <td
                                     colSpan={3}
                                     className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
                                   >
-                                    Identification
+                                    Identificação e Dados Fiscais
                                   </td>
                                 </tr>
 
-                                {[
-                                  {
-                                    id: "name",
-                                    ...getFieldProps("name", "Company Name *"),
-                                  },
-                                  {
-                                    id: "nif",
-                                    ...getFieldProps("nif", "Tax ID (NIF)"),
-                                  },
-                                  {
-                                    id: "profileId",
-                                    ...getFieldProps(
-                                      "profileId",
-                                      "Company Profile *",
-                                    ),
-                                    value:
-                                      companyProfiles.find(
-                                        (p) => p.id === newItem.profileId,
-                                      )?.name || "Unset...",
-                                    type: "text",
-                                  },
-                                  {
-                                    id: "email",
-                                    ...getFieldProps("email", "General Email"),
-                                  },
-                                  {
-                                    id: "phone",
-                                    ...getFieldProps("phone", "Phone"),
-                                  },
-                                  {
-                                    id: "address",
-                                    ...getFieldProps(
-                                      "address",
-                                      "Headquarters Address",
-                                    ),
-                                  },
-                                  {
-                                    id: "activity",
-                                    ...getFieldProps(
-                                      "activity",
-                                      "Main Activity",
-                                    ),
-                                  },
-                                  {
-                                    id: "caeCode",
-                                    ...getFieldProps(
-                                      "caeCode",
-                                      "Código CAE (Rev. 3 / NACE)",
-                                    ),
-                                    value: newItem.caeCode || undefined,
-                                    type: "text",
-                                  },
-                                  {
-                                    id: "companyRole",
-                                    ...getFieldProps(
-                                      "companyRole",
-                                      "Tipo de empresa no projeto",
-                                    ),
-                                    value: (() => {
-                                      if (!newItem.companyRole) return undefined;
-                                      if (newItem.companyRole === 'outro') return newItem.companyRoleCustom || undefined;
-                                      return COMPANY_ROLE_OPTIONS.find(o => o.value === newItem.companyRole)?.label || newItem.companyRole;
-                                    })(),
-                                    type: "text"
-                                  },
-                                  {
-                                    id: "impic",
-                                    ...getFieldProps(
-                                      "impic",
-                                      "IMPIC / License",
-                                    ),
-                                  },
-                                  {
-                                    id: "legalForm",
-                                    ...getFieldProps(
-                                      "legalForm",
-                                      "Natureza Jurídica",
-                                    ),
-                                    value: newItem.legalForm ? { sa: "S.A.", lda: "Lda.", unipessoal: "Unipessoal Lda.", eni: "ENI", ace: "ACE", other: "Outra" }[newItem.legalForm as string] || newItem.legalForm : "Unset...",
-                                    type: "text"
-                                  },
-                                  {
-                                    id: "parentId",
-                                    ...getFieldProps(
-                                      "parentId",
-                                      "Parent Company *",
-                                    ),
-                                    value:
-                                      !newItem.parentId ||
-                                        newItem.parentId === "root"
-                                        ? "None (General Contractor)"
-                                        : companies.find(
-                                          (c) => c.id === newItem.parentId,
-                                        )?.name || "Unknown Company",
-                                    type: "text",
-                                  },
-                                ].map((field: any, index: number) => (
-                                  <tr
-                                    key={field.id || index}
-                                    className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors cursor-pointer group"
-                                    onClick={(e) => {
-                                      setEditingTabModal("info");
-                                    }}
-                                  >
-                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                      <div className="flex items-center gap-2">
-                                        {field.hasOpenTicket && (
-                                          <span
-                                            className="w-2 h-2 rounded-full shadow-sm"
-                                            style={{
-                                              backgroundColor:
-                                                field.ticketDotColor ||
-                                                "#f97316",
-                                            }}
-                                            title="Open Ticket"
+                                {/* Nome Oficial da Empresa */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    <div className="flex items-center gap-2">
+                                      {getFieldProps("name", "").hasOpenTicket && (
+                                        <span className="w-2 h-2 rounded-full shadow-sm bg-orange-500" title="Ticket Aberto" />
+                                      )}
+                                      Nome Oficial da Empresa <span className="text-red-500">*</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        required
+                                        value={newItem.name || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      />
+                                    ) : (
+                                      <span className="font-semibold text-gray-900 dark:text-gray-100">
+                                        {newItem.name || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("name", !!newItem.name?.trim(), true)}
+                                  </td>
+                                </tr>
+
+                                {/* NIF */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    <div className="flex items-center gap-2">
+                                      {getFieldProps("nif", "").hasOpenTicket && (
+                                        <span className="w-2 h-2 rounded-full shadow-sm bg-orange-500" title="Ticket Aberto" />
+                                      )}
+                                      NIF <span className="text-red-500">*</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        required
+                                        value={newItem.nif || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, nif: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                      />
+                                    ) : (
+                                      <span className="font-mono">
+                                        {newItem.nif || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("nif", !!newItem.nif?.trim(), true)}
+                                  </td>
+                                </tr>
+
+                                {/* Papel / Função na Obra */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Tipo / Função na Obra <span className="text-red-500">*</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <div className="space-y-1.5">
+                                        <select
+                                          value={newItem.companyRole || "subempreiteiro"}
+                                          onChange={(e) => setNewItem({ ...newItem, companyRole: e.target.value })}
+                                          className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                        >
+                                          {COMPANY_ROLE_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                              {opt.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        {newItem.companyRole === "outro" && (
+                                          <input
+                                            type="text"
+                                            placeholder="Especifique a função..."
+                                            value={newItem.companyRoleCustom || ""}
+                                            onChange={(e) => setNewItem({ ...newItem, companyRoleCustom: e.target.value })}
+                                            className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
                                           />
                                         )}
-                                        {field.label}
                                       </div>
-                                    </td>
-                                    <td
-                                      className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[300px] truncate"
-                                      title={String(
-                                        field.value || (newItem as any)[field.id] || "",
-                                      )}
-                                    >
-                                      {(() => {
-                                        const val =
-                                          field.value || (newItem as any)[field.id];
-                                        if (
-                                          val === undefined ||
-                                          val === null ||
-                                          val === ""
-                                        )
-                                          return (
-                                            <span className="text-gray-400 italic font-normal text-xs">
-                                              Unset...
-                                            </span>
-                                          );
-                                        return String(val);
-                                      })()}
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      {!!newItem.fieldValidations?.[
-                                        field.id
-                                      ] ? (
-                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">
-                                          <Check size={12} strokeWidth={3} />{" "}
-                                          VALIDATED
-                                        </span>
-                                      ) : newItem.workflowStatus ===
-                                        "approved" ? (
-                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400">
-                                          <Shield size={12} strokeWidth={3} />{" "}
-                                          APPROVED
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] uppercase font-bold bg-gray-100 dark:bg-[#131314] text-gray-500 dark:text-gray-400">
-                                          PENDING
-                                        </span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
+                                    ) : (
+                                      <span>
+                                        {COMPANY_ROLE_OPTIONS.find((o) => o.value === newItem.companyRole)?.label || newItem.companyRole || "Subempreiteiro"}
+                                        {newItem.companyRole === "outro" && newItem.companyRoleCustom ? ` (${newItem.companyRoleCustom})` : ""}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("companyRole", !!newItem.companyRole, true)}
+                                  </td>
+                                </tr>
+
+                                {/* Natureza Jurídica */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Natureza Jurídica
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <select
+                                        value={newItem.legalForm || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, legalForm: e.target.value as any })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      >
+                                        <option value="">Selecione...</option>
+                                        <option value="lda">Lda. (Sociedade por Quotas)</option>
+                                        <option value="sa">S.A. (Sociedade Anónima)</option>
+                                        <option value="unipessoal">Unipessoal Lda.</option>
+                                        <option value="eni">ENI (Empresário em Nome Individual)</option>
+                                        <option value="ace">ACE</option>
+                                        <option value="outra">Outra</option>
+                                      </select>
+                                    ) : (
+                                      <span>
+                                        {newItem.legalForm === "lda"
+                                          ? "Lda. (Sociedade por Quotas)"
+                                          : newItem.legalForm === "sa"
+                                            ? "S.A. (Sociedade Anónima)"
+                                            : newItem.legalForm === "unipessoal"
+                                              ? "Unipessoal Lda."
+                                              : newItem.legalForm === "eni"
+                                                ? "ENI (Empresário em Nome Individual)"
+                                                : newItem.legalForm === "ace"
+                                                  ? "ACE"
+                                                  : newItem.legalForm || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("legalForm", !!newItem.legalForm)}
+                                  </td>
+                                </tr>
+
+                                {/* Perfil Documental da Obra */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Perfil Documental da Obra <span className="text-red-500">*</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <select
+                                        value={newItem.profileId || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, profileId: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      >
+                                        {companyProfiles
+                                          .filter((p) => p.projectId === projectId)
+                                          .map((p) => (
+                                            <option key={p.id} value={p.id}>
+                                              {p.name}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    ) : (
+                                      <span>
+                                        {companyProfiles.find((p) => p.id === newItem.profileId)?.name || "Perfil Padrão de Obra"}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("profileId", !!newItem.profileId, true)}
+                                  </td>
+                                </tr>
+
+                                {/* Relação de Subcontratação / Parent Company */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Empresa Contratante (Tier)
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <select
+                                        value={newItem.parentId || "root"}
+                                        onChange={(e) =>
+                                          setNewItem({
+                                            ...newItem,
+                                            parentId: e.target.value === "root" ? "" : e.target.value,
+                                            tier: e.target.value === "root" ? 1 : 2,
+                                          })
+                                        }
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      >
+                                        <option value="root">Nenhuma (Empreiteiro Geral / Tier 1)</option>
+                                        {companies
+                                          .filter((c) => c.projectId === projectId && c.id !== newItem.id)
+                                          .map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                              Tier 2 — Subcontratada por: {c.name}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    ) : (
+                                      <span>
+                                        {!newItem.parentId || newItem.parentId === "root"
+                                          ? "Empreiteiro Geral (Tier 1)"
+                                          : `Subcontratada de: ${companies.find((c) => c.id === newItem.parentId)?.name || "Desconhecida"}`}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("parentId", true)}
+                                  </td>
+                                </tr>
+
+                                {/* Grupo: Contactos e Sede */}
+                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                  <td
+                                    colSpan={3}
+                                    className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                  >
+                                    Contactos e Sede
+                                  </td>
+                                </tr>
+
+                                {/* Email Geral */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Email Geral <span className="text-red-500">*</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="email"
+                                        required
+                                        value={newItem.email || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, email: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      />
+                                    ) : (
+                                      <span>
+                                        {newItem.email || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("email", !!newItem.email?.trim(), true)}
+                                  </td>
+                                </tr>
+
+                                {/* Telefone */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Telefone / Contacto
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="tel"
+                                        value={newItem.phone || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, phone: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                      />
+                                    ) : (
+                                      <span className="font-mono">
+                                        {newItem.phone || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("phone", !!newItem.phone?.trim())}
+                                  </td>
+                                </tr>
+
+                                {/* Morada da Sede */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Morada da Sede
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        value={newItem.address || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, address: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      />
+                                    ) : (
+                                      <span>
+                                        {newItem.address || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("address", !!newItem.address?.trim())}
+                                  </td>
+                                </tr>
+
+                                {/* Atividade Principal */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Atividade Principal / Objeto Social
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        value={newItem.activity || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, activity: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                      />
+                                    ) : (
+                                      <span>
+                                        {newItem.activity || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("activity", !!newItem.activity?.trim())}
+                                  </td>
+                                </tr>
+
+                                {/* Código CAE */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Código CAE (Rev. 3 / NACE)
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        placeholder="ex: 41200"
+                                        value={newItem.caeCode || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, caeCode: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                      />
+                                    ) : (
+                                      <span className="font-mono">
+                                        {newItem.caeCode || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("caeCode", !!newItem.caeCode?.trim())}
+                                  </td>
+                                </tr>
+
+                                {/* Alvará / Título IMPIC */}
+                                <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                    Alvará / Título de Registo IMPIC
+                                  </td>
+                                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        placeholder="ex: 12345-PUB ou Título 6789"
+                                        value={newItem.impic || ""}
+                                        onChange={(e) => setNewItem({ ...newItem, impic: e.target.value })}
+                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                      />
+                                    ) : (
+                                      <span className="font-mono">
+                                        {newItem.impic || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-center">
+                                    {renderFieldStatusBadge("impic", !!newItem.impic?.trim())}
+                                  </td>
+                                </tr>
                               </tbody>
                             </table>
                           </div>
                         </div>
                       </div>
 
+                      {/* Stats Panel (Toggle via "+ Info") */}
                       {showCompanyStats && (
                         <div className="w-1/4 animate-in fade-in slide-in-from-right-4 duration-300">
                           {(() => {
-                            const numAccidents =
-                              accidents?.filter(
-                                (a: any) =>
-                                  a.projectId === projectId &&
-                                  a.companyId === newItem.id,
-                              ).length || 0;
-                            const numIrregularities = 0;
-                            const companyOpenTickets = newItem.id
-                              ? tickets.filter(
-                                (t: any) =>
-                                  t.entityId === newItem.id &&
-                                  t.status === "open",
-                              )
-                              : [];
-                            const numOpenTickets = companyOpenTickets.length;
-
-                            let safetyScore =
-                              100 -
-                              numAccidents * 15 -
-                              numIrregularities * 10 -
-                              numOpenTickets * 5;
-                            safetyScore = Math.max(
-                              0,
-                              Math.min(100, safetyScore),
-                            );
-
-                            let safetyColor =
-                              "text-green-600 dark:text-green-400";
-                            let safetyIconColor = "text-green-600";
-                            let icon = (
-                              <CheckCircle
-                                size={24}
-                                className={safetyIconColor}
-                                strokeWidth={2.5}
-                              />
-                            );
-                            let statusLabel = "Excellent";
-
-                            if (safetyScore < 50) {
-                              safetyColor = "text-red-500 dark:text-red-400";
-                              safetyIconColor = "text-red-500";
-                              icon = (
-                                <ShieldAlert
-                                  size={24}
-                                  className={safetyIconColor}
-                                  strokeWidth={2.5}
-                                />
-                              );
-                              statusLabel = "Critical";
-                            } else if (safetyScore < 80) {
-                              safetyColor =
-                                "text-amber-500 dark:text-amber-400";
-                              safetyIconColor = "text-amber-500";
-                              icon = (
-                                <AlertTriangle
-                                  size={24}
-                                  className={safetyIconColor}
-                                  strokeWidth={2.5}
-                                />
-                              );
-                              statusLabel = "Warning";
-                            } else if (safetyScore < 100) {
-                              statusLabel = "Good";
-                            }
-
+                            const compWorkersCount = workers.filter((w) => w.companyId === (newItem as any).id && w.projectId === projectId).length;
+                            const compEquipCount = equipment.filter((e) => e.companyId === (newItem as any).id && e.projectId === projectId).length;
                             return (
-                              <div className="flex flex-col gap-4">
-                                <div className="bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-xl p-5 flex items-center justify-between shadow-sm relative overflow-hidden">
-                                  <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-transparent to-gray-50/50 dark:to-[#131314]/50 rounded-full blur-2xl -mr-8 -mt-8 pointer-events-none" />
-                                  <div className="flex flex-col relative z-10">
-                                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                                      Safety Index
+                              <div className="border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface p-4 space-y-4 shadow-xs sticky top-4">
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                                  <Activity size={14} className="text-primary" /> Recursos em Obra
+                                </h4>
+                                <div className="space-y-3">
+                                  <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 rounded-xl flex items-center justify-between">
+                                    <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                                      <Users size={14} className="text-primary" /> Colaboradores
                                     </span>
-                                    <div className="flex items-baseline gap-1">
-                                      <span
-                                        className={cn(
-                                          "text-4xl font-black tracking-tight",
-                                          safetyColor,
-                                        )}
-                                      >
-                                        {safetyScore}
-                                      </span>
-                                      <span className="text-xs font-bold text-gray-400">
-                                        / 100
-                                      </span>
-                                    </div>
-                                    <span
-                                      className={cn(
-                                        "text-[11px] font-bold uppercase tracking-wider mt-1",
-                                        safetyColor,
-                                      )}
-                                    >
-                                      {statusLabel} Status
+                                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{compWorkersCount}</span>
+                                  </div>
+                                  <div className="p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30 rounded-xl flex items-center justify-between">
+                                    <span className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                                      <Wrench size={14} className="text-amber-600" /> Equipamentos
                                     </span>
-                                  </div>
-                                  <div
-                                    className={cn(
-                                      "w-14 h-14 rounded-full flex items-center justify-center bg-gray-50 dark:bg-[#131314] border border-gray-100 dark:border-[#444746] relative z-10",
-                                    )}
-                                  >
-                                    {icon}
-                                  </div>
-                                </div>
-
-                                <div className="overflow-hidden">
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-[13px]">
-                                      <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
-                                        <tr>
-                                          <th colSpan={2} className="px-4 py-3">
-                                            <div className="flex items-center gap-2">
-                                              <Building2
-                                                size={14}
-                                                style={{ color: "#0A2540" }}
-                                              />
-                                              Organization Statistics
-                                            </div>
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
-                                        <tr className="bg-blue-50/50 dark:bg-primary/10 border-y border-blue-100 dark:border-primary/20">
-                                          <td className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-primary-light">
-                                            Statistic
-                                          </td>
-                                          <td className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-blue-700 dark:text-primary-light text-right">
-                                            Count
-                                          </td>
-                                        </tr>
-
-                                        {/* Workers Stat */}
-                                        <tr className="bg-white dark:bg-surface hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors group">
-                                          <td className="px-4 py-3 font-medium text-gray-800 dark:text-white">
-                                            <div className="flex items-center gap-2">
-                                              <div
-                                                className="w-6 h-6 rounded-full dark:bg-blue-400/10 flex items-center justify-center border dark:border-blue-400/20"
-                                                style={{
-                                                  backgroundColor:
-                                                    "rgba(10, 37, 64, 0.05)",
-                                                  borderColor:
-                                                    "rgba(10, 37, 64, 0.1)",
-                                                }}
-                                              >
-                                                <Users
-                                                  size={12}
-                                                  className="dark:text-blue-400"
-                                                  style={{ color: "#0A2540" }}
-                                                />
-                                              </div>
-                                              <span className="text-sm font-medium">
-                                                Total Workers
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td className="px-4 py-3 text-right">
-                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                                              {users.filter((u: any) =>
-                                                u.projectAccess?.some(
-                                                  (pa: any) =>
-                                                    pa.projectId ===
-                                                    projectId &&
-                                                    pa.role === "worker" &&
-                                                    pa.companyIds?.includes(
-                                                      newItem.id,
-                                                    ),
-                                                ),
-                                              ).length || 0}
-                                            </span>
-                                          </td>
-                                        </tr>
-
-                                        {/* Equipments Stat */}
-                                        <tr className="bg-white dark:bg-surface hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors group">
-                                          <td className="px-4 py-3 font-medium text-gray-800 dark:text-white">
-                                            <div className="flex items-center gap-2">
-                                              <div
-                                                className="w-6 h-6 rounded-full dark:bg-blue-400/10 flex items-center justify-center border dark:border-blue-400/20"
-                                                style={{
-                                                  backgroundColor:
-                                                    "rgba(10, 37, 64, 0.05)",
-                                                  borderColor:
-                                                    "rgba(10, 37, 64, 0.1)",
-                                                }}
-                                              >
-                                                <Forklift
-                                                  size={12}
-                                                  className="dark:text-blue-400"
-                                                  style={{ color: "#0A2540" }}
-                                                />
-                                              </div>
-                                              <span className="text-sm font-medium">
-                                                Equipments
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td className="px-4 py-3 text-right">
-                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                                              {equipment?.filter(
-                                                (e: any) =>
-                                                  e.projectId === projectId &&
-                                                  e.companyId === newItem.id,
-                                              ).length || 0}
-                                            </span>
-                                          </td>
-                                        </tr>
-
-                                        {/* Accidents Stat */}
-                                        <tr className="bg-red-50/50 dark:bg-red-900/10 hover:bg-red-100/50 transition-colors group">
-                                          <td className="px-4 py-3 font-medium text-gray-800 dark:text-white">
-                                            <div className="flex items-center gap-2">
-                                              <div
-                                                className="w-6 h-6 rounded-full dark:bg-blue-400/10 flex items-center justify-center border dark:border-blue-400/20"
-                                                style={{
-                                                  backgroundColor:
-                                                    "rgba(10, 37, 64, 0.05)",
-                                                  borderColor:
-                                                    "rgba(10, 37, 64, 0.1)",
-                                                }}
-                                              >
-                                                <AlertTriangle
-                                                  size={12}
-                                                  className="dark:text-blue-400"
-                                                  style={{ color: "#0A2540" }}
-                                                />
-                                              </div>
-                                              <span className="text-sm font-medium">
-                                                Accidents
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td className="px-4 py-3 text-right">
-                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                                              {accidents?.filter(
-                                                (a: any) =>
-                                                  a.projectId === projectId &&
-                                                  a.companyId === newItem.id,
-                                              ).length || 0}
-                                            </span>
-                                          </td>
-                                        </tr>
-
-                                        {/* Irregularities Stat */}
-                                        <tr className="bg-white dark:bg-surface hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors group">
-                                          <td className="px-4 py-3 font-medium text-gray-800 dark:text-white">
-                                            <div className="flex items-center gap-2">
-                                              <div
-                                                className="w-6 h-6 rounded-full dark:bg-blue-400/10 flex items-center justify-center border dark:border-blue-400/20"
-                                                style={{
-                                                  backgroundColor:
-                                                    "rgba(10, 37, 64, 0.05)",
-                                                  borderColor:
-                                                    "rgba(10, 37, 64, 0.1)",
-                                                }}
-                                              >
-                                                <ShieldAlert
-                                                  size={12}
-                                                  className="dark:text-blue-400"
-                                                  style={{ color: "#0A2540" }}
-                                                />
-                                              </div>
-                                              <span className="text-sm font-medium">
-                                                Open Irregularities
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td className="px-4 py-3 text-right">
-                                            <span className="text-sm font-bold text-gray-800 dark:text-gray-100">
-                                              0
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      </tbody>
-                                    </table>
+                                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{compEquipCount}</span>
                                   </div>
                                 </div>
                               </div>
@@ -4640,241 +4662,243 @@ export default function CompaniesPage() {
 
                 {activeTab === "site" && (
                   <div className="animate-in fade-in duration-300 mb-8 mt-4 space-y-4">
-                    <div className="flex gap-6 items-start">
-                      <div className="w-full">
-                        <div className="overflow-hidden">
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left text-[13px]">
-                              <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
-                                <tr>
-                                  <th className="px-4 py-3 min-w-[200px]">Campo</th>
-                                  <th className="px-4 py-3 min-w-[200px]">Valor Registado</th>
-                                  <th className="px-4 py-3 w-[150px] text-center">Estado</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
-                                <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
-                                  <td
-                                    colSpan={3}
-                                    className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
-                                  >
-                                    Site Info
-                                  </td>
-                                </tr>
+                    <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[13px]">
+                          <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                            <tr>
+                              <th className="px-4 py-3 min-w-[220px]">Campo</th>
+                              <th className="px-4 py-3 min-w-[280px]">Valor Registado</th>
+                              <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                            {/* Grupo: Responsáveis no Estaleiro */}
+                            <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                              <td
+                                colSpan={3}
+                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                              >
+                                Responsáveis no Estaleiro
+                              </td>
+                            </tr>
 
-                                {[
-                                  {
-                                    id: "siteManager",
-                                    ...getFieldProps("siteManager", "Responsável em Obra"),
-                                    value: workers.find(w => w.companyId === newItem.id && w.obligatoryRole?.type === 'SITE_RESPONSIBLE')?.name || "Não Atribuído",
-                                    workerLink: workers.find(w => w.companyId === newItem.id && w.obligatoryRole?.type === 'SITE_RESPONSIBLE'),
-                                    isSystem: true,
-                                    canValidate: false,
-                                    canRequestReview: false,
-                                  },
-                                  {
-                                    id: "safetyTechnicianId",
-                                    ...getFieldProps("safetyTechnicianId", "Responsável de SHST em Obra"),
-                                    value: workers.find(w => w.companyId === newItem.id && w.obligatoryRole?.type === 'SHST_RESPONSIBLE')?.name || "Não Atribuído",
-                                    workerLink: workers.find(w => w.companyId === newItem.id && w.obligatoryRole?.type === 'SHST_RESPONSIBLE'),
-                                    isSystem: true,
-                                    canValidate: false,
-                                    canRequestReview: false,
-                                  },
-                                  {
-                                    id: "maxWorkersOnSite",
-                                    ...getFieldProps("maxWorkersOnSite", "Nº Máx. Trabalhadores Previsto"),
-                                    isRequired: true,
-                                  },
-                                  {
-                                    id: "entryDate",
-                                    ...getFieldProps("entryDate", "Data de Entrada"),
-                                    type: "date",
-                                    isSystem: true,
-                                  },
-                                ].map((field: any, index: number) => {
-                                  return (
-                                  <tr
-                                    key={field.id || index}
-                                    className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors cursor-pointer group"
-                                    onClick={() => setEditingTabModal("site")}
-                                  >
-                                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                      <div className="flex items-center gap-2">
-                                        {field.hasOpenTicket && (
-                                          <span
-                                            className="w-2 h-2 rounded-full shadow-sm"
-                                            style={{
-                                              backgroundColor:
-                                                field.ticketDotColor ||
-                                                "#f97316",
-                                            }}
-                                            title="Open Ticket"
-                                          />
-                                        )}
-                                        {field.label}
-                                        {field.isRequired && (
-                                          <span className="text-red-500 text-xs font-bold">*</span>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td
-                                      className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[300px] truncate"
-                                      title={String(
-                                        field.value || (newItem as any)[field.id] || "",
-                                      )}
-                                    >
-                                      {(() => {
-                                        const val =
-                                          field.value || (newItem as any)[field.id];
-                                        if (
-                                          val === undefined ||
-                                          val === null ||
-                                          val === "" ||
-                                          val === "Não Atribuído"
-                                        ) {
-                                          if (field.workerLink === undefined && (val === undefined || val === null || val === ""))
-                                            return (
-                                              <span className="text-gray-400 italic font-normal text-xs">
-                                                Unset...
-                                              </span>
-                                            );
-                                          if (field.workerLink === undefined && val === "Não Atribuído")
-                                            return <span className="text-amber-500 italic font-medium text-xs">Não Atribuído</span>;
-                                        }
-                                        if (field.workerLink) {
-                                          const worker = field.workerLink;
-                                          return (
-                                            <button
-                                              type="button"
-                                              className="flex items-center gap-1.5 text-primary hover:underline font-medium text-sm"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                router.push(`/${params.locale}/project/${params.id}/workers?worker=${worker.id}`);                                              }}
-                                            >
-                                              <ExternalLink size={12} />
-                                              {worker.name}
-                                            </button>
-                                          );
-                                        }
-                                        if (field.type === "date")
-                                          return new Date(
-                                            val,
-                                          ).toLocaleDateString();
-                                        return String(val);
-                                      })()}
-                                    </td>
-                                    <td className="px-4 py-3 text-center">
-                                      {field.isSystem ? (
-                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">
-                                          <Check size={12} strokeWidth={3} /> SYSTEM
-                                        </span>
-                                      ) : !!newItem.fieldValidations?.[
-                                        field.id
-                                      ] ? (
-                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-400">
-                                          <Check size={12} strokeWidth={3} />{" "}
-                                          VALIDATED
-                                        </span>
-                                      ) : newItem.workflowStatus ===
-                                        "approved" ? (
-                                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400">
-                                          <Shield size={12} strokeWidth={3} />{" "}
-                                          APPROVED
-                                        </span>
-                                      ) : (
-                                        <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] uppercase font-bold bg-gray-100 dark:bg-[#131314] text-gray-500 dark:text-gray-400">
-                                          PENDING
-                                        </span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          <div className="flex flex-col gap-2 mx-0">
-                            <div className="flex items-center justify-between p-2 border rounded-lg bg-gray-50 dark:bg-[#131314] h-[38px] mt-6">
-                              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                                Work Completed / Off Site
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const isOffSite =
-                                    newItem.workflowStatus === "off_site";
-                                  if (isOffSite) {
-                                    // Revert to valid status
-                                    const approvalEnabled =
-                                      currentProject?.approvalWorkflow
-                                        ?.companies;
-                                    const revertStatus = approvalEnabled
-                                      ? "approved"
-                                      : "validated";
-                                    setNewItem({
-                                      ...newItem,
-                                      workflowStatus: revertStatus,
-                                      exitDate: "",
-                                    });
-                                  } else {
-                                    // Set to Off Site
-                                    setNewItem({
-                                      ...newItem,
-                                      workflowStatus: "off_site",
-                                      exitDate: new Date()
-                                        .toISOString()
-                                        .split("T")[0],
-                                    });
-                                  }
-                                }}
-                                className={cn(
-                                  "w-8 h-4 rounded-full transition-colors relative",
-                                  newItem.workflowStatus === "off_site"
-                                    ? "bg-red-500"
-                                    : "bg-gray-300",
+                            {/* Encarregado / Responsável em Obra */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Responsável em Obra (Encarregado / Diretor)
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    placeholder="Nome do encarregado de obra..."
+                                    value={newItem.siteManager || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, siteManager: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                ) : (
+                                  <span>
+                                    {newItem.siteManager || <span className="text-gray-400 italic font-normal text-xs">Não atribuído</span>}
+                                  </span>
                                 )}
-                                disabled={!isManager || !isEditing}
-                                title="Toggle Work Completed / Off Site Status"
-                              >
-                                <span
-                                  className={cn(
-                                    "absolute top-0.5 left-0.5 bg-white dark:bg-surface w-3 h-3 rounded-full transition-transform shadow-sm",
-                                    newItem.workflowStatus === "off_site"
-                                      ? "translate-x-4"
-                                      : "translate-x-0",
-                                  )}
-                                />
-                              </button>
-                            </div>
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderFieldStatusBadge("siteManager", !!newItem.siteManager?.trim())}
+                              </td>
+                            </tr>
 
-                            {newItem.workflowStatus === "off_site" && (
-                              <FieldControl
-                                {...getFieldProps("exitDate", "Exit Date")}
-                                canValidate={false}
-                                canRequestReview={false}
+                            {/* Contacto do Responsável em Obra */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Contacto do Responsável em Obra
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    placeholder="Telemóvel / Email em estaleiro..."
+                                    value={newItem.siteContact || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, siteContact: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                  />
+                                ) : (
+                                  <span className="font-mono">
+                                    {newItem.siteContact || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderFieldStatusBadge("siteContact", !!newItem.siteContact?.trim())}
+                              </td>
+                            </tr>
+
+                            {/* Responsável de SHST em Obra */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Responsável de SHST em Obra (TSHT)
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    placeholder="Nome / CAP do TSHT..."
+                                    value={newItem.safetyTechnicianId || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, safetyTechnicianId: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                ) : (
+                                  <span>
+                                    {newItem.safetyTechnicianId || <span className="text-gray-400 italic font-normal text-xs">Não atribuído</span>}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderFieldStatusBadge("safetyTechnicianId", !!newItem.safetyTechnicianId?.trim())}
+                              </td>
+                            </tr>
+
+                            {/* Grupo: Planeamento e Pessoal no Estaleiro */}
+                            <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                              <td
+                                colSpan={3}
+                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
                               >
-                                <input
-                                  type="date"
-                                  className="w-full p-2 text-[13px] border border-gray-300 dark:border-[#444746] rounded-lg outline-none focus:border-blue-500 transition-colors"
-                                  value={newItem.exitDate || ""}
-                                  onChange={(e) =>
-                                    setNewItem({
-                                      ...newItem,
-                                      exitDate: e.target.value,
-                                    })
-                                  }
-                                  disabled={!isManager || !isEditing}
-                                />
-                              </FieldControl>
-                            )}
-                          </div>
-                        </div>
+                                Planeamento e Pessoal no Estaleiro
+                              </td>
+                            </tr>
+
+                            {/* Nº Máx. Trabalhadores Previsto */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Nº Máx. Trabalhadores em Obra <span className="text-red-500">*</span>
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    placeholder="ex: 10"
+                                    value={newItem.maxWorkersOnSite || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, maxWorkersOnSite: parseInt(e.target.value) || undefined })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                  />
+                                ) : (
+                                  <span className="font-mono font-bold">
+                                    {newItem.maxWorkersOnSite ? `${newItem.maxWorkersOnSite} trabalhadores` : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderFieldStatusBadge("maxWorkersOnSite", !!newItem.maxWorkersOnSite, true)}
+                              </td>
+                            </tr>
+
+                            {/* Data Prevista de Entrada */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Data Prevista de Entrada no Estaleiro
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="date"
+                                    value={newItem.entryDate || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, entryDate: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                ) : (
+                                  <span>
+                                    {newItem.entryDate ? new Date(newItem.entryDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderDateStatusBadge("entryDate", newItem.entryDate)}
+                              </td>
+                            </tr>
+
+                            {/* Data Prevista de Saída */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Data Prevista de Conclusão / Saída
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="date"
+                                    value={newItem.exitDate || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, exitDate: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                ) : (
+                                  <span>
+                                    {newItem.exitDate ? new Date(newItem.exitDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderDateStatusBadge("exitDate", newItem.exitDate)}
+                              </td>
+                            </tr>
+
+                            {/* Horário de Trabalho Previsto */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Horário de Trabalho Previsto
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    placeholder="ex: 08:00 - 17:00 (Segunda a Sexta)"
+                                    value={newItem.workSchedule || ""}
+                                    onChange={(e) => setNewItem({ ...newItem, workSchedule: e.target.value })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                  />
+                                ) : (
+                                  <span>
+                                    {newItem.workSchedule || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderFieldStatusBadge("workSchedule", !!newItem.workSchedule?.trim())}
+                              </td>
+                            </tr>
+
+                            {/* Horário de Trabalho Entregue */}
+                            <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                              <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                Declaração de Horário Entregue
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                {isEditing ? (
+                                  <select
+                                    value={newItem.workScheduleDelivered ? "true" : "false"}
+                                    onChange={(e) => setNewItem({ ...newItem, workScheduleDelivered: e.target.value === "true" })}
+                                    className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                  >
+                                    <option value="false">Não</option>
+                                    <option value="true">Sim</option>
+                                  </select>
+                                ) : (
+                                  <span className={newItem.workScheduleDelivered ? "text-green-600 font-bold" : "text-gray-500"}>
+                                    {newItem.workScheduleDelivered ? "Sim" : "Não"}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {renderFieldStatusBadge("workScheduleDelivered", !!newItem.workScheduleDelivered)}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
                       </div>
                     </div>
                   </div>
                 )}
+
                 {activeTab === "legal" && (
                   <div className="space-y-6 animate-in fade-in duration-300 mb-8 mt-4">
                     {/* Data Table Implementation */}
@@ -5457,12 +5481,95 @@ export default function CompaniesPage() {
                                             </div>
                                           </td>
                                           <td
-                                            className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[200px] truncate"
-                                            title={
-                                              row.value ? String(row.value) : ""
-                                            }
+                                            className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[220px]"
+                                            title={row.value ? String(row.value) : ""}
                                           >
                                             {(() => {
+                                              if (isEditing) {
+                                                if (row.type === "date") {
+                                                  return (
+                                                    <input
+                                                      type="date"
+                                                      value={row.value || ""}
+                                                      onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (row.id.startsWith("custom_")) {
+                                                          const docId = row.id.replace("custom_", "");
+                                                          setNewItem((prev: any) => ({
+                                                            ...prev,
+                                                            customDocuments: {
+                                                              ...(prev.customDocuments || {}),
+                                                              [docId]: {
+                                                                ...((prev.customDocuments as any)?.[docId] || {}),
+                                                                value: val,
+                                                              },
+                                                            },
+                                                          }));
+                                                        } else {
+                                                          setNewItem((prev: any) => ({ ...prev, [row.id]: val }));
+                                                        }
+                                                      }}
+                                                      className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    />
+                                                  );
+                                                }
+                                                if (row.type === "text" || row.type === "string") {
+                                                  return (
+                                                    <input
+                                                      type="text"
+                                                      value={row.value || ""}
+                                                      onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        if (row.id.startsWith("custom_")) {
+                                                          const docId = row.id.replace("custom_", "");
+                                                          setNewItem((prev: any) => ({
+                                                            ...prev,
+                                                            customDocuments: {
+                                                              ...(prev.customDocuments || {}),
+                                                              [docId]: {
+                                                                ...((prev.customDocuments as any)?.[docId] || {}),
+                                                                value: val,
+                                                              },
+                                                            },
+                                                          }));
+                                                        } else {
+                                                          setNewItem((prev: any) => ({ ...prev, [row.id]: val }));
+                                                        }
+                                                      }}
+                                                      className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                    />
+                                                  );
+                                                }
+                                                if (row.type === "boolean") {
+                                                  return (
+                                                    <select
+                                                      value={String(row.value ?? "false")}
+                                                      onChange={(e) => {
+                                                        const val = e.target.value === "true";
+                                                        if (row.id.startsWith("custom_")) {
+                                                          const docId = row.id.replace("custom_", "");
+                                                          setNewItem((prev: any) => ({
+                                                            ...prev,
+                                                            customDocuments: {
+                                                              ...(prev.customDocuments || {}),
+                                                              [docId]: {
+                                                                ...((prev.customDocuments as any)?.[docId] || {}),
+                                                                value: val ? "true" : "false",
+                                                              },
+                                                            },
+                                                          }));
+                                                        } else {
+                                                          setNewItem((prev: any) => ({ ...prev, [row.id]: val }));
+                                                        }
+                                                      }}
+                                                      className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                    >
+                                                      <option value="true">Sim</option>
+                                                      <option value="false">Não</option>
+                                                    </select>
+                                                  );
+                                                }
+                                              }
                                               if (
                                                 row.value === undefined ||
                                                 row.value === null ||
@@ -5475,14 +5582,9 @@ export default function CompaniesPage() {
                                                 );
                                               }
                                               if (row.type === "date")
-                                                return new Date(
-                                                  row.value,
-                                                ).toLocaleDateString();
+                                                return new Date(row.value).toLocaleDateString();
                                               if (row.type === "boolean")
-                                                return String(row.value) ===
-                                                  "true"
-                                                  ? "Yes"
-                                                  : "No";
+                                                return String(row.value) === "true" ? "Sim" : "Não";
                                               return String(row.value);
                                             })()}
                                           </td>
