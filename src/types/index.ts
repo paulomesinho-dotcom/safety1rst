@@ -401,8 +401,10 @@ export interface CompanyProfile {
     name: string;
     // Standard docs: true = required/visible, false = hidden
     requirements: {
-        insurance_at?: boolean;
-        insurance_rc?: boolean;
+        insurance_at?: boolean; // Apólice de Seguro de AT
+        insurance_at_receipt?: boolean; // Recibo Seguro AT
+        insurance_rc?: boolean; // Apólice de Seguro de RC
+        insurance_rc_receipt?: boolean; // Recibo Seguro RC
         finance_ss?: boolean;
         finance_fin?: boolean;
         ss_discount?: boolean;

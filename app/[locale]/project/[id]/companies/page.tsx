@@ -48,6 +48,8 @@ import {
   Users,
   Wrench,
   ShieldAlert,
+  HardHat,
+  Sparkles,
   Activity,
   Info,
   Forklift,
@@ -3793,7 +3795,7 @@ export default function CompaniesPage() {
         {[
           { id: "info", label: "1. Identificação" },
           { id: "site", label: "2. Obra & Atividade" },
-          { id: "legal", label: "3. Legal & Documentos" },
+          { id: "legal", label: "3. Requisitos Legais" },
           { id: "docs", label: "4. Ficheiros" },
           { id: "history", label: "5. Histórico" },
         ].map((tab) => (
@@ -4956,49 +4958,57 @@ export default function CompaniesPage() {
                                 groupedRows[groupKey].push(rowData);
                               };
 
+                              // ════════ 1. SEGUROS E APÓLICES ════════
+                              // Apólice de Seguro de AT
                               if (isVisible("insurance_at")) {
-                                addRow("insurancePolicies", {
-                                  id: "insuranceWorkAccDate",
-                                  label:
-                                    "Seguro Ac. Trabalho — Recibo",
-                                  category: "insurance_work_acc_receipt",
-                                  type: "date",
-                                  isUploadVisible:
-                                    isUploadVisible("insurance_at"),
-                                  value: newItem.insuranceWorkAccDate,
-                                  isValidated:
-                                    !!newItem.fieldValidations?.[
-                                    "insuranceWorkAccDate"
-                                    ],
-                                  hasOpenTicket: getFieldProps(
-                                    "insuranceWorkAccDate",
-                                    "",
-                                  ).hasOpenTicket,
-                                  ticketDotColor: getFieldProps(
-                                    "insuranceWorkAccDate",
-                                    "",
-                                  ).ticketDotColor,
+                                addRow("Seguros e Apólices", {
+                                  id: "insuranceWorkAccPolicy",
+                                  label: "Apólice de Seguro de AT",
+                                  category: "insurance_work_acc_policy",
+                                  type: "text",
+                                  isUploadVisible: isUploadVisible("insurance_at"),
+                                  value: newItem.insuranceWorkAccPolicy,
+                                  isValidated: !!newItem.fieldValidations?.["insuranceWorkAccPolicy"],
+                                  hasOpenTicket: getFieldProps("insuranceWorkAccPolicy", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("insuranceWorkAccPolicy", "").ticketDotColor,
                                   approvalStatus: newItem.approvalStatus,
                                   workflowStatus: newItem.workflowStatus,
                                   canValidate: isManager && isEditing,
-                                  canApprove:
-                                    isApprovalUser &&
-                                    newItem.workflowStatus === "validated",
-                                  canRequestReview:
-                                    newItem.workflowStatus !== "draft" &&
-                                    newItem.workflowStatus !==
-                                    "data_requested" &&
-                                    !isDataUser,
+                                  canApprove: isApprovalUser && newItem.workflowStatus === "validated",
+                                  canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
                                   onToggleValidation: () => {
-                                    const isValidating =
-                                      !newItem.fieldValidations?.[
-                                      "insuranceWorkAccDate"
-                                      ];
-                                    toggleFieldValidation(
-                                      newItem.id!,
-                                      "insuranceWorkAccDate",
-                                      isValidating,
-                                    );
+                                    const isValidating = !newItem.fieldValidations?.["insuranceWorkAccPolicy"];
+                                    toggleFieldValidation(newItem.id!, "insuranceWorkAccPolicy", isValidating);
+                                    setNewItem((prev: any) => ({
+                                      ...prev,
+                                      fieldValidations: { ...prev.fieldValidations, insuranceWorkAccPolicy: isValidating },
+                                    }));
+                                  },
+                                  entityId: newItem.id,
+                                  renderControl: () => null,
+                                });
+                              }
+
+                              // Recibo Seguro AT
+                              if (isVisible("insurance_at_receipt") || (!selectedProfile && isVisible("insurance_at"))) {
+                                addRow("Seguros e Apólices", {
+                                  id: "insuranceWorkAccDate",
+                                  label: "Recibo Seguro AT",
+                                  category: "insurance_work_acc_receipt",
+                                  type: "date",
+                                  isUploadVisible: isUploadVisible("insurance_at_receipt") || isUploadVisible("insurance_at"),
+                                  value: newItem.insuranceWorkAccDate,
+                                  isValidated: !!newItem.fieldValidations?.["insuranceWorkAccDate"],
+                                  hasOpenTicket: getFieldProps("insuranceWorkAccDate", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("insuranceWorkAccDate", "").ticketDotColor,
+                                  approvalStatus: newItem.approvalStatus,
+                                  workflowStatus: newItem.workflowStatus,
+                                  canValidate: isManager && isEditing,
+                                  canApprove: isApprovalUser && newItem.workflowStatus === "validated",
+                                  canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
+                                  onToggleValidation: () => {
+                                    const isValidating = !newItem.fieldValidations?.["insuranceWorkAccDate"];
+                                    toggleFieldValidation(newItem.id!, "insuranceWorkAccDate", isValidating);
                                     setNewItem((prev: any) => ({
                                       ...prev,
                                       fieldValidations: {
@@ -5011,133 +5021,92 @@ export default function CompaniesPage() {
                                   isExpirationDate: true,
                                   renderControl: () => null,
                                 });
-
-                                 addRow("insurancePolicies", {
-                                   id: "insuranceWorkAccPolicy",
-                                   label: "Seguro Ac. Trabalho — Apólice",
-                                   category: "insurance_work_acc_policy",
-                                   type: "text",
-                                   isUploadVisible: isUploadVisible("insurance_at"),
-                                   value: newItem.insuranceWorkAccPolicy,
-                                   isValidated: !!newItem.fieldValidations?.["insuranceWorkAccPolicy"],
-                                   hasOpenTicket: getFieldProps("insuranceWorkAccPolicy", "").hasOpenTicket,
-                                   ticketDotColor: getFieldProps("insuranceWorkAccPolicy", "").ticketDotColor,
-                                   approvalStatus: newItem.approvalStatus,
-                                   workflowStatus: newItem.workflowStatus,
-                                   canValidate: isManager && isEditing,
-                                   canApprove: isApprovalUser && newItem.workflowStatus === "validated",
-                                   canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
-                                   onToggleValidation: () => {
-                                     const isValidating = !newItem.fieldValidations?.["insuranceWorkAccPolicy"];
-                                     toggleFieldValidation(newItem.id!, "insuranceWorkAccPolicy", isValidating);
-                                     setNewItem((prev: any) => ({
-                                       ...prev,
-                                       fieldValidations: { ...prev.fieldValidations, insuranceWorkAccPolicy: isValidating },
-                                     }));
-                                   },
-                                   entityId: newItem.id,
-                                   renderControl: () => null,
-                                 });
                               }
 
-                               if (isVisible("insurance_rc")) {
-                                 addRow("insurancePolicies", {
-                                   id: "insuranceCivilDate",
-                                   label: "Seguro Resp. Civil — Recibo",
-                                   category: "insurance_civil_receipt",
-                                   type: "date",
-                                   isUploadVisible: isUploadVisible("insurance_rc"),
-                                   value: newItem.insuranceCivilDate,
-                                   isValidated: !!newItem.fieldValidations?.["insuranceCivilDate"],
-                                   hasOpenTicket: getFieldProps("insuranceCivilDate", "").hasOpenTicket,
-                                   ticketDotColor: getFieldProps("insuranceCivilDate", "").ticketDotColor,
-                                   approvalStatus: newItem.approvalStatus,
-                                   workflowStatus: newItem.workflowStatus,
-                                   canValidate: isManager && isEditing,
-                                   canApprove: isApprovalUser && newItem.workflowStatus === "validated",
-                                   canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
-                                   onToggleValidation: () => {
-                                     const isValidating = !newItem.fieldValidations?.["insuranceCivilDate"];
-                                     toggleFieldValidation(newItem.id!, "insuranceCivilDate", isValidating);
-                                     setNewItem((prev: any) => ({
-                                       ...prev,
-                                       fieldValidations: { ...prev.fieldValidations, insuranceCivilDate: isValidating },
-                                     }));
-                                   },
-                                   entityId: newItem.id,
-                                   isExpirationDate: true,
-                                   renderControl: () => null,
-                                 });
-                                 addRow("insurancePolicies", {
-                                   id: "insuranceCivilPolicy",
-                                   label: "Seguro Resp. Civil — Apólice",
-                                   category: "insurance_civil_policy",
-                                   type: "text",
-                                   isUploadVisible: isUploadVisible("insurance_rc"),
-                                   value: newItem.insuranceCivilPolicy,
-                                   isValidated: !!newItem.fieldValidations?.["insuranceCivilPolicy"],
-                                   hasOpenTicket: getFieldProps("insuranceCivilPolicy", "").hasOpenTicket,
-                                   ticketDotColor: getFieldProps("insuranceCivilPolicy", "").ticketDotColor,
-                                   approvalStatus: newItem.approvalStatus,
-                                   workflowStatus: newItem.workflowStatus,
-                                   canValidate: isManager && isEditing,
-                                   canApprove: isApprovalUser && newItem.workflowStatus === "validated",
-                                   canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
-                                   onToggleValidation: () => {
-                                     const isValidating = !newItem.fieldValidations?.["insuranceCivilPolicy"];
-                                     toggleFieldValidation(newItem.id!, "insuranceCivilPolicy", isValidating);
-                                     setNewItem((prev: any) => ({
-                                       ...prev,
-                                       fieldValidations: { ...prev.fieldValidations, insuranceCivilPolicy: isValidating },
-                                     }));
-                                   },
-                                   entityId: newItem.id,
-                                   renderControl: () => null,
-                                 });
-                               }
+                              // Apólice de Seguro de RC
+                              if (isVisible("insurance_rc")) {
+                                addRow("Seguros e Apólices", {
+                                  id: "insuranceCivilPolicy",
+                                  label: "Apólice de Seguro de RC",
+                                  category: "insurance_civil_policy",
+                                  type: "text",
+                                  isUploadVisible: isUploadVisible("insurance_rc"),
+                                  value: newItem.insuranceCivilPolicy,
+                                  isValidated: !!newItem.fieldValidations?.["insuranceCivilPolicy"],
+                                  hasOpenTicket: getFieldProps("insuranceCivilPolicy", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("insuranceCivilPolicy", "").ticketDotColor,
+                                  approvalStatus: newItem.approvalStatus,
+                                  workflowStatus: newItem.workflowStatus,
+                                  canValidate: isManager && isEditing,
+                                  canApprove: isApprovalUser && newItem.workflowStatus === "validated",
+                                  canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
+                                  onToggleValidation: () => {
+                                    const isValidating = !newItem.fieldValidations?.["insuranceCivilPolicy"];
+                                    toggleFieldValidation(newItem.id!, "insuranceCivilPolicy", isValidating);
+                                    setNewItem((prev: any) => ({
+                                      ...prev,
+                                      fieldValidations: { ...prev.fieldValidations, insuranceCivilPolicy: isValidating },
+                                    }));
+                                  },
+                                  entityId: newItem.id,
+                                  renderControl: () => null,
+                                });
+                              }
 
-                              // 2. Segurança Social e Finanças
+                              // Recibo Seguro RC
+                              if (isVisible("insurance_rc_receipt") || (!selectedProfile && isVisible("insurance_rc"))) {
+                                addRow("Seguros e Apólices", {
+                                  id: "insuranceCivilDate",
+                                  label: "Recibo Seguro RC",
+                                  category: "insurance_civil_receipt",
+                                  type: "date",
+                                  isUploadVisible: isUploadVisible("insurance_rc_receipt") || isUploadVisible("insurance_rc"),
+                                  value: newItem.insuranceCivilDate,
+                                  isValidated: !!newItem.fieldValidations?.["insuranceCivilDate"],
+                                  hasOpenTicket: getFieldProps("insuranceCivilDate", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("insuranceCivilDate", "").ticketDotColor,
+                                  approvalStatus: newItem.approvalStatus,
+                                  workflowStatus: newItem.workflowStatus,
+                                  canValidate: isManager && isEditing,
+                                  canApprove: isApprovalUser && newItem.workflowStatus === "validated",
+                                  canRequestReview: newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested" && !isDataUser,
+                                  onToggleValidation: () => {
+                                    const isValidating = !newItem.fieldValidations?.["insuranceCivilDate"];
+                                    toggleFieldValidation(newItem.id!, "insuranceCivilDate", isValidating);
+                                    setNewItem((prev: any) => ({
+                                      ...prev,
+                                      fieldValidations: { ...prev.fieldValidations, insuranceCivilDate: isValidating },
+                                    }));
+                                  },
+                                  entityId: newItem.id,
+                                  isExpirationDate: true,
+                                  renderControl: () => null,
+                                });
+                              }
+
+                              // ════════ 2. OBRIGAÇÕES DO ESTADO ════════
                               if (isVisible("finance_ss")) {
-                                addRow("financeAndSS", {
+                                addRow("Obrigações do Estado", {
                                   id: "cleanSSDate",
-                                  label:
-                                    "Non-Debt Declaration (Social Security)",
+                                  label: "Declaração Não Dívida — Segurança Social",
                                   category: "finance_ss",
                                   type: "date",
-                                  isUploadVisible:
-                                    isUploadVisible("finance_ss"),
+                                  isUploadVisible: isUploadVisible("finance_ss"),
                                   value: newItem.cleanSSDate,
-                                  isValidated:
-                                    !!newItem.fieldValidations?.["cleanSSDate"],
-                                  hasOpenTicket: getFieldProps(
-                                    "cleanSSDate",
-                                    "",
-                                  ).hasOpenTicket,
-                                  ticketDotColor: getFieldProps(
-                                    "cleanSSDate",
-                                    "",
-                                  ).ticketDotColor,
+                                  isValidated: !!newItem.fieldValidations?.["cleanSSDate"],
+                                  hasOpenTicket: getFieldProps("cleanSSDate", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("cleanSSDate", "").ticketDotColor,
                                   approvalStatus: newItem.approvalStatus,
                                   workflowStatus: newItem.workflowStatus,
                                   canValidate: isManager && isEditing,
                                   canApprove: false,
                                   canRequestReview: false,
                                   onToggleValidation: () => {
-                                    const isValidating =
-                                      !newItem.fieldValidations?.[
-                                      "cleanSSDate"
-                                      ];
-                                    toggleFieldValidation(
-                                      newItem.id!,
-                                      "cleanSSDate",
-                                      isValidating,
-                                    );
+                                    const isValidating = !newItem.fieldValidations?.["cleanSSDate"];
+                                    toggleFieldValidation(newItem.id!, "cleanSSDate", isValidating);
                                     setNewItem((prev: any) => ({
                                       ...prev,
-                                      fieldValidations: {
-                                        ...prev.fieldValidations,
-                                        cleanSSDate: isValidating,
-                                      },
+                                      fieldValidations: { ...prev.fieldValidations, cleanSSDate: isValidating },
                                     }));
                                   },
                                   entityId: newItem.id,
@@ -5147,47 +5116,27 @@ export default function CompaniesPage() {
                               }
 
                               if (isVisible("finance_fin")) {
-                                addRow("financeAndSS", {
+                                addRow("Obrigações do Estado", {
                                   id: "cleanFinDate",
-                                  label: "Non-Debt Declaration (Tax Authority)",
+                                  label: "Declaração Não Dívida — Finanças (AT)",
                                   category: "finance_fin",
                                   type: "date",
-                                  isUploadVisible:
-                                    isUploadVisible("finance_fin"),
+                                  isUploadVisible: isUploadVisible("finance_fin"),
                                   value: newItem.cleanFinDate,
-                                  isValidated:
-                                    !!newItem.fieldValidations?.[
-                                    "cleanFinDate"
-                                    ],
-                                  hasOpenTicket: getFieldProps(
-                                    "cleanFinDate",
-                                    "",
-                                  ).hasOpenTicket,
-                                  ticketDotColor: getFieldProps(
-                                    "cleanFinDate",
-                                    "",
-                                  ).ticketDotColor,
+                                  isValidated: !!newItem.fieldValidations?.["cleanFinDate"],
+                                  hasOpenTicket: getFieldProps("cleanFinDate", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("cleanFinDate", "").ticketDotColor,
                                   approvalStatus: newItem.approvalStatus,
                                   workflowStatus: newItem.workflowStatus,
                                   canValidate: isManager && isEditing,
                                   canApprove: false,
                                   canRequestReview: false,
                                   onToggleValidation: () => {
-                                    const isValidating =
-                                      !newItem.fieldValidations?.[
-                                      "cleanFinDate"
-                                      ];
-                                    toggleFieldValidation(
-                                      newItem.id!,
-                                      "cleanFinDate",
-                                      isValidating,
-                                    );
+                                    const isValidating = !newItem.fieldValidations?.["cleanFinDate"];
+                                    toggleFieldValidation(newItem.id!, "cleanFinDate", isValidating);
                                     setNewItem((prev: any) => ({
                                       ...prev,
-                                      fieldValidations: {
-                                        ...prev.fieldValidations,
-                                        cleanFinDate: isValidating,
-                                      },
+                                      fieldValidations: { ...prev.fieldValidations, cleanFinDate: isValidating },
                                     }));
                                   },
                                   entityId: newItem.id,
@@ -5197,47 +5146,27 @@ export default function CompaniesPage() {
                               }
 
                               if (isVisible("ss_discount")) {
-                                addRow("financeAndSS", {
+                                addRow("Obrigações do Estado", {
                                   id: "ssDiscountSheet",
-                                  label: "SS Payment Sheet",
+                                  label: "Folha de Remunerações / Descontos (Segurança Social)",
                                   category: "ss_discount_sheet",
                                   type: "month",
-                                  isUploadVisible:
-                                    isUploadVisible("ss_discount"),
+                                  isUploadVisible: isUploadVisible("ss_discount"),
                                   value: newItem.ssDiscountSheet,
-                                  isValidated:
-                                    !!newItem.fieldValidations?.[
-                                    "ssDiscountSheet"
-                                    ],
-                                  hasOpenTicket: getFieldProps(
-                                    "ssDiscountSheet",
-                                    "",
-                                  ).hasOpenTicket,
-                                  ticketDotColor: getFieldProps(
-                                    "ssDiscountSheet",
-                                    "",
-                                  ).ticketDotColor,
+                                  isValidated: !!newItem.fieldValidations?.["ssDiscountSheet"],
+                                  hasOpenTicket: getFieldProps("ssDiscountSheet", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("ssDiscountSheet", "").ticketDotColor,
                                   approvalStatus: newItem.approvalStatus,
                                   workflowStatus: newItem.workflowStatus,
                                   canValidate: isManager && isEditing,
                                   canApprove: false,
                                   canRequestReview: false,
                                   onToggleValidation: () => {
-                                    const isValidating =
-                                      !newItem.fieldValidations?.[
-                                      "ssDiscountSheet"
-                                      ];
-                                    toggleFieldValidation(
-                                      newItem.id!,
-                                      "ssDiscountSheet",
-                                      isValidating,
-                                    );
+                                    const isValidating = !newItem.fieldValidations?.["ssDiscountSheet"];
+                                    toggleFieldValidation(newItem.id!, "ssDiscountSheet", isValidating);
                                     setNewItem((prev: any) => ({
                                       ...prev,
-                                      fieldValidations: {
-                                        ...prev.fieldValidations,
-                                        ssDiscountSheet: isValidating,
-                                      },
+                                      fieldValidations: { ...prev.fieldValidations, ssDiscountSheet: isValidating },
                                     }));
                                   },
                                   entityId: newItem.id,
@@ -5246,48 +5175,29 @@ export default function CompaniesPage() {
                                 });
                               }
 
+                              // ════════ 3. DOCUMENTOS DE OBRA ════════
                               if (isVisible("pss_acceptance")) {
-                                addRow("siteDocuments", {
+                                addRow("Documentos de Obra", {
                                   id: "pssAcceptanceDate",
-                                  label: "H&S Plan Acceptance",
+                                  label: "Declaração de Aceitação do PSS",
                                   category: "pss_acceptance",
                                   type: "date",
-                                  isUploadVisible:
-                                    isUploadVisible("pss_acceptance"),
+                                  isUploadVisible: isUploadVisible("pss_acceptance"),
                                   value: newItem.pssAcceptanceDate,
-                                  isValidated:
-                                    !!newItem.fieldValidations?.[
-                                    "pssAcceptanceDate"
-                                    ],
-                                  hasOpenTicket: getFieldProps(
-                                    "pssAcceptanceDate",
-                                    "",
-                                  ).hasOpenTicket,
-                                  ticketDotColor: getFieldProps(
-                                    "pssAcceptanceDate",
-                                    "",
-                                  ).ticketDotColor,
+                                  isValidated: !!newItem.fieldValidations?.["pssAcceptanceDate"],
+                                  hasOpenTicket: getFieldProps("pssAcceptanceDate", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("pssAcceptanceDate", "").ticketDotColor,
                                   approvalStatus: newItem.approvalStatus,
                                   workflowStatus: newItem.workflowStatus,
                                   canValidate: isManager && isEditing,
                                   canApprove: false,
                                   canRequestReview: false,
                                   onToggleValidation: () => {
-                                    const isValidating =
-                                      !newItem.fieldValidations?.[
-                                      "pssAcceptanceDate"
-                                      ];
-                                    toggleFieldValidation(
-                                      newItem.id!,
-                                      "pssAcceptanceDate",
-                                      isValidating,
-                                    );
+                                    const isValidating = !newItem.fieldValidations?.["pssAcceptanceDate"];
+                                    toggleFieldValidation(newItem.id!, "pssAcceptanceDate", isValidating);
                                     setNewItem((prev: any) => ({
                                       ...prev,
-                                      fieldValidations: {
-                                        ...prev.fieldValidations,
-                                        pssAcceptanceDate: isValidating,
-                                      },
+                                      fieldValidations: { ...prev.fieldValidations, pssAcceptanceDate: isValidating },
                                     }));
                                   },
                                   entityId: newItem.id,
@@ -5296,53 +5206,33 @@ export default function CompaniesPage() {
                                 });
                               }
 
-                              // 3. Horário de Trabalho
                               if (isVisible("work_schedule")) {
-                                addRow("siteDocuments", {
+                                addRow("Documentos de Obra", {
                                   id: "workScheduleDelivered",
-                                  label: "Work Schedule Delivery",
+                                  label: "Horário de Trabalho e Mapa de Pessoal",
                                   category: "work_schedule",
                                   type: "boolean",
-                                  isUploadVisible: true,
+                                  isUploadVisible: isUploadVisible("work_schedule"),
                                   value: documents.some(
                                     (d: any) =>
                                       d.entityId === newItem.id &&
                                       d.category === "work_schedule" &&
                                       !d.archived,
                                   ),
-                                  isValidated:
-                                    !!newItem.fieldValidations?.[
-                                    "workScheduleDelivered"
-                                    ],
-                                  hasOpenTicket: getFieldProps(
-                                    "workScheduleDelivered",
-                                    "",
-                                  ).hasOpenTicket,
-                                  ticketDotColor: getFieldProps(
-                                    "workScheduleDelivered",
-                                    "",
-                                  ).ticketDotColor,
+                                  isValidated: !!newItem.fieldValidations?.["workScheduleDelivered"],
+                                  hasOpenTicket: getFieldProps("workScheduleDelivered", "").hasOpenTicket,
+                                  ticketDotColor: getFieldProps("workScheduleDelivered", "").ticketDotColor,
                                   approvalStatus: newItem.approvalStatus,
                                   workflowStatus: newItem.workflowStatus,
                                   canValidate: isManager && isEditing,
                                   canApprove: false,
                                   canRequestReview: false,
                                   onToggleValidation: () => {
-                                    const isValidating =
-                                      !newItem.fieldValidations?.[
-                                      "workScheduleDelivered"
-                                      ];
-                                    toggleFieldValidation(
-                                      newItem.id!,
-                                      "workScheduleDelivered",
-                                      isValidating,
-                                    );
+                                    const isValidating = !newItem.fieldValidations?.["workScheduleDelivered"];
+                                    toggleFieldValidation(newItem.id!, "workScheduleDelivered", isValidating);
                                     setNewItem((prev: any) => ({
                                       ...prev,
-                                      fieldValidations: {
-                                        ...prev.fieldValidations,
-                                        workScheduleDelivered: isValidating,
-                                      },
+                                      fieldValidations: { ...prev.fieldValidations, workScheduleDelivered: isValidating },
                                     }));
                                   },
                                   entityId: newItem.id,
@@ -5350,99 +5240,45 @@ export default function CompaniesPage() {
                                 });
                               }
 
-                              // 4. Custom Documents
-                              if (
-                                selectedProfile &&
-                                selectedProfile.customDocuments &&
-                                selectedProfile.customDocuments.length > 0
-                              ) {
-                                selectedProfile.customDocuments.forEach(
-                                  (doc) => {
-                                    const fieldKey = `custom_${doc.id}`;
-                                    const isDocVisible = !(
-                                      doc.dataType === "boolean" &&
-                                      newItem.customDocuments?.[doc.id]
-                                        ?.value === "false"
-                                    );
+                              // ════════ 4. DOCUMENTOS PERSONALIZADOS POR ASSUNTO ════════
+                              if (selectedProfile && selectedProfile.customDocuments && selectedProfile.customDocuments.length > 0) {
+                                selectedProfile.customDocuments.forEach((doc) => {
+                                  const fieldKey = `custom_${doc.id}`;
+                                  const isDocVisible = !(doc.dataType === "boolean" && newItem.customDocuments?.[doc.id]?.value === "false");
+                                  const isValidated = newItem.fieldValidations?.[fieldKey];
+                                  const targetSubject = doc.subject?.trim() || "Outros Documentos";
 
-                                    const isLocked = !isEditing;
-                                    const isValidated =
-                                      newItem.fieldValidations?.[fieldKey];
-                                    const disableInputs =
-                                      isLocked || (isValidated && !isManager);
-
-                                    if (isDocVisible) {
-                                      addRow("otherDocuments", {
-                                        id: doc.id,
-                                        label: doc.name,
-                                        category: fieldKey,
-                                        type: doc.dataType,
-                                        isUploadVisible:
-                                          doc.requiresUpload !== false,
-                                        value:
-                                          newItem.customDocuments?.[doc.id]
-                                            ?.value,
-                                        isValidated: isValidated,
-                                        hasOpenTicket: getFieldProps(
-                                          doc.id,
-                                          "",
-                                        ).hasOpenTicket,
-                                        ticketDotColor: getFieldProps(
-                                          doc.id,
-                                          "",
-                                        ).ticketDotColor,
-                                        approvalStatus: newItem.approvalStatus,
-                                        workflowStatus: newItem.workflowStatus,
-                                        canValidate: isManager && isEditing,
-                                        canApprove: false,
-                                        canRequestReview:
-                                          (isManager &&
-                                            newItem.workflowStatus !==
-                                            "draft" &&
-                                            newItem.workflowStatus !==
-                                            "data_requested") ||
-                                          (isApprovalUser &&
-                                            newItem.workflowStatus ===
-                                            "approval_pending"),
-                                        onToggleValidation: () => {
-                                          const isValidating = !isValidated;
-                                          const executeValidation = () => {
-                                            toggleFieldValidation(
-                                              (newItem as any).id,
-                                              fieldKey,
-                                              isValidating,
-                                            );
-                                            if (!isValidating) {
-                                              const resolvedTickets = (
-                                                (newItem as any).tickets || []
-                                              ).filter(
-                                                (t: any) =>
-                                                  t.fieldId === doc.id &&
-                                                  t.status === "resolved",
-                                              );
-                                              resolvedTickets.forEach(
-                                                (t: any) =>
-                                                  updateTicket(t.id, {
-                                                    status: "open",
-                                                  }),
-                                              );
-                                            }
-                                            setNewItem((prev: any) => ({
-                                              ...prev,
-                                              fieldValidations: {
-                                                ...prev.fieldValidations,
-                                                [fieldKey]: isValidating,
-                                              },
-                                            }));
-                                          };
-                                          executeValidation();
-                                        },
-                                        entityId: newItem.id,
-                                        renderControl: () => null,
-                                      });
-                                    }
-                                  },
-                                );
+                                  if (isDocVisible) {
+                                    addRow(targetSubject, {
+                                      id: doc.id,
+                                      label: doc.name,
+                                      category: fieldKey,
+                                      type: doc.dataType,
+                                      isUploadVisible: doc.requiresUpload !== false,
+                                      value: newItem.customDocuments?.[doc.id]?.value,
+                                      isValidated: isValidated,
+                                      hasOpenTicket: getFieldProps(doc.id, "").hasOpenTicket,
+                                      ticketDotColor: getFieldProps(doc.id, "").ticketDotColor,
+                                      approvalStatus: newItem.approvalStatus,
+                                      workflowStatus: newItem.workflowStatus,
+                                      canValidate: isManager && isEditing,
+                                      canApprove: false,
+                                      canRequestReview:
+                                        (isManager && newItem.workflowStatus !== "draft" && newItem.workflowStatus !== "data_requested") ||
+                                        (isApprovalUser && newItem.workflowStatus === "approval_pending"),
+                                      onToggleValidation: () => {
+                                        const isValidating = !isValidated;
+                                        toggleFieldValidation((newItem as any).id, fieldKey, isValidating);
+                                        setNewItem((prev: any) => ({
+                                          ...prev,
+                                          fieldValidations: { ...prev.fieldValidations, [fieldKey]: isValidating },
+                                        }));
+                                      },
+                                      entityId: newItem.id,
+                                      renderControl: () => null,
+                                    });
+                                  }
+                                });
                               }
 
                               return Object.entries(
@@ -5451,12 +5287,26 @@ export default function CompaniesPage() {
                                 if (rows.length === 0) return null;
                                 return (
                                   <React.Fragment key={groupKey}>
-                                    <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
+                                    <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/15 dark:border-primary/25">
                                       <td
                                         colSpan={4}
-                                        className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                        className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary dark:text-primary-light"
                                       >
-                                        {t(`headers.${groupKey}`) || groupKey}
+                                        <div className="flex items-center gap-2">
+                                          {groupKey.toLowerCase().includes("seguro") ? (
+                                            <Shield size={14} className="text-blue-500 shrink-0" />
+                                          ) : groupKey.toLowerCase().includes("obrigaç") ? (
+                                            <Landmark size={14} className="text-emerald-500 shrink-0" />
+                                          ) : groupKey.toLowerCase().includes("obra") ? (
+                                            <HardHat size={14} className="text-amber-500 shrink-0" />
+                                          ) : (
+                                            <Sparkles size={14} className="text-purple-500 shrink-0" />
+                                          )}
+                                          <span>{groupKey}</span>
+                                          <span className="text-[10px] font-medium text-gray-400 lowercase font-mono">
+                                            ({rows.length} {rows.length === 1 ? "requisito" : "requisitos"})
+                                          </span>
+                                        </div>
                                       </td>
                                     </tr>
                                     {rows.map((row: any) => {

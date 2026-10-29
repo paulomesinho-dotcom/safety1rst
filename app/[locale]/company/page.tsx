@@ -15,7 +15,7 @@ import {
     LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
     User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter,
     FolderPlus, FolderCheck, FileSpreadsheet, HardDrive, RotateCw, History, Paperclip, ChevronDown,
-    Archive, ShieldCheck, Server, Settings as SettingsIcon, Lock
+    Archive, ShieldCheck, Server, Settings as SettingsIcon, Lock, HardHat, Sparkles, Landmark
 } from 'lucide-react';
 import { CDESettingsModal } from '@/components/CDESettingsModal';
 import { ProfileManagerModal, type ProfileType } from '@/components/ProfileManagerModal';
@@ -339,6 +339,8 @@ export default function MyCompanyPage() {
         insuranceCivilDate: masterCompany?.insuranceCivilDate || '',
         cleanSSDate: masterCompany?.cleanSSDate || '',
         cleanFinDate: masterCompany?.cleanFinDate || '',
+        pssAcceptanceDate: (masterCompany as any)?.pssAcceptanceDate || '',
+        profileId: masterCompany?.profileId || '',
     });
 
     const isFormEditedRef = useRef(false);
@@ -366,6 +368,8 @@ export default function MyCompanyPage() {
                 insuranceCivilDate: masterCompany?.insuranceCivilDate ?? prev.insuranceCivilDate,
                 cleanSSDate: masterCompany?.cleanSSDate ?? prev.cleanSSDate,
                 cleanFinDate: masterCompany?.cleanFinDate ?? prev.cleanFinDate,
+                pssAcceptanceDate: (masterCompany as any)?.pssAcceptanceDate ?? prev.pssAcceptanceDate,
+                profileId: masterCompany?.profileId ?? prev.profileId,
             }));
         }
     }, [masterCompany, userAccount]);
@@ -1666,6 +1670,8 @@ export default function MyCompanyPage() {
             insuranceCivilDate: masterCompany?.insuranceCivilDate ?? '',
             cleanSSDate: masterCompany?.cleanSSDate ?? '',
             cleanFinDate: masterCompany?.cleanFinDate ?? '',
+            pssAcceptanceDate: (masterCompany as any)?.pssAcceptanceDate ?? '',
+            profileId: masterCompany?.profileId ?? '',
         });
         setCompanyModalMode('view');
     };
@@ -2191,8 +2197,8 @@ export default function MyCompanyPage() {
                                     <div className="flex items-center px-6 border-t border-[var(--border)] overflow-x-auto no-scrollbar">
                                         {[
                                             { id: "identification", label: "1. Identificação" },
-                                            { id: "legal", label: "2. Requisitos Legais (DL 273/2003)" },
-                                            { id: "documents", label: "3. Ficheiros & Documentos" },
+                                            { id: "legal", label: "2. Requisitos Legais" },
+                                            { id: "documents", label: "3. Ficheiros" },
                                         ].map((tab) => (
                                             <button
                                                 key={tab.id}
@@ -3120,339 +3126,337 @@ export default function MyCompanyPage() {
                                     </div>
                                 )}
 
-                                {/* TAB 2: REQUISITOS LEGAIS (DL 273/2003) */}
-                                {companyModalTab === 'legal' && (
-                                    <div className="space-y-6">
-                                        <div className="p-3.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-xs text-[var(--text)] flex items-start gap-2.5">
-                                            <Shield size={18} className="text-primary shrink-0 mt-0.5" />
-                                            <div>
-                                                <span className="font-bold block">Conformidade Legal & Documentação Obrigatória (DL 273/2003)</span>
-                                                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                                                    Consulte o estado de validação de cada requisito legal, respetivos valores registados (apólices e datas de validade) e os comprovativos documentais anexados.
-                                                </p>
-                                            </div>
-                                        </div>
+                                                                 {/* TAB 2: REQUISITOS LEGAIS */}
+                                 {companyModalTab === 'legal' && (() => {
+                                     const selectedProfile = companyProfiles.find(p => p.id === (companyForm as any).profileId) ||
+                                                             companyProfiles.find(p => !p.projectId) ||
+                                                             companyProfiles[0];
 
-                                        <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-left text-[13px]">
-                                                    <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
-                                                        <tr>
-                                                            <th className="px-4 py-3 min-w-[280px]">Documento</th>
-                                                            <th className="px-4 py-3 min-w-[220px]">Valor Registado</th>
-                                                            <th className="px-4 py-3 w-[150px] text-center">Ficheiro</th>
-                                                            <th className="px-4 py-3 w-[150px] text-center">Estado</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
-                                                        {/* Grupo: Apólices e Seguros */}
-                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
-                                                            <td
-                                                                colSpan={4}
-                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
-                                                            >
-                                                                Apólices e Seguros Obrigatórios
-                                                            </td>
-                                                        </tr>
+                                     const isVisible = (key: string) => {
+                                         if (!selectedProfile) return true;
+                                         return !!selectedProfile.requirements?.[key as keyof typeof selectedProfile.requirements];
+                                     };
 
-                                                        {/* Seguro Acidentes Trabalho — Apólice */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Seguro Ac. Trabalho — Apólice
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="text"
-                                                                        value={companyForm.insuranceWorkAccPolicy}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: e.target.value });
-                                                                        }}
-                                                                        placeholder="ex: AP-123456"
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
-                                                                    />
-                                                                ) : (
-                                                                    <span className="font-mono">
-                                                                        {companyForm.insuranceWorkAccPolicy || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("insurance_work_accident")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFieldStatus(!!companyForm.insuranceWorkAccPolicy?.trim())}
-                                                            </td>
-                                                        </tr>
+                                     const isUploadVisible = (key: string) => {
+                                         if (!selectedProfile) return true;
+                                         return selectedProfile.standardUploads?.[key] !== false;
+                                     };
 
-                                                        {/* Seguro Acidentes Trabalho — Validade */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Seguro Ac. Trabalho — Data de Validade
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="date"
-                                                                        value={companyForm.insuranceWorkAccDate}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, insuranceWorkAccDate: e.target.value });
-                                                                        }}
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                                    />
-                                                                ) : (
-                                                                    <span>
-                                                                        {companyForm.insuranceWorkAccDate ? new Date(companyForm.insuranceWorkAccDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("insurance_work_accident")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderDateStatus(companyForm.insuranceWorkAccDate)}
-                                                            </td>
-                                                        </tr>
+                                     // Agrupamento estruturado por Assunto
+                                     const groupedRows: Record<string, any[]> = {};
+                                     const addRow = (subject: string, rowData: any) => {
+                                         if (!groupedRows[subject]) groupedRows[subject] = [];
+                                         groupedRows[subject].push(rowData);
+                                     };
 
-                                                        {/* Seguro Responsabilidade Civil — Apólice */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Seguro Responsabilidade Civil — Apólice
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="text"
-                                                                        value={companyForm.insuranceCivilPolicy}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, insuranceCivilPolicy: e.target.value });
-                                                                        }}
-                                                                        placeholder="ex: RC-789012"
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
-                                                                    />
-                                                                ) : (
-                                                                    <span className="font-mono">
-                                                                        {companyForm.insuranceCivilPolicy || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("insurance_civil_liability")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFieldStatus(!!companyForm.insuranceCivilPolicy?.trim())}
-                                                            </td>
-                                                        </tr>
+                                     // 1. Seguros e Apólices
+                                     if (isVisible('insurance_at')) {
+                                         addRow('Seguros e Apólices', {
+                                             id: 'insuranceWorkAccPolicy',
+                                             label: 'Apólice de Seguro de AT',
+                                             category: 'insurance_work_acc_policy',
+                                             type: 'text',
+                                             value: companyForm.insuranceWorkAccPolicy,
+                                             isUploadVisible: isUploadVisible('insurance_at'),
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, insuranceWorkAccPolicy: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Seguro Responsabilidade Civil — Validade */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Seguro Responsabilidade Civil — Data de Validade
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="date"
-                                                                        value={companyForm.insuranceCivilDate}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, insuranceCivilDate: e.target.value });
-                                                                        }}
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                                    />
-                                                                ) : (
-                                                                    <span>
-                                                                        {companyForm.insuranceCivilDate ? new Date(companyForm.insuranceCivilDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("insurance_civil_liability")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderDateStatus(companyForm.insuranceCivilDate)}
-                                                            </td>
-                                                        </tr>
+                                     if (isVisible('insurance_at_receipt') || (!selectedProfile && isVisible('insurance_at'))) {
+                                         addRow('Seguros e Apólices', {
+                                             id: 'insuranceWorkAccDate',
+                                             label: 'Recibo Seguro AT',
+                                             category: 'insurance_work_acc_receipt',
+                                             type: 'date',
+                                             value: companyForm.insuranceWorkAccDate,
+                                             isUploadVisible: isUploadVisible('insurance_at_receipt') || isUploadVisible('insurance_at'),
+                                             isExpirationDate: true,
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, insuranceWorkAccDate: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Grupo: Regularidade Fiscal e Segurança Social */}
-                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
-                                                            <td
-                                                                colSpan={4}
-                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
-                                                            >
-                                                                Regularidade Fiscal e Segurança Social
-                                                            </td>
-                                                        </tr>
+                                     if (isVisible('insurance_rc')) {
+                                         addRow('Seguros e Apólices', {
+                                             id: 'insuranceCivilPolicy',
+                                             label: 'Apólice de Seguro de RC',
+                                             category: 'insurance_civil_policy',
+                                             type: 'text',
+                                             value: companyForm.insuranceCivilPolicy,
+                                             isUploadVisible: isUploadVisible('insurance_rc'),
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, insuranceCivilPolicy: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Certidão Não Dívida Finanças */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Certidão de Não Dívida da AT (Finanças)
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="date"
-                                                                        value={companyForm.cleanFinDate}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, cleanFinDate: e.target.value });
-                                                                        }}
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                                    />
-                                                                ) : (
-                                                                    <span>
-                                                                        {companyForm.cleanFinDate ? new Date(companyForm.cleanFinDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("non_debt_tax")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderDateStatus(companyForm.cleanFinDate)}
-                                                            </td>
-                                                        </tr>
+                                     if (isVisible('insurance_rc_receipt') || (!selectedProfile && isVisible('insurance_rc'))) {
+                                         addRow('Seguros e Apólices', {
+                                             id: 'insuranceCivilDate',
+                                             label: 'Recibo Seguro RC',
+                                             category: 'insurance_civil_receipt',
+                                             type: 'date',
+                                             value: companyForm.insuranceCivilDate,
+                                             isUploadVisible: isUploadVisible('insurance_rc_receipt') || isUploadVisible('insurance_rc'),
+                                             isExpirationDate: true,
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, insuranceCivilDate: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Certidão Não Dívida Segurança Social */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Certidão de Não Dívida da Segurança Social
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="date"
-                                                                        value={companyForm.cleanSSDate}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, cleanSSDate: e.target.value });
-                                                                        }}
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                                    />
-                                                                ) : (
-                                                                    <span>
-                                                                        {companyForm.cleanSSDate ? new Date(companyForm.cleanSSDate).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("non_debt_ss")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderDateStatus(companyForm.cleanSSDate)}
-                                                            </td>
-                                                        </tr>
+                                     // 2. Obrigações do Estado
+                                     if (isVisible('finance_ss')) {
+                                         addRow('Obrigações do Estado', {
+                                             id: 'cleanSSDate',
+                                             label: 'Declaração Não Dívida — Segurança Social',
+                                             category: 'finance_ss',
+                                             type: 'date',
+                                             value: companyForm.cleanSSDate,
+                                             isUploadVisible: isUploadVisible('finance_ss'),
+                                             isExpirationDate: true,
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, cleanSSDate: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Folhas de Remuneração */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Folhas de Remunerações / Declaração DRI
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {documents.some(d => d.entityId === corporateEntityId && d.category === 'folhas_remuneracao' && !d.archived) ? (
-                                                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Documento Carregado</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("folhas_remuneracao")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFieldStatus(documents.some(d => d.entityId === corporateEntityId && d.category === 'folhas_remuneracao' && !d.archived))}
-                                                            </td>
-                                                        </tr>
+                                     if (isVisible('finance_fin')) {
+                                         addRow('Obrigações do Estado', {
+                                             id: 'cleanFinDate',
+                                             label: 'Declaração Não Dívida — Finanças (AT)',
+                                             category: 'finance_fin',
+                                             type: 'date',
+                                             value: companyForm.cleanFinDate,
+                                             isUploadVisible: isUploadVisible('finance_fin'),
+                                             isExpirationDate: true,
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, cleanFinDate: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Grupo: Habilitação e Saúde no Trabalho */}
-                                                        <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/10 dark:border-primary/20">
-                                                            <td
-                                                                colSpan={4}
-                                                                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-primary dark:text-primary-light"
-                                                            >
-                                                                Habilitação e Saúde no Trabalho
-                                                            </td>
-                                                        </tr>
+                                     if (isVisible('ss_discount')) {
+                                         addRow('Obrigações do Estado', {
+                                             id: 'ssDiscountSheet',
+                                             label: 'Folha de Remunerações / Descontos (Segurança Social)',
+                                             category: 'ss_discount',
+                                             type: 'month',
+                                             value: (companyForm as any).ssDiscountSheet,
+                                             isUploadVisible: isUploadVisible('ss_discount'),
+                                             isExpirationDate: true,
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, ssDiscountSheet: val } as any);
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Alvará IMPIC */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Alvará de Construção / Título de Registo IMPIC
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {companyModalMode === 'edit' ? (
-                                                                    <input
-                                                                        type="text"
-                                                                        value={companyForm.impic}
-                                                                        onChange={e => {
-                                                                            isFormEditedRef.current = true;
-                                                                            setCompanyForm({ ...companyForm, impic: e.target.value });
-                                                                        }}
-                                                                        placeholder="ex: Alvará n.º 12345-PUB"
-                                                                        className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
-                                                                    />
-                                                                ) : (
-                                                                    <span>
-                                                                        {companyForm.impic || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
-                                                                    </span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("alvara_impic")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFieldStatus(!!companyForm.impic?.trim() || documents.some(d => d.entityId === corporateEntityId && d.category === 'alvara_impic' && !d.archived))}
-                                                            </td>
-                                                        </tr>
+                                     // 3. Documentos de Obra
+                                     if (isVisible('pss_acceptance')) {
+                                         addRow('Documentos de Obra', {
+                                             id: 'pssAcceptanceDate',
+                                             label: 'Declaração de Aceitação do PSS',
+                                             category: 'pss_acceptance',
+                                             type: 'date',
+                                             value: companyForm.pssAcceptanceDate,
+                                             isUploadVisible: isUploadVisible('pss_acceptance'),
+                                             onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm({ ...companyForm, pssAcceptanceDate: val });
+                                             }
+                                         });
+                                     }
 
-                                                        {/* Certidão Comercial / Permanente */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Certidão Comercial / Código Certidão Permanente
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {documents.some(d => d.entityId === corporateEntityId && d.category === 'certidao_comercial' && !d.archived) ? (
-                                                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Certidão Carregada</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("certidao_comercial")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFieldStatus(documents.some(d => d.entityId === corporateEntityId && d.category === 'certidao_comercial' && !d.archived))}
-                                                            </td>
-                                                        </tr>
+                                     if (isVisible('work_schedule')) {
+                                         addRow('Documentos de Obra', {
+                                             id: 'workScheduleDelivered',
+                                             label: 'Horário de Trabalho e Mapa de Pessoal',
+                                             category: 'work_schedule',
+                                             type: 'boolean',
+                                             value: documents.some(d => d.entityId === corporateEntityId && d.category === 'work_schedule' && !d.archived),
+                                             isUploadVisible: isUploadVisible('work_schedule'),
+                                             onChange: () => {}
+                                         });
+                                     }
 
-                                                        {/* Medicina no Trabalho */}
-                                                        <tr className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
-                                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
-                                                                Medicina no Trabalho (Contrato / Comprovativo SST)
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                                                                {documents.some(d => d.entityId === corporateEntityId && d.category === 'medicina_trabalho' && !d.archived) ? (
-                                                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Contrato SST Carregado</span>
-                                                                ) : (
-                                                                    <span className="text-gray-400 italic font-normal text-xs">Unset...</span>
-                                                                )}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFileCell("medicina_trabalho")}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                {renderFieldStatus(documents.some(d => d.entityId === corporateEntityId && d.category === 'medicina_trabalho' && !d.archived))}
-                                                            </td>
-                                                        </tr>
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                     // 4. Documentos Personalizados do Perfil
+                                     if (selectedProfile && selectedProfile.customDocuments) {
+                                         selectedProfile.customDocuments.forEach(doc => {
+                                             const targetSubject = doc.subject?.trim() || 'Outros Documentos';
+                                             const customVal = (companyForm as any).customDocuments?.[doc.id]?.value;
+                                             addRow(targetSubject, {
+                                               id: doc.id,
+                                               label: doc.name,
+                                               category: `custom_${doc.id}`,
+                                               type: doc.dataType,
+                                               value: customVal,
+                                               isUploadVisible: doc.requiresUpload !== false,
+                                               isExpirationDate: doc.isExpirationDate,
+                                               onChange: (val: string) => {
+                                                 isFormEditedRef.current = true;
+                                                 setCompanyForm((prev: any) => ({
+                                                   ...prev,
+                                                   customDocuments: {
+                                                     ...(prev.customDocuments || {}),
+                                                     [doc.id]: {
+                                                       ...((prev.customDocuments as any)?.[doc.id] || {}),
+                                                       value: val
+                                                     }
+                                                   }
+                                                 }));
+                                               }
+                                             });
+                                         });
+                                     }
+
+                                     return (
+                                         <div className="space-y-6">
+                                             <div className="p-3.5 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-900/40 text-xs text-[var(--text)] flex items-center justify-between gap-3">
+                                                 <div className="flex items-start gap-2.5">
+                                                     <Shield size={18} className="text-primary shrink-0 mt-0.5" />
+                                                     <div>
+                                                         <span className="font-bold block">Conformidade Legal & Documentação Obrigatória (DL 273/2003)</span>
+                                                         <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                                                             Consulte e atualize os requisitos documentais segundo o perfil configurado.
+                                                         </p>
+                                                     </div>
+                                                 </div>
+                                                 {selectedProfile && (
+                                                     <div className="flex items-center gap-1.5 shrink-0">
+                                                         <span className="text-[11px] text-[var(--text-muted)]">Perfil:</span>
+                                                         <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white dark:bg-[#131314] border border-gray-200 dark:border-gray-700 text-primary">
+                                                             {selectedProfile.name}
+                                                         </span>
+                                                     </div>
+                                                 )}
+                                             </div>
+
+                                             <div className="overflow-hidden border border-gray-200 dark:border-[#444746] rounded-xl bg-white dark:bg-surface shadow-xs">
+                                                 <div className="overflow-x-auto">
+                                                     <table className="w-full text-left text-[13px]">
+                                                         <thead className="bg-gray-50/80 dark:bg-surface/80 border-b border-gray-200 dark:border-[#444746] text-gray-500 uppercase tracking-wider text-[11px] font-bold">
+                                                             <tr>
+                                                                 <th className="px-4 py-3 min-w-[280px]">Documento</th>
+                                                                 <th className="px-4 py-3 min-w-[220px]">Valor Registado</th>
+                                                                 <th className="px-4 py-3 w-[150px] text-center">Ficheiro</th>
+                                                                 <th className="px-4 py-3 w-[150px] text-center">Estado</th>
+                                                             </tr>
+                                                         </thead>
+                                                         <tbody className="divide-y divide-gray-100 dark:divide-[#444746]">
+                                                             {Object.entries(groupedRows).map(([subjectTitle, rows]) => {
+                                                                 if (rows.length === 0) return null;
+                                                                 return (
+                                                                     <React.Fragment key={subjectTitle}>
+                                                                         <tr className="bg-primary/5 dark:bg-primary/10 border-y border-primary/15 dark:border-primary/25">
+                                                                             <td
+                                                                                 colSpan={4}
+                                                                                 className="px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-primary dark:text-primary-light"
+                                                                             >
+                                                                                 <div className="flex items-center gap-2">
+                                                                                     {subjectTitle.toLowerCase().includes('seguro') ? (
+                                                                                         <Shield size={14} className="text-blue-500 shrink-0" />
+                                                                                     ) : subjectTitle.toLowerCase().includes('obrigaç') ? (
+                                                                                         <Landmark size={14} className="text-emerald-500 shrink-0" />
+                                                                                     ) : subjectTitle.toLowerCase().includes('obra') ? (
+                                                                                         <HardHat size={14} className="text-amber-500 shrink-0" />
+                                                                                     ) : (
+                                                                                         <Sparkles size={14} className="text-purple-500 shrink-0" />
+                                                                                     )}
+                                                                                     <span>{subjectTitle}</span>
+                                                                                     <span className="text-[10px] font-medium text-gray-400 lowercase font-mono">
+                                                                                         ({rows.length} {rows.length === 1 ? 'requisito' : 'requisitos'})
+                                                                                     </span>
+                                                                                 </div>
+                                                                             </td>
+                                                                         </tr>
+
+                                                                         {rows.map(row => (
+                                                                             <tr key={row.id} className="hover:bg-gray-50/50 dark:hover:bg-surface/50 transition-colors">
+                                                                                 <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                                                     {row.label}
+                                                                                 </td>
+                                                                                 <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                                                                                     {companyModalMode === 'edit' ? (
+                                                                                         row.type === 'date' ? (
+                                                                                             <input
+                                                                                                 type="date"
+                                                                                                 value={row.value || ''}
+                                                                                                 onChange={e => row.onChange(e.target.value)}
+                                                                                                 className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                             />
+                                                                                         ) : row.type === 'month' ? (
+                                                                                             <input
+                                                                                                 type="month"
+                                                                                                 value={row.value || ''}
+                                                                                                 onChange={e => row.onChange(e.target.value)}
+                                                                                                 className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary"
+                                                                                             />
+                                                                                         ) : row.type === 'boolean' ? (
+                                                                                             <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">
+                                                                                                 {row.value ? 'Entregue' : 'Pendente'}
+                                                                                             </span>
+                                                                                         ) : (
+                                                                                             <input
+                                                                                                 type="text"
+                                                                                                 value={row.value || ''}
+                                                                                                 onChange={e => row.onChange(e.target.value)}
+                                                                                                 placeholder="Número / Identificador"
+                                                                                                 className="w-full px-2.5 py-1.5 text-xs bg-[var(--bg-input)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-primary font-mono"
+                                                                                             />
+                                                                                         )
+                                                                                     ) : (
+                                                                                         row.type === 'date' ? (
+                                                                                             <span>
+                                                                                                 {row.value ? new Date(row.value).toLocaleDateString() : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                                             </span>
+                                                                                         ) : row.type === 'month' ? (
+                                                                                             <span className="font-mono">
+                                                                                                 {row.value || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                                             </span>
+                                                                                         ) : row.type === 'boolean' ? (
+                                                                                             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                                                                                 {row.value ? 'Entregue' : <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                                             </span>
+                                                                                         ) : (
+                                                                                             <span className="font-mono">
+                                                                                                 {row.value || <span className="text-gray-400 italic font-normal text-xs">Unset...</span>}
+                                                                                             </span>
+                                                                                         )
+                                                                                     )}
+                                                                                 </td>
+                                                                                 <td className="px-4 py-3 text-center">
+                                                                                     {renderFileCell(row.category)}
+                                                                                 </td>
+                                                                                 <td className="px-4 py-3 text-center">
+                                                                                     {row.type === 'date' ? (
+                                                                                         renderDateStatus(row.value)
+                                                                                     ) : (
+                                                                                         renderFieldStatus(!!row.value || documents.some(d => d.entityId === corporateEntityId && d.category === row.category && !d.archived))
+                                                                                     )}
+                                                                                 </td>
+                                                                             </tr>
+                                                                         ))}
+                                                                     </React.Fragment>
+                                                                 );
+                                                             })}
+                                                         </tbody>
+                                                     </table>
+                                                 </div>
+                                             </div>
+                                         </div>
+                                     );
+                                 })()}
+
 
                                 {/* TAB 3: DOCUMENTOS */}
                                 {companyModalTab === 'documents' && (

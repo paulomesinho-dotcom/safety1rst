@@ -43,8 +43,10 @@ interface Props {
 
 // Standard metadata for dates and expiration
 const STANDARD_DATE_DOC_CONFIG: Record<string, { isMonth?: boolean; defaultExpiry: boolean }> = {
-    insurance_at: { defaultExpiry: true },
-    insurance_rc: { defaultExpiry: true },
+    insurance_at: { defaultExpiry: false },
+    insurance_at_receipt: { defaultExpiry: true },
+    insurance_rc: { defaultExpiry: false },
+    insurance_rc_receipt: { defaultExpiry: true },
     finance_ss: { defaultExpiry: true },
     finance_fin: { defaultExpiry: true },
     ss_discount: { isMonth: true, defaultExpiry: true },
@@ -81,7 +83,7 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
             description: 'Apólices e recibos de seguros obrigatórios (Acidentes de Trabalho e Responsabilidade Civil).',
             icon: Shield,
             colorClass: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800/40',
-            standardDocIds: ['insurance_at', 'insurance_rc'],
+            standardDocIds: ['insurance_at', 'insurance_at_receipt', 'insurance_rc', 'insurance_rc_receipt'],
             defaultFolder: 'Seguros e Apólices',
             suggestedFolders: ['Seguros e Apólices', '01-Seguros', 'Apólices e Recibos']
         },
@@ -174,8 +176,10 @@ export const PROFILE_SUBJECTS: Record<ProfileType, SubjectDefinition[]> = {
 
 // Nomes descritivos padrão em português
 const DOC_FALLBACK_LABELS: Record<string, string> = {
-    insurance_at: 'Seguro de Acidentes de Trabalho',
-    insurance_rc: 'Seguro de Responsabilidade Civil',
+    insurance_at: 'Apólice de Seguro de AT',
+    insurance_at_receipt: 'Recibo Seguro AT',
+    insurance_rc: 'Apólice de Seguro de RC',
+    insurance_rc_receipt: 'Recibo Seguro RC',
     finance_ss: 'Declaração Não Dívida — Segurança Social',
     finance_fin: 'Declaração Não Dívida — Finanças (AT)',
     ss_discount: 'Folha de Remunerações / Descontos (Segurança Social)',

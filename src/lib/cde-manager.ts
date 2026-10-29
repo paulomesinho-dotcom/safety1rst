@@ -26,7 +26,13 @@ export const DEFAULT_SUBJECT_FOLDERS: Record<string, string> = {
 export const REQUIREMENT_TO_SUBJECT_MAP: Record<string, { theme: 'company' | 'worker' | 'equipment'; subjectId: string }> = {
     // Empresa / Organizações
     insurance_at: { theme: 'company', subjectId: 'insurance_policies' },
+    insurance_at_receipt: { theme: 'company', subjectId: 'insurance_policies' },
+    insurance_work_acc_policy: { theme: 'company', subjectId: 'insurance_policies' },
+    insurance_work_acc_receipt: { theme: 'company', subjectId: 'insurance_policies' },
     insurance_rc: { theme: 'company', subjectId: 'insurance_policies' },
+    insurance_rc_receipt: { theme: 'company', subjectId: 'insurance_policies' },
+    insurance_civil_policy: { theme: 'company', subjectId: 'insurance_policies' },
+    insurance_civil_receipt: { theme: 'company', subjectId: 'insurance_policies' },
     finance_ss: { theme: 'company', subjectId: 'state_obligations' },
     finance_fin: { theme: 'company', subjectId: 'state_obligations' },
     ss_discount: { theme: 'company', subjectId: 'state_obligations' },

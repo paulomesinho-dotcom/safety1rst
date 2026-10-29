@@ -792,11 +792,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 const companyProfile: CompanyProfile = {
                     id: stdCompanyId, projectId: proj.id, name: 'Standard',
                     requirements: {
-                        insurance_at: true, insurance_rc: true, finance_ss: true, finance_fin: true,
+                        insurance_at: true, insurance_at_receipt: true, insurance_rc: true, insurance_rc_receipt: true, finance_ss: true, finance_fin: true,
                         ss_discount: true, pss_acceptance: true, work_schedule: true
                     },
                     standardUploads: {
-                        insurance_at: true, insurance_rc: true, finance_ss: true, finance_fin: true,
+                        insurance_at: true, insurance_at_receipt: true, insurance_rc: true, insurance_rc_receipt: true, finance_ss: true, finance_fin: true,
                         ss_discount: true, pss_acceptance: true, work_schedule: true
                     },
                     subjectFolders: {
@@ -1600,12 +1600,17 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const compProfile: CompanyProfile = {
             id: stdCompanyId, projectId, name: 'Standard',
             requirements: {
-                insurance_at: true, insurance_rc: true, finance_ss: true, finance_fin: true,
+                insurance_at: true, insurance_at_receipt: true, insurance_rc: true, insurance_rc_receipt: true, finance_ss: true, finance_fin: true,
                 ss_discount: true, pss_acceptance: true, work_schedule: true
             },
             standardUploads: {
-                insurance_at: true, insurance_rc: true, finance_ss: true, finance_fin: true,
+                insurance_at: true, insurance_at_receipt: true, insurance_rc: true, insurance_rc_receipt: true, finance_ss: true, finance_fin: true,
                 ss_discount: true, pss_acceptance: true, work_schedule: true
+            },
+            subjectFolders: {
+                insurance_policies: 'Seguros e Apólices',
+                state_obligations: 'Obrigações do Estado',
+                site_documents: 'Documentos de Obra'
             },
             customDocuments: [], isSystem: false, createdAt
         };
@@ -3683,8 +3688,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 if (type === 'company') {
                     // Map of standard doc ID → { entityField, fieldName, isMonth, defaultExpiry }
                     const STANDARD_DOC_MAP: Record<string, { entityField: string; fieldName: string; isMonth?: boolean; defaultExpiry: boolean }> = {
-                        insurance_at: { entityField: 'insuranceWorkAccDate', fieldName: 'Seg. Acid. Trabalho', defaultExpiry: true },
-                        insurance_rc: { entityField: 'insuranceCivilDate', fieldName: 'Seg. Resp. Civil', defaultExpiry: true },
+                        insurance_at: { entityField: 'insuranceWorkAccPolicy', fieldName: 'Apólice Seguro AT', defaultExpiry: false },
+                        insurance_at_receipt: { entityField: 'insuranceWorkAccDate', fieldName: 'Recibo Seguro AT', defaultExpiry: true },
+                        insurance_rc: { entityField: 'insuranceCivilPolicy', fieldName: 'Apólice Seguro RC', defaultExpiry: false },
+                        insurance_rc_receipt: { entityField: 'insuranceCivilDate', fieldName: 'Recibo Seguro RC', defaultExpiry: true },
                         finance_ss: { entityField: 'cleanSSDate', fieldName: 'N/ Dívida SS', defaultExpiry: true },
                         finance_fin: { entityField: 'cleanFinDate', fieldName: 'N/ Dívida Finanças', defaultExpiry: true },
                         ss_discount: { entityField: 'ssDiscountSheet', fieldName: 'Folha Desc. SS', defaultExpiry: true, isMonth: true },
