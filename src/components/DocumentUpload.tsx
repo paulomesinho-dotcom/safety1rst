@@ -6,6 +6,7 @@ import { useStore } from '../store/useStore';
 import { scanDocument, type ExtractedData } from '../utils/ai-scanner';
 import { PDFViewerModal } from './PDFViewerModal';
 import { uploadToEntityFolder } from '../lib/cde-manager';
+import { generateIfcIsoDocumentName } from '../lib/ifc-document-naming';
 
 interface DocumentUploadProps {
     entityId: string;
@@ -16,12 +17,13 @@ interface DocumentUploadProps {
     systemLabel?: string;
     enableAI?: boolean; // New prop to enable AI scanning
     aiType?: 'date' | 'text'; // Type of data to extract
+    draftAuthorId?: string;
     onUploadComplete?: () => void;
     onSmartComplete?: (data: ExtractedData) => void;
     onOperation?: (op: { type: 'upload', fileId: string, archivedId?: string, archivedParentId?: string }) => void;
 }
 
-export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projectId, category, layout = 'zone', label, systemLabel, enableAI = false, aiType = 'text', onUploadComplete, onSmartComplete, onOperation }) => {
+export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projectId, category, layout = 'zone', label, systemLabel, enableAI = false, aiType = 'text', draftAuthorId, onUploadComplete, onSmartComplete, onOperation }) => {
     const { addDocument, updateDocument, documents, projects } = useStore();
     const [uploading, setUploading] = useState(false);
     const [scanning, setScanning] = useState(false);
@@ -103,33 +105,29 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                         if (entityType) {
                             console.log(`DocumentUpload: Uploading to Entity Folder (${entityType})...`);
 
-                            // System Naming Logic
-                            const namingSource = systemLabel || label;
-
-                            if (namingSource && namingSource !== 'Upload') {
-                                const extension = file.name.split('.').pop();
-                                const safeName = namingSource.replace(/[^a-zA-Z0-9]/g, '_');
-                                const systemName = `${safeName}.${extension}`;
-                                console.log(`DocumentUpload: Renaming '${file.name}' to '${systemName}' for System Consistency`);
-                                fileToUpload = new File([file], systemName, { type: file.type });
-                            }
-
-                            // Determine Version Tag for Archiving
-                            let versionTag: string | undefined;
-                            // Check against documents in store with same name + entity + category
-                            // We use `fileToUpload.name` because that's what `uploadToEntityFolder` uses for collision check.
+                            // Determine Version & Archiving according to ISO 19650 / IFC
                             const documents = useStore.getState().documents;
                             const existingActiveDoc = documents.find(d =>
                                 d.entityId === entityId &&
-                                d.category === category && // Category match important if same filenames allow in diff categories
-                                !d.archived &&
-                                d.name === fileToUpload.name
+                                d.category === category &&
+                                !d.archived
                             );
 
-                            if (existingActiveDoc) {
-                                versionTag = `v${existingActiveDoc.version || 1}`;
-                                console.log(`DocumentUpload: Found existing active doc ${existingActiveDoc.name} (v${existingActiveDoc.version}). Will archive as ${versionTag}`);
-                            }
+                            const nextVersion = existingActiveDoc ? (existingActiveDoc.version || 1) + 1 : 1;
+                            const versionTag = existingActiveDoc ? `v${existingActiveDoc.version || 1}` : undefined;
+
+                            // Standardized ISO 19650 / IFC Naming
+                            const ifcRole = company?.companyRole || (company as any)?.ifcActorRole || 'subempreiteiro';
+                            const ifcStandardName = generateIfcIsoDocumentName({
+                                entityIdentifier: entityIdentifier || company?.nif || 'ENT',
+                                ifcRole: ifcRole,
+                                category: category || 'general',
+                                version: nextVersion,
+                                originalFileName: file.name
+                            });
+
+                            console.log(`DocumentUpload: Renaming '${file.name}' to ISO 19650/IFC '${ifcStandardName}' (Version ${nextVersion})`);
+                            fileToUpload = new File([file], ifcStandardName, { type: file.type });
 
                             const uploadRes = await uploadToEntityFolder(
                                 effectiveCdeConfig,
@@ -190,6 +188,23 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                         else fileUrl = URL.createObjectURL(file);
                     }
 
+                    // Archive previous active document in store if replacing
+                    const currentDocs = useStore.getState().documents;
+                    const prevDocToArchive = currentDocs.find(d =>
+                        d.entityId === entityId &&
+                        d.category === category &&
+                        !d.archived
+                    );
+                    if (prevDocToArchive) {
+                        updateDocument(prevDocToArchive.id, {
+                            archived: true,
+                            archivedAt: new Date().toISOString()
+                        });
+                        console.log(`DocumentUpload: Archived previous active document ${prevDocToArchive.name} (v${prevDocToArchive.version || 1})`);
+                    }
+
+                    const nextDocVersion = prevDocToArchive ? (prevDocToArchive.version || 1) + 1 : 1;
+
                     addDocument({
                         name: fileToUpload.name,
                         size: formatFileSize(file.size),
@@ -201,6 +216,9 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
                         category: category,
                         provider: provider as any,
                         status: status,
+                        version: nextDocVersion,
+                        archived: false,
+                        draftAuthorId: draftAuthorId,
                     } as any);
 
                     // Trigger AI
@@ -232,7 +250,7 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
             if (onUploadComplete) onUploadComplete();
         }, 500);
 
-    }, [entityId, projectId, category, provider, addDocument, onUploadComplete, enableAI, aiType, onSmartComplete, project]);
+    }, [entityId, projectId, category, provider, addDocument, onUploadComplete, enableAI, aiType, onSmartComplete, project, draftAuthorId]);
 
     const { getRootProps, getInputProps, isDragActive, open } = useDropzone({ onDrop, noClick: layout === 'button' });
 

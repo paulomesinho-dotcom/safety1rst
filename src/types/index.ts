@@ -369,6 +369,7 @@ export interface Company {
     // Added Status to Company
     status?: 'active' | 'inactive';
     draftData?: Partial<Company>; // Draft data for Data Users
+    draftAuthorId?: string; // ID of the user currently editing the draft
 
     // Profiles
     profileId?: string;
@@ -823,6 +824,7 @@ export interface Document {
     approvalStatus?: 'draft' | 'shared' | 'published' | 'archived'; // ISO 19650 States
     approvedById?: string; // Fk to Users
     approvedAt?: string;
+    draftAuthorId?: string; // ID of the user who uploaded the draft document (private to user until workflow submission)
     fileHash?: string; // SHA-256 for legal integrity
     isConfidential?: boolean;
     gdprBasis?: string; // Base legal de retenção de dados
@@ -836,6 +838,7 @@ export interface Document {
     status: 'synced' | 'pending' | 'error';
     aiData?: any;
     archived?: boolean;
+    archivedAt?: string;
     version?: number; // Internal db versioning, not visual document revision
     createdAt: string;
 }

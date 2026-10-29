@@ -28,6 +28,7 @@ import {
     COMPANY_SPECIAL_SUBFOLDERS 
 } from '@/lib/cde-manager';
 import { DocumentUpload } from '@/components/DocumentUpload';
+import { PDFViewerModal } from '@/components/PDFViewerModal';
 import { DocumentList } from '@/components/DocumentList';
 import { GoogleDriveIcon } from '@/components/GoogleDriveIcons';
 import { 
@@ -374,6 +375,9 @@ export default function MyCompanyPage() {
     // Company Details Modal (View vs Edit mode)
     const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
     const [companyModalMode, setCompanyModalMode] = useState<'view' | 'edit'>('view');
+    const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
+    const [isVersionWarningModalOpen, setIsVersionWarningModalOpen] = useState(false);
+    const [hasNewUploadedDocsInSession, setHasNewUploadedDocsInSession] = useState(false);
     const [companyModalTab, setCompanyModalTab] = useState<'identification' | 'legal' | 'documents'>('identification');
     const [companySearchTerm, setCompanySearchTerm] = useState('');
 
@@ -1719,18 +1723,22 @@ export default function MyCompanyPage() {
     };
 
     const renderFileCell = (category: string) => {
-        const hasDoc = documents.some(d => d.entityId === corporateEntityId && d.category === category && !d.archived);
+        const doc = documents.find(d => d.entityId === corporateEntityId && d.category === category && !d.archived);
         return (
             <div className="flex items-center justify-center gap-2">
-                {hasDoc ? (
+                {doc ? (
                     <button
                         type="button"
                         onClick={(e) => {
                             e.stopPropagation();
-                            setCompanyModalTab('documents');
+                            if (doc.url || doc.cdeFileId) {
+                                setViewerDoc({ url: doc.url || '', name: doc.name || 'Documento' });
+                            } else {
+                                addNotification('info', 'O documento não possui pré-visualização direta disponível.');
+                            }
                         }}
                         className="inline-flex items-center justify-center p-1.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-md border border-green-200 dark:border-green-500/30 hover:scale-105 transition-transform cursor-pointer"
-                        title="Ver no Dossier Documental"
+                        title="Abrir Visualizador Direto"
                     >
                         <FileText size={16} />
                     </button>
@@ -1742,18 +1750,25 @@ export default function MyCompanyPage() {
                         <FileText size={16} />
                     </div>
                 )}
-                <DocumentUpload
-                    entityId={corporateEntityId}
-                    projectId={corporateEntityId}
-                    category={category}
-                    layout="button"
-                    label=""
-                />
+                {companyModalMode === 'edit' && (
+                    <DocumentUpload
+                        entityId={corporateEntityId}
+                        projectId={corporateEntityId}
+                        category={category}
+                        layout="button"
+                        label=""
+                        onOperation={(op) => {
+                            if (op.type === 'upload') {
+                                setHasNewUploadedDocsInSession(true);
+                            }
+                        }}
+                    />
+                )}
             </div>
         );
     };
 
-    // Save Worker (IFC Standardized ISO 16739)
+        // Save Worker (IFC Standardized ISO 16739)
     const handleSaveWorker = (e: React.FormEvent) => {
         e.preventDefault();
         const fullName = [workerForm.firstName.trim(), workerForm.middleName.trim(), workerForm.lastName.trim()]
@@ -2154,8 +2169,13 @@ export default function MyCompanyPage() {
                                                     <button
                                                         type="button"
                                                         onClick={(e) => {
-                                                            handleSaveCompany(e);
-                                                            setCompanyModalMode('view');
+                                                            const compDocs = documents.filter(d => d.entityId === corporateEntityId && !d.archived);
+                                                            if (compDocs.length > 0 || hasNewUploadedDocsInSession) {
+                                                                setIsVersionWarningModalOpen(true);
+                                                            } else {
+                                                                handleSaveCompany(e);
+                                                                setCompanyModalMode('view');
+                                                            }
                                                         }}
                                                         className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#4285F4] hover:bg-[#3367D6] rounded-lg transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
                                                     >
@@ -5778,8 +5798,13 @@ export default function MyCompanyPage() {
                                             type="button"
                                             onClick={(e) => {
                                                 if (activeTab === 'organization') {
-                                                    handleSaveCompany(e);
-                                                    setCompanyModalMode('view');
+                                                    const compDocs = documents.filter(d => d.entityId === corporateEntityId && !d.archived);
+                                                    if (compDocs.length > 0 || hasNewUploadedDocsInSession) {
+                                                        setIsVersionWarningModalOpen(true);
+                                                    } else {
+                                                        handleSaveCompany(e);
+                                                        setCompanyModalMode('view');
+                                                    }
                                                 } else if (activeTab === 'workers') {
                                                     handleSaveWorker(e);
                                                 } else if (activeTab === 'equipment') {
@@ -6457,6 +6482,62 @@ export default function MyCompanyPage() {
                             </div>
                         </div>
                     </Modal>
+
+                    {/* Modal de Aviso de Versionamento de Documentos ISO 19650 */}
+                    <Modal
+                        title="Registo Oficial e Versionamento de Documentação"
+                        isOpen={isVersionWarningModalOpen}
+                        onClose={() => setIsVersionWarningModalOpen(false)}
+                    >
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3 p-3.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/40 rounded-xl text-blue-800 dark:text-blue-300">
+                                <Shield size={20} className="shrink-0 text-primary" />
+                                <div className="text-xs">
+                                    <p className="font-bold">Norma de Gestão da Informação (ISO 19650 / IFC)</p>
+                                    <p className="text-[11px] text-blue-700/80 dark:text-blue-300/80 mt-0.5">
+                                        Os documentos anexados serão associados à organização com versão controlada.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                                Ao guardar as alterações, os documentos carregados para a organização <strong className="text-[var(--text)]">{companyForm.name || 'A Minha Empresa'}</strong> serão guardados oficialmente com versão e nomenclatura normalizada (ISO 19650).
+                            </p>
+
+                            <div className="p-3 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl text-[11px] text-[var(--text-muted)] space-y-1.5">
+                                <p>• Para efetuar qualquer alteração ou substituição posterior, será necessário <strong>emitir uma nova revisão documental</strong> (ex: V02, V03).</p>
+                                <p>• As versões anteriores serão automaticamente preservadas em <strong>arquivo histórico</strong>, assegurando a integridade e rastreabilidade jurídica.</p>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-2 pt-2">
+                                <SecondaryButton
+                                    type="button"
+                                    onClick={() => setIsVersionWarningModalOpen(false)}
+                                >
+                                    Cancelar
+                                </SecondaryButton>
+                                <PrimaryButton
+                                    type="button"
+                                    onClick={() => {
+                                        setIsVersionWarningModalOpen(false);
+                                        setHasNewUploadedDocsInSession(false);
+                                        handleSaveCompany();
+                                        setCompanyModalMode('view');
+                                    }}
+                                >
+                                    Confirmar e Guardar
+                                </PrimaryButton>
+                            </div>
+                        </div>
+                    </Modal>
+
+                    {/* Visualizador Direto de Documentos */}
+                    <PDFViewerModal
+                        isOpen={!!viewerDoc}
+                        onClose={() => setViewerDoc(null)}
+                        fileUrl={viewerDoc?.url || ''}
+                        fileName={viewerDoc?.name || 'Documento'}
+                    />
 
                     {/* Modal Perfis de Documentos da Empresa */}
                     {isProfileModalOpen && (

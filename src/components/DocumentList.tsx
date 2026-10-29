@@ -19,7 +19,7 @@ interface DocumentListProps {
 
 export const DocumentList: React.FC<DocumentListProps> = ({ projectId, entityId, className, showProjectDocs, category, isEditing, workflowStatus, onDelete }) => {
     const t = useTranslations('Components.DocumentList'); // Use "Components" namespace if configured or "DocumentList" if root. Structure is Components.DocumentList
-    const { getDocumentsByEntity, deleteDocument, unarchiveDocument, documents, projects, updateDocument } = useStore();
+    const { getDocumentsByEntity, deleteDocument, unarchiveDocument, documents, projects, updateDocument, currentUser } = useStore();
     const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
     const [editingDocId, setEditingDocId] = useState<string | null>(null);
     const [draftDoc, setDraftDoc] = useState<Partial<any>>({});
@@ -34,6 +34,8 @@ export const DocumentList: React.FC<DocumentListProps> = ({ projectId, entityId,
     // - If NO `category` prop is passed (Files Tab): Show ALL (Active + Archived).
 
     let entityDocs = getDocumentsByEntity(entityId);
+    const isReviewerMode = workflowStatus === 'validation_pending' || workflowStatus === 'approval_pending';
+    entityDocs = entityDocs.filter(d => !d.draftAuthorId || d.draftAuthorId === currentUser?.id || isReviewerMode);
 
     if (category) {
         // Field View: Specific Category, Active Only

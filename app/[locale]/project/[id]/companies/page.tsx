@@ -68,6 +68,7 @@ import { useTranslations } from "next-intl";
 import { ConfirmationModal } from "@/components/ConfirmationModal";
 
 import { PDFConfigModal } from "@/components/PDFConfigModal";
+import { PDFViewerModal } from "@/components/PDFViewerModal";
 import { DocumentUpload } from "@/components/DocumentUpload";
 import { DocumentList } from "@/components/DocumentList";
 import { WorkflowHistory } from "@/components/WorkflowHistory";
@@ -694,6 +695,7 @@ export default function CompaniesPage() {
     addTicketMessage,
     deleteTicketMessage,
     documents,
+    updateDocument,
     addDocument,
     deleteDocument,
     unarchiveDocument,
@@ -736,6 +738,7 @@ export default function CompaniesPage() {
       addTicketMessage: state.addTicketMessage,
       deleteTicketMessage: state.deleteTicketMessage,
       documents: state.documents,
+      updateDocument: state.updateDocument,
       addDocument: state.addDocument,
       deleteDocument: state.deleteDocument,
       unarchiveDocument: state.unarchiveDocument,
@@ -907,6 +910,7 @@ export default function CompaniesPage() {
   const [newItem, setNewItem] = useState(initialFormState);
   const [mode, setMode] = useState<"create" | "details">("create");
   const [sessionUploads, setSessionUploads] = useState<string[]>([]);
+  const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
 
   const handleSessionUpload = (cdeId: string) => {
     setSessionUploads((prev) => [...prev, cdeId]);
@@ -2832,6 +2836,7 @@ export default function CompaniesPage() {
           // We also need to be careful not to lose existing draftData structure if any
           const draftUpdate = {
             ...realCompany,
+            draftAuthorId: currentUser?.id,
             fieldValidations: (newItem as any).fieldValidations, // Fix: Ensure validations are saved to ROOT
             draftData: {
               ...draftPayload,
@@ -2841,12 +2846,19 @@ export default function CompaniesPage() {
 
           updateCompany((newItem as any).id, draftUpdate);
         } else {
-          // Standard Root Update for other statuses (or if we decide Manager always writes to root in other cases)
-          console.log(
-            "[handleSubmit] Manager Direct Update (Root):",
-            submissionItem,
-          );
-          updateCompany((newItem as any).id, submissionItem);
+          // Manager saving draft before workflow advancement -> save to draftData isolated to user
+          const { draftData: _ignored, ...draftPayload } = submissionItem;
+          const draftUpdate = {
+            ...realCompany,
+            draftAuthorId: currentUser?.id,
+            fieldValidations: (newItem as any).fieldValidations,
+            draftData: {
+              ...draftPayload,
+              fieldValidations: (newItem as any).fieldValidations,
+            },
+          } as Company;
+          console.log("[handleSubmit] Manager Saving Draft (Isolated):", draftUpdate);
+          updateCompany((newItem as any).id, draftUpdate);
         }
 
         // Show "Saved" message and keep modal open
@@ -2870,6 +2882,7 @@ export default function CompaniesPage() {
 
         const draftUpdate = {
           ...realCompany,
+          draftAuthorId: currentUser?.id,
           draftData: draftPayload,
         } as Company;
         console.log("[handleSubmit] Calling updateCompany with:", draftUpdate);
@@ -3012,7 +3025,11 @@ export default function CompaniesPage() {
       isAssigned &&
       company.workflowStatus === "validation_pending";
 
-    if ((shouldEdit || isManagerReviewing || isDataUserViewingSubmission) && company.draftData) {
+    const isDraftAuthor = !company.draftAuthorId || company.draftAuthorId === currentUser?.id;
+    const isSubmittedForReview = company.workflowStatus === "validation_pending" || company.workflowStatus === "approval_pending";
+    const canSeeDraft = company.draftData && (isDraftAuthor || isSubmittedForReview);
+
+    if ((shouldEdit || isManagerReviewing || isDataUserViewingSubmission) && canSeeDraft) {
       // If Data User is editing OR Manager is reviewing, load draft data!
       const merged = { ...formCompany, ...company.draftData };
       // Ensure Critical Fields are NOT overwritten by stale draft data (optional, but good practice)
@@ -3064,7 +3081,11 @@ export default function CompaniesPage() {
         assignedDataUserId: effectiveAssignedId,
       };
 
-      if (company.draftData) {
+      const isDraftAuthor = !company.draftAuthorId || company.draftAuthorId === currentUser?.id;
+      const isSubmittedForReview = company.workflowStatus === "validation_pending" || company.workflowStatus === "approval_pending";
+      const canSeeDraft = company.draftData && (isDraftAuthor || isSubmittedForReview);
+
+      if (canSeeDraft) {
         // If Data User is editing and there is draft data, load it!
         const merged = { ...formCompany, ...company.draftData };
         // Ensure Critical Fields are NOT overwritten by stale draft data
@@ -5439,12 +5460,15 @@ export default function CompaniesPage() {
                                       </td>
                                     </tr>
                                     {rows.map((row: any) => {
-                                      const hasDocs = documents.some(
+                                      const isCompanyReviewMode = newItem?.workflowStatus === "validation_pending" || newItem?.workflowStatus === "approval_pending";
+                                      const rowDoc = documents.find(
                                         (d) =>
                                           d.entityId === row.entityId &&
                                           d.category === row.category &&
-                                          !d.archived,
+                                          !d.archived &&
+                                          (!d.draftAuthorId || d.draftAuthorId === currentUser?.id || isCompanyReviewMode),
                                       );
+                                      const hasDocs = !!rowDoc;
                                       return (
                                         <tr
                                           key={row.id}
@@ -5581,10 +5605,14 @@ export default function CompaniesPage() {
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setActiveTab("docs");
+                                                    if (rowDoc?.url || rowDoc?.cdeFileId) {
+                                                      setViewerDoc({ url: rowDoc.url || '', name: rowDoc.name || 'Documento' });
+                                                    } else {
+                                                      alert('O documento não possui pré-visualização direta disponível.');
+                                                    }
                                                   }}
                                                   className="inline-flex items-center justify-center p-1.5 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 rounded-md border border-green-200 dark:border-green-500/30 hover:scale-105 transition-transform cursor-pointer"
-                                                  title="Ver no Dossier Documental"
+                                                  title="Abrir Visualizador Direto"
                                                 >
                                                   <FileText size={16} />
                                                 </button>
@@ -5604,6 +5632,7 @@ export default function CompaniesPage() {
                                                   layout="button"
                                                   label=""
                                                   systemLabel={row.label}
+                                                  draftAuthorId={currentUser?.id}
                                                   enableAI={true}
                                                   aiType={row.type === "date" ? "date" : "text"}
                                                   onOperation={(op) => {
@@ -6109,8 +6138,15 @@ export default function CompaniesPage() {
                           workflowStatus: newStatus as any,
                         };
                         delete (fieldsToSave as any).draftData; // Ensure we don't nest draft data
+                        delete (fieldsToSave as any).draftAuthorId;
 
                         updateCompany((newItem as any).id, fieldsToSave);
+
+                        // Promote manager's uploaded documents so they become official and visible
+                        const companyDraftDocs = documents.filter((d) => d.entityId === (newItem as any).id && d.draftAuthorId);
+                        companyDraftDocs.forEach((d) => {
+                          updateDocument(d.id, { draftAuthorId: undefined, approvalStatus: 'shared' });
+                        });
                       } else if (isSubmitReview) {
                         // Approval User Submitting Review
                         const companyDraftTickets = tickets.filter(
@@ -6241,6 +6277,7 @@ export default function CompaniesPage() {
                             const updatePayload = {
                               workflowStatus: finalStatus,
                               draftData: draftPayload,
+                              draftAuthorId: undefined, // Clear author restriction so reviewer sees the submission
                             };
 
                             console.log(
@@ -6251,6 +6288,12 @@ export default function CompaniesPage() {
                               (newItem as any).id,
                               updatePayload as any,
                             );
+
+                            // Promote draft documents to shared so Manager can review them
+                            const companyDraftDocs = documents.filter((d) => d.entityId === (newItem as any).id && d.draftAuthorId);
+                            companyDraftDocs.forEach((d) => {
+                              updateDocument(d.id, { draftAuthorId: undefined, approvalStatus: 'shared' });
+                            });
                           } else {
                             // MANAGER SUBMIT (Approval or Validation)
                             // Action: Merge 'newItem' (which is the View of Draft) into Root.
@@ -6260,8 +6303,15 @@ export default function CompaniesPage() {
                               ...newItem,
                               workflowStatus: finalStatus,
                             };
-                            // Explicitly clear draftData
+                            // Explicitly clear draftData and draftAuthorId
                             (fieldsToSave as any).draftData = {};
+                            delete (fieldsToSave as any).draftAuthorId;
+
+                            // Promote all draft documents to published
+                            const companyDraftDocs = documents.filter((d) => d.entityId === (newItem as any).id && d.draftAuthorId);
+                            companyDraftDocs.forEach((d) => {
+                              updateDocument(d.id, { draftAuthorId: undefined, approvalStatus: 'published' });
+                            });
 
                             // AUTO-FILL ENTRY DATE
                             const isApprovalEnabled =
@@ -6357,6 +6407,13 @@ export default function CompaniesPage() {
             ? `${t("common.review")}: ${reviewField.label}`
             : t("common.review")
         }
+      />
+
+      <PDFViewerModal
+        isOpen={!!viewerDoc}
+        onClose={() => setViewerDoc(null)}
+        fileUrl={viewerDoc?.url || ''}
+        fileName={viewerDoc?.name || 'Documento'}
       />
     </div>
   );
