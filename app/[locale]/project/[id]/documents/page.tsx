@@ -1,63 +1,71 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
-import { Upload, Search, Archive, Plus, ChevronDown, ChevronRight, FileText, FolderPlus } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { 
+    Folder, Cloud, FolderPlus, Plus, ChevronDown, ChevronRight, 
+    FileText, Search, RotateCw, ExternalLink, Archive, CheckCircle2, 
+    FolderCheck, Upload
+} from 'lucide-react';
 import { useStore } from '@/store/useStore';
-import { archiveCDEFile, refreshDropboxToken, initializeProjectStructure, createOneDriveFolder } from '@/lib/cde-manager';
+import { 
+    initializeProjectStructure, 
+    createOneDriveFolder, 
+    archiveCDEFile, 
+    uploadToCDEFolder 
+} from '@/lib/cde-manager';
 import { GoogleDriveIcon } from '@/components/GoogleDriveIcons';
+import { CDESettingsModal } from '@/components/CDESettingsModal';
+import { Modal, PrimaryButton, SecondaryButton } from '@/components/Modal';
+import { PDFViewerModal } from '@/components/PDFViewerModal';
+import { cn } from '@/lib/utils';
 
-const Documents = () => {
+export default function ProjectDocumentsPage() {
     const params = useParams();
     const projectId = params?.id as string;
-    const { projects, updateProjectCDE, getDocumentsByProject } = useStore();
+    const { projects, updateProjectCDE, getDocumentsByProject, addNotification, currentUser } = useStore();
 
-    // Get current project and documents
     const project = projects.find(p => p.id === projectId);
+    const cdeConfig = project?.cdeConfig;
     const dbDocuments = getDocumentsByProject(projectId);
 
-    // Create a lookup map for DB documents by CDE File ID (Primary) and Name (Secondary)
-    const dbDocMapById = new Map<string, any>();
-    const dbDocMapByName = new Map<string, any>();
+    // Map DB documents by CDE File ID and Name
+    const dbDocMapById = useMemo(() => {
+        const map = new Map<string, any>();
+        dbDocuments.forEach(doc => {
+            if (doc.cdeFileId) map.set(doc.cdeFileId, doc);
+        });
+        return map;
+    }, [dbDocuments]);
 
-    dbDocuments.forEach(doc => {
-        if (doc.cdeFileId) {
-            dbDocMapById.set(doc.cdeFileId, doc);
-        }
-        if (doc.name) {
-            dbDocMapByName.set(doc.name.toLowerCase(), doc);
-        }
-    });
+    const dbDocMapByName = useMemo(() => {
+        const map = new Map<string, any>();
+        dbDocuments.forEach(doc => {
+            if (doc.name) map.set(doc.name.toLowerCase(), doc);
+        });
+        return map;
+    }, [dbDocuments]);
 
-    // CDE Specific Colors
-    const getFolderColor = () => {
-        const provider = project?.cdeConfig?.provider;
-        if (provider === 'dropbox') return '#A0C4FF';
-        if (provider === 'onedrive') return '#FFD84C';
-        return undefined; // Google Drive / Default
-    };
-    const folderColor = getFolderColor();
-
-
-
-    // Drive State
-    const [currentPath, setCurrentPath] = useState<Array<{ id: string, name: string }>>([]);
-    const [driveItems, setDriveItems] = useState<any[]>([]); // Content of the current view (Right pane)
+    // Navigation and Explorer State
+    const [currentPath, setCurrentPath] = useState<Array<{ id: string; name: string }>>([]);
+    const [driveItems, setDriveItems] = useState<any[]>([]);
+    const [treeData, setTreeData] = useState<Record<string, any[]>>({});
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root']));
     const [isLoadingDrive, setIsLoadingDrive] = useState(false);
-    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-
-    // Tree State
-    const [treeData, setTreeData] = useState<Record<string, any[]>>({}); // Cache of folder children for the tree
-    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-
-    // UI State
-    const [isSidebarExpanded, setIsSidebarExpanded] = useState(true); // Default open (per user request "vista inicial predefinida... mostrar todas as pastas")
-    const [isNewMenuOpen, setIsNewMenuOpen] = useState(false);
-    const [isInitializing, setIsInitializing] = useState(false);
     const [cdeLoadError, setCdeLoadError] = useState<string>('');
-    const prevFolderIdRef = useRef<string | undefined>(project?.cdeConfig?.folderId);
+    const [searchQuery, setSearchQuery] = useState('');
 
+    // Actions & Modals State
+    const [isNewMenuOpen, setIsNewMenuOpen] = useState(false);
+    const [isCdeModalOpen, setIsCdeModalOpen] = useState(false);
+    const [isInitializingFolders, setIsInitializingFolders] = useState(false);
+    const [isInitResultModalOpen, setIsInitResultModalOpen] = useState(false);
+    const [initResultLogs, setInitResultLogs] = useState<string[]>([]);
+    const [isNewFolderModalOpen, setIsNewFolderModalOpen] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [viewerDoc, setViewerDoc] = useState<{ url: string; name: string } | null>(null);
+
+    const prevCdeFolderKeyRef = useRef<string>('');
     const fileInputUploadRef = useRef<HTMLInputElement>(null);
     const folderInputRef = useRef<HTMLInputElement>(null);
 
@@ -75,1073 +83,821 @@ const Documents = () => {
             .catch(err => console.warn('[CDE] Sync project cdeConfig failed:', err));
     }, [projectId, updateProjectCDE]);
 
+    // Fetch live folder content from the server-side CDE action endpoint
+    const fetchCdeContent = async (cfg: any, folderId: string): Promise<any[]> => {
+        if (!projectId || !cfg?.connected) return [];
+        const serverFolderId = (!folderId || folderId === 'root' || folderId === cfg?.folderId) ? 'root' : folderId;
 
+        const res = await fetch(`/api/projects/${projectId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'list',
+                payload: { folderId: serverFolderId }
+            })
+        });
 
-    const extractFolderId = (url: string) => {
-        if (!url) return null;
-        const folderMatch = url.match(/folders\/([-a-zA-Z0-9_]+)/);
-        if (folderMatch) return folderMatch[1];
-        const idMatch = url.match(/id=([-a-zA-Z0-9_]+)/);
-        if (idMatch) return idMatch[1];
-        return null;
-    };
-
-
-
-    // Generic fetch that returns the items (doesn't set state directly)
-    const fetchGenericDriveContent = async (accessToken: string, folderId: string) => {
-        try {
-            const query = `'${folderId}' in parents and trashed = false`;
-            const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=folder,name&fields=files(id,name,mimeType,size,webViewLink,iconLink,createdTime,thumbnailLink)`, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-            });
-
-            if (!response.ok) {
-                // handle error
-                return [];
-            }
-            const data = await response.json();
-            return data.files || [];
-        } catch (error) {
-            console.error('Fetch Drive Logic Error:', error);
-            return [];
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new Error(data?.error || 'Falha ao carregar pastas do CDE.');
         }
+
+        return data.result?.files || [];
     };
 
-    // Helper wrappers
-    const fetchGoogleDriveContent = async (accessToken: string, folderId: string) => {
-        const items = await fetchGenericDriveContent(accessToken, folderId);
-        return items;
-    };
-
-    const createGoogleDriveFolder = async (accessToken: string, parentId: string, folderName: string) => {
-        try {
-            const metadata = {
-                name: folderName,
-                mimeType: 'application/vnd.google-apps.folder',
-                parents: [parentId]
-            };
-            const response = await fetch('https://www.googleapis.com/drive/v3/files', {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(metadata)
-            });
-            if (!response.ok) throw new Error('Failed to create folder');
-            return await response.json();
-        } catch (error) {
-            console.error('Create Folder Error:', error);
-            alert('Failed to create folder: ' + error);
-            throw error;
+    // Reset navigation & tree cache when the linked CDE folder changes
+    useEffect(() => {
+        const key = `${cdeConfig?.provider || ''}:${cdeConfig?.siteUrl || ''}:${cdeConfig?.folderId || ''}:${cdeConfig?.folderPath || ''}`;
+        if (key !== prevCdeFolderKeyRef.current) {
+            prevCdeFolderKeyRef.current = key;
+            setCurrentPath([]);
+            setTreeData({});
+            setDriveItems([]);
         }
-    };
+    }, [cdeConfig?.provider, cdeConfig?.siteUrl, cdeConfig?.folderId, cdeConfig?.folderPath]);
 
-    const uploadFileToGoogleDrive = async (accessToken: string, parentId: string, file: File) => {
-        try {
-            const metadata = {
-                name: file.name,
-                parents: [parentId]
-            };
-            const form = new FormData();
-            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-            form.append('file', file);
-
-            const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${accessToken}` },
-                body: form
-            });
-            if (!response.ok) throw new Error('Failed to upload file');
-            return await response.json();
-        } catch (error) {
-            console.error('Upload Error:', error);
-            throw error;
+    // Load live CDE content when connected or navigating
+    const loadProjectCdeView = async (overrideTargetId?: string, refreshRootAlso: boolean = false) => {
+        if (!cdeConfig?.connected) {
+            setDriveItems([]);
+            setTreeData({});
+            return;
         }
-    };
-
-    const uploadFileToDropbox = async (accessToken: string, parentPath: string, file: File) => {
-        // Dropbox Upload: 2 steps usually (Start, Append, Finish) for large files, or /upload for small
-        // For simplicity, using /files/upload (limited 150MB)
-        try {
-            const path = (parentPath === 'root' || !parentPath) ? '' : parentPath;
-            const dbxPath = `${path}/${file.name}`;
-
-            // Dropbox requires "Dropbox-API-Arg" header JSON
-            const args = {
-                path: dbxPath,
-                mode: 'add',
-                autorename: true,
-                mute: false
-            };
-
-            const response = await fetch('https://content.dropboxapi.com/2/files/upload', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Dropbox-API-Arg': JSON.stringify(args),
-                    'Content-Type': 'application/octet-stream' // Binary payload
-                },
-                body: file
-            });
-
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error('Dropbox Upload Failed: ' + errText);
-            }
-            return await response.json();
-        } catch (error) {
-            console.error('Dropbox Upload Error', error);
-            throw error;
-        }
-    };
-
-    const handleCreateFolderAction = async () => {
-        if (!project?.cdeConfig?.connected) return;
-        const name = prompt('Nome da Pasta:');
-        if (!name) return;
-
         setIsLoadingDrive(true);
-        const defaultFolderId = project?.cdeConfig?.provider === 'dropbox' ? (project.cdeConfig.folderPath || '') : (project.cdeConfig.folderId || 'root');
-        const folderId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : defaultFolderId;
-        const provider = project.cdeConfig.provider;
-
-        console.log('Creating Folder:', name, 'Provider:', provider, 'Target:', folderId);
-
+        setCdeLoadError('');
         try {
-            if (provider === 'gdrive') {
-                await createGoogleDriveFolder(project.cdeConfig.accessToken!, folderId, name);
-                const items = await fetchGoogleDriveContent(project.cdeConfig.accessToken!, folderId);
-                setDriveItems(items);
-                setTreeData(prev => ({ ...prev, [folderId]: items }));
-            } else if (provider === 'dropbox') {
-                await createDropboxFolder(project.cdeConfig.accessToken!, folderId === 'root' ? '' : folderId, name);
-                const items = await fetchDropboxContent(project.cdeConfig, folderId === 'root' ? '' : folderId);
-                setDriveItems(items);
-                setTreeData(prev => ({ ...prev, [folderId]: items }));
-            } else if (provider === 'onedrive') {
-                await createOneDriveFolder({ ...project.cdeConfig, projectId: project.id } as any, folderId, name);
-                const items = await fetchSharePointContent(project.cdeConfig, folderId);
-                setDriveItems(items);
-                const rootId = project.cdeConfig.folderId || 'root';
-                setTreeData(prev => ({ 
-                    ...prev, 
-                    [folderId]: items,
-                    [rootId]: (!currentPath.length || folderId === rootId || folderId === 'root') ? items : (prev[rootId] || items),
-                    'root': (!currentPath.length || folderId === 'root') ? items : (prev['root'] || items)
+            const targetId = overrideTargetId !== undefined
+                ? overrideTargetId
+                : (currentPath.length > 0 ? currentPath[currentPath.length - 1].id : 'root');
+            const items = await fetchCdeContent(cdeConfig, targetId);
+            setDriveItems(items);
+
+            const isRoot = !targetId || targetId === 'root' || targetId === cdeConfig.folderId;
+            if (isRoot) {
+                setTreeData(prev => ({
+                    ...prev,
+                    root: items,
+                    ...(cdeConfig.folderId ? { [cdeConfig.folderId]: items } : {})
                 }));
-            }
-        } catch (e: any) {
-            alert(`Falha ao criar pasta (${provider}): ` + e.message);
-        } finally {
-            setIsLoadingDrive(false);
-        }
-    };
-
-    const handleUploadAction = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0 || !project?.cdeConfig?.connected) return;
-
-        setIsLoadingDrive(true);
-        const defaultFolderId = project?.cdeConfig?.provider === 'dropbox' ? (project.cdeConfig.folderPath || '') : (project.cdeConfig.folderId || 'root');
-        const folderId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : defaultFolderId;
-        const provider = project.cdeConfig.provider;
-
-        console.log('Uploading', files.length, 'files. Provider:', provider);
-
-        let successCount = 0;
-        let failCount = 0;
-
-        try {
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                try {
-                    // TODO: Handle file.webkitRelativePath for folder structure preservation if needed
-                    if (provider === 'gdrive') {
-                        await uploadFileToGoogleDrive(project.cdeConfig.accessToken!, folderId, file);
-                    } else if (provider === 'dropbox') {
-                        await uploadFileToDropbox(project.cdeConfig.accessToken!, folderId === 'root' ? '' : folderId, file);
-                    } else if (provider === 'onedrive') {
-                        // Skip
-                    }
-                    successCount++;
-                } catch (e) {
-                    console.error('File Upload Failed:', file.name, e);
-                    failCount++;
+            } else {
+                setTreeData(prev => ({ ...prev, [targetId]: items }));
+                if (refreshRootAlso || !treeData['root']) {
+                    const rootItems = await fetchCdeContent(cdeConfig, 'root');
+                    setTreeData(prev => ({
+                        ...prev,
+                        [targetId]: items,
+                        root: rootItems,
+                        ...(cdeConfig.folderId ? { [cdeConfig.folderId]: rootItems } : {})
+                    }));
                 }
             }
 
-            if (provider === 'gdrive') {
-                const items = await fetchGoogleDriveContent(project.cdeConfig.accessToken!, folderId);
-                setDriveItems(items);
-            } else if (provider === 'dropbox') {
-                const items = await fetchDropboxContent(project.cdeConfig, folderId === 'root' ? '' : folderId);
-                setDriveItems(items);
-            }
-
-            if (failCount > 0) {
-                alert(`Upload Complete: ${successCount} success, ${failCount} failed.`);
-            }
-
-        } catch (e: any) {
-            alert(`Batch Upload Error (${provider}): ` + e.message);
+            setExpandedFolders(prev => {
+                const next = new Set(prev);
+                next.add('root');
+                if (cdeConfig.folderId) next.add(cdeConfig.folderId);
+                currentPath.forEach(p => next.add(p.id));
+                return next;
+            });
+        } catch (err: any) {
+            console.error('[Project CDE] Load error:', err);
+            setCdeLoadError(err?.message || 'Erro ao comunicar com o CDE.');
         } finally {
             setIsLoadingDrive(false);
-            // Reset inputs
+        }
+    };
+
+    useEffect(() => {
+        if (cdeConfig?.connected) {
+            loadProjectCdeView();
+        } else {
+            setDriveItems([]);
+            setTreeData({});
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        cdeConfig?.connected,
+        cdeConfig?.folderId,
+        cdeConfig?.folderPath,
+        cdeConfig?.lastSync,
+        currentPath
+    ]);
+
+    const toggleTreeFolderExpand = async (folderId: string) => {
+        const next = new Set(expandedFolders);
+        if (next.has(folderId)) {
+            next.delete(folderId);
+            setExpandedFolders(next);
+        } else {
+            next.add(folderId);
+            setExpandedFolders(next);
+            if (!treeData[folderId] && cdeConfig?.connected) {
+                try {
+                    const items = await fetchCdeContent(cdeConfig, folderId);
+                    setTreeData(prev => ({ ...prev, [folderId]: items }));
+                } catch (e) {
+                    console.warn('Failed to expand folder in tree:', e);
+                }
+            }
+        }
+    };
+
+    // Initialize Standard Folders
+    const handleInitializeFolders = async () => {
+        if (!cdeConfig?.connected) {
+            addNotification('warning', 'Ligue primeiro o CDE da obra para criar a estrutura de pastas tipo.');
+            setIsCdeModalOpen(true);
+            return;
+        }
+
+        const targetFolderName = cdeConfig.folderPath || (cdeConfig.provider === 'onedrive' ? 'SharePoint (Raiz)' : 'CDE');
+        const hasExisting = driveItems.length > 0 ||
+            (treeData['root'] && treeData['root'].length > 0) ||
+            (cdeConfig.folderId && treeData[cdeConfig.folderId] && treeData[cdeConfig.folderId].length > 0);
+
+        const confirmMsg = hasExisting
+            ? `As pastas tipo já parecem existir ou já foram criadas pastas na pasta:\n"${targetFolderName}"\n\nDeseja verificar e criar novamente a estrutura de pastas tipo?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`
+            : `Deseja verificar e criar a estrutura normalizada de pastas tipo na pasta:\n"${targetFolderName}"?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        setIsInitializingFolders(true);
+        try {
+            const logs = await initializeProjectStructure({
+                ...cdeConfig,
+                projectId,
+                connected: true,
+                provider: cdeConfig.provider,
+                folderPath: cdeConfig.folderPath || ''
+            } as any);
+
+            setInitResultLogs(logs);
+            setIsInitResultModalOpen(true);
+            addNotification('success', 'Estrutura documental normalizada da obra verificada no CDE com sucesso!');
+            await loadProjectCdeView(undefined, true);
+        } catch (err: any) {
+            console.error('Erro ao inicializar pastas do projeto:', err);
+            addNotification('error', `Falha ao criar pastas: ${err.message || 'Erro desconhecido'}`);
+            alert(`Erro ao criar pastas tipo: ${err.message || 'Erro desconhecido'}`);
+        } finally {
+            setIsInitializingFolders(false);
+        }
+    };
+
+    // Create New Folder in Current Path
+    const handleCreateNewFolder = async (e: React.FormEvent) => {
+        e.preventDefault();
+        const cleanName = newFolderName.trim();
+        if (!cleanName) return;
+
+        if (!cdeConfig?.connected) {
+            addNotification('warning', 'Configure primeiro a ligação ao CDE.');
+            setIsNewFolderModalOpen(false);
+            setIsCdeModalOpen(true);
+            return;
+        }
+
+        setIsNewFolderModalOpen(false);
+        setNewFolderName('');
+        setIsLoadingDrive(true);
+
+        try {
+            const parentFolderId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : 'root';
+            const effectiveConfig = {
+                ...cdeConfig,
+                projectId,
+            };
+            await createOneDriveFolder(effectiveConfig, parentFolderId, cleanName);
+            addNotification('success', `Pasta "${cleanName}" criada com sucesso no CDE!`);
+            await loadProjectCdeView(parentFolderId, true);
+        } catch (err: any) {
+            console.error('Erro ao criar pasta no CDE:', err);
+            addNotification('error', `Falha ao criar pasta no CDE: ${err.message}`);
+            alert(`Erro ao criar pasta: ${err.message}`);
+        } finally {
+            setIsLoadingDrive(false);
+        }
+    };
+
+    // Upload Files / Folders
+    const handleUploadAction = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        if (!cdeConfig?.connected) {
+            addNotification('warning', 'Ligue primeiro o CDE da obra para carregar ficheiros.');
+            setIsCdeModalOpen(true);
+            return;
+        }
+
+        setIsLoadingDrive(true);
+        try {
+            const targetFolder = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : 'root';
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                await uploadToCDEFolder(
+                    { ...cdeConfig, projectId } as any,
+                    targetFolder,
+                    file
+                );
+            }
+            addNotification('success', `${files.length} ficheiro(s) carregado(s) com sucesso para o CDE!`);
+            await loadProjectCdeView(targetFolder, true);
+        } catch (err: any) {
+            console.error('Erro no upload de ficheiros:', err);
+            addNotification('error', `Falha no upload: ${err.message}`);
+            alert(`Falha no upload: ${err.message}`);
+        } finally {
+            setIsLoadingDrive(false);
             if (fileInputUploadRef.current) fileInputUploadRef.current.value = '';
             if (folderInputRef.current) folderInputRef.current.value = '';
         }
     };
 
-    const handleInitializeFolders = async () => {
-        let currentCfg = project?.cdeConfig;
-        if (!currentCfg?.connected) {
-            try {
-                const res = await fetch(`/api/projects/${projectId}/cde`);
-                if (res.ok) {
-                    const data = await res.json();
-                    const srvCfg = data?.cdeConfig || data?.config;
-                    if (srvCfg?.connected) {
-                        currentCfg = srvCfg;
-                        updateProjectCDE(projectId, srvCfg);
-                    }
-                }
-            } catch (_) {}
-        }
-
-        if (!currentCfg?.connected) {
-            alert('O CDE não está conectado neste projeto. Aceda às Definições para configurar a ligação ao SharePoint.');
-            return;
-        }
-
-        const rootId = currentCfg.provider === 'dropbox' ? (currentCfg.folderPath || '') : (currentCfg.folderId || 'root');
-        const targetFolderName = currentCfg.folderPath || (currentCfg.provider === 'onedrive' ? 'SharePoint' : 'CDE');
-        const hasExisting = driveItems.length > 0 || 
-            (treeData[rootId] && treeData[rootId].length > 0) || 
-            (treeData['root'] && treeData['root'].length > 0);
-
-        const confirmMsg = hasExisting
-            ? `As pastas tipo já parecem existir ou foram previamente inicializadas na pasta:\n"${targetFolderName}"\n\nDeseja verificar e criar novamente a estrutura de pastas tipo?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`
-            : `Deseja verificar e criar a estrutura normalizada de pastas tipo na pasta:\n"${targetFolderName}"?\n\n(Garantia de Segurança: Os seus ficheiros e pastas já existentes NÃO serão apagados nem alterados.)`;
-
-        const proceed = window.confirm(confirmMsg);
-        if (!proceed) return;
-
-        setIsInitializing(true);
-        try {
-            const logs = await initializeProjectStructure({ ...currentCfg, projectId: project?.id || projectId } as any, async (token, expiresAt) => {
-                updateProjectCDE(projectId, { ...currentCfg, accessToken: token } as any);
-            });
-            alert('Pastas tipo verificadas com sucesso:\n' + logs.filter(l => l.includes('Pasta base') || l.includes('Created') || l.includes('Criada') || l.includes('Found existing') || l.includes('Existente') || l.includes('verified') || l.includes('Erro')).join('\n'));
-
-            // Refresh main view
-            const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : rootId;
-
-            let items: any[] = [];
-            if (currentCfg.provider === 'gdrive' && currentCfg.accessToken) {
-                items = await fetchGoogleDriveContent(currentCfg.accessToken, targetId);
-            } else if (currentCfg.provider === 'onedrive') {
-                items = await fetchSharePointContent(currentCfg, targetId);
-            } else if (currentCfg.provider === 'dropbox') {
-                items = await fetchDropboxContent(currentCfg, targetId);
-            }
-            setDriveItems(items);
-            setTreeData(prev => ({ ...prev, [targetId]: items, [rootId]: items, 'root': items }));
-        } catch (e: any) {
-            alert('Erro ao criar pastas tipo: ' + e.message);
-        } finally {
-            setIsInitializing(false);
-        }
-    };
-
-    const fetchSharePointContent = async (config: any, folderId: string) => {
-        // Base folder → 'root' so the server resolves it from the authoritative DB config
-        // (the cached config.folderId in the browser may be stale after changing the CDE folder).
-        const serverFolderId = (!folderId || folderId === 'root' || folderId === config?.folderId) ? 'root' : folderId;
-        try {
-            // 1. Tentar via endpoint de ação CDE no servidor (que tem credenciais desencriptadas)
-            try {
-                const res = await fetch(`/api/projects/${projectId}/cde/action`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        action: 'list',
-                        payload: { folderId: serverFolderId }
-                    })
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.result?.files) {
-                        // Self-heal: if the server's authoritative base folder differs from the cached one, re-sync config
-                        const srvBaseId = data.result.baseFolderId;
-                        if (serverFolderId === 'root' && srvBaseId && srvBaseId !== 'root' && srvBaseId !== config?.folderId) {
-                            fetch(`/api/projects/${projectId}/cde`)
-                                .then(r => r.ok ? r.json() : null)
-                                .then(d => {
-                                    const cfg = d?.cdeConfig || d?.config;
-                                    if (cfg?.connected && (cfg.folderId !== config?.folderId || cfg.folderPath !== config?.folderPath)) {
-                                        updateProjectCDE(projectId, cfg);
-                                    }
-                                })
-                                .catch(() => { });
-                        }
-                        return data.result.files;
-                    }
-                }
-            } catch (_) { }
-
-            // 2. Fallback via /api/integration/sharepoint
-            const res2 = await fetch('/api/integration/sharepoint', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'list',
-                    tenantId: config.tenantId,
-                    clientId: config.clientId,
-                    clientSecret: config.clientSecret,
-                    siteUrl: config.siteUrl,
-                    folderId: serverFolderId,
-                    projectId: projectId
-                })
-            });
-            if (!res2.ok) {
-                const err = await res2.json();
-                throw new Error(err.error || 'SharePoint Error');
-            }
-            const data2 = await res2.json();
-            return data2.files || [];
-        } catch (error) {
-            console.error('SharePoint Fetch Error:', error);
-            throw error;
-        }
-    };
-
-    const fetchDropboxContent = async (config: any, path: string): Promise<any[]> => {
-        try {
-            // Dropbox paths: root is '', folders are '/Folder'
-            const dbxPath = (path === 'root' || !path) ? '' : path;
-
-            console.log(`Documents: Listing Dropbox '${dbxPath}'...`);
-            const res = await fetch('/api/integration/dropbox', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'list',
-                    accessToken: config.accessToken,
-                    path: dbxPath
-                })
-            });
-
-            if (!res.ok) {
-                const errText = await res.text();
-
-                // Check Access Token Expiry
-                if (errText.includes('expired_access_token')) {
-                    console.log('Dropbox Token Expired. Attempting Refresh...');
-                    if (!config.refreshToken) {
-                        throw new Error('Dropbox Connection Expired. Please reconnect.');
-                    }
-                    try {
-                        const newTokens = await refreshDropboxToken(config);
-                        // Update Store with new token
-                        if (project) {
-                            updateProjectCDE(project.id, { ...config, accessToken: newTokens.accessToken });
-                        }
-
-                        // Retry with new token
-                        return await fetchDropboxContent({ ...config, accessToken: newTokens.accessToken }, path);
-
-                    } catch (refreshErr) {
-                        console.error('Dropbox Refresh Failed', refreshErr);
-                        throw new Error('Dropbox Connection Expired. Please reconnect.');
-                    }
-                }
-
-                console.error('Dropbox API Error:', errText);
-                try {
-                    const err = JSON.parse(errText);
-                    throw new Error(err.error || 'Dropbox Error');
-                } catch (e) {
-                    throw new Error('Dropbox API Failed: ' + errText);
-                }
-            }
-            const data = await res.json();
-            return data.files || [];
-        } catch (error: any) {
-            console.error('Dropbox Fetch Error:', error);
-            // Avoid double wrapping error
-            if (error.message && error.message.includes('Dropbox Connection Expired')) throw error;
-            throw error;
-        }
-    };
-
-    const createDropboxFolder = async (accessToken: string, parentPath: string, folderName: string) => {
-        try {
-            const res = await fetch('/api/integration/dropbox', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'create_folder',
-                    accessToken: accessToken,
-                    path: parentPath,
-                    name: folderName
-                })
-            });
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Create Folder Failed');
-            }
-            return await res.json();
-        } catch (error) {
-            console.error('Dropbox Create Folder Error:', error);
-            throw error;
-        }
-    };
-
+    // Archive File to "Arquivo" Subfolder
     const handleArchive = async (file: any) => {
-        if (!confirm(`Are you sure you want to archive "${file.name}"? It will be moved to the "Arquivo" subfolder.`)) return;
+        if (!confirm(`Tem a certeza que deseja arquivar "${file.name}"? O ficheiro será movido para a subpasta "Arquivo".`)) return;
 
         setIsLoadingDrive(true);
         try {
-            const parentId = currentPath.length > 0
-                ? currentPath[currentPath.length - 1].id
-                : (project?.cdeConfig?.provider === 'dropbox' ? (project.cdeConfig.folderPath || '') : (project?.cdeConfig?.folderId || 'root'));
-
-            const result = await archiveCDEFile(project!.cdeConfig!, file.id, parentId);
+            const parentId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : 'root';
+            const result = await archiveCDEFile(cdeConfig!, file.id, parentId);
 
             if (result.success) {
-                // Refresh
-                const items = project?.cdeConfig?.provider === 'gdrive'
-                    ? await fetchGoogleDriveContent(project.cdeConfig.accessToken!, parentId)
-                    : await fetchDropboxContent(project!.cdeConfig!, parentId);
-                setDriveItems(items);
-                alert('File archived successfully.');
+                addNotification('success', `Ficheiro "${file.name}" arquivado com sucesso.`);
+                await loadProjectCdeView(parentId, true);
             } else {
-                alert('Archive failed: ' + result.message);
+                addNotification('error', `Falha ao arquivar: ${result.message}`);
             }
         } catch (e: any) {
-            alert('Archive Error: ' + e.message);
+            addNotification('error', `Erro ao arquivar: ${e.message}`);
         } finally {
             setIsLoadingDrive(false);
         }
     };
 
-    // Reset navigation if CDE folder configuration changes
-    useEffect(() => {
-        if (project?.cdeConfig?.folderId !== prevFolderIdRef.current) {
-            prevFolderIdRef.current = project?.cdeConfig?.folderId;
-            setCurrentPath([]);
-            setTreeData({});
-        }
-    }, [project?.cdeConfig?.folderId]);
-
-    // Initial Load & Navigation
-    useEffect(() => {
-        if (project?.cdeConfig?.connected) {
-            const load = async () => {
-                setIsLoadingDrive(true);
-                setCdeLoadError('');
-                try {
-                    const defaultRootId = project.cdeConfig!.provider === 'dropbox' ? (project.cdeConfig!.folderPath || '') : (project.cdeConfig!.folderId || 'root');
-                    const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : defaultRootId;
-                    console.log('Loading Content:', project.cdeConfig!.provider, targetId);
-
-                    let items: any[] = [];
-                    // ... (existing loading logic for main view) ...
-                    if (project.cdeConfig!.provider === 'gdrive' && project.cdeConfig!.accessToken) {
-                        items = await fetchGoogleDriveContent(project.cdeConfig!.accessToken, targetId);
-
-                        // Populate Tree Data for Root if empty
-                        const rootId = project.cdeConfig!.folderId || 'root';
-
-                        // If we are at root (or initialized), ensure root is loaded in treeData
-                        if (!treeData[rootId]) {
-                            // If targetId IS root, we have items.
-                            if (targetId === rootId) {
-                                setTreeData(prev => ({ ...prev, [rootId]: items }));
-                            } else {
-                                // Fetch root separately if we started deep (unlikely in this app flow but good for robustness)
-                                const rootItems = await fetchGenericDriveContent(project.cdeConfig!.accessToken, rootId);
-                                setTreeData(prev => ({ ...prev, [rootId]: rootItems }));
-                            }
-                            setExpandedFolders(prev => {
-                                const next = new Set(prev);
-                                next.add(rootId);
-                                // Also expand all found folders in the root to ensure "Show all folders" visual preference?
-                                // User said "mostrar todas as pastas dentro do CDE" (show all folders inside CDE).
-                                // Expanding the Root (CDE) accomplishes this by revealing Level 1.
-                                return next;
-                            });
-                        }
-
-                        // Also populate treeData for CURRENT folder, so if we expand it later, it is there
-                        setTreeData(prev => ({ ...prev, [targetId]: items }));
-
-                        // Auto-expand hierarchy in tree logic
-                        // If we navigated to a folder, and we want to show it in the tree, we should ensure parents are expanded.
-                        // Since currentPath tracks history, we can iterate:
-                        if (currentPath.length > 0) {
-                            const newExpanded = new Set(expandedFolders);
-                            newExpanded.add(rootId);
-                            currentPath.forEach(p => newExpanded.add(p.id));
-                            // Note: We might miss siblings if we forced expand without fetching. 
-                            // The tree component handles fetching only on manual toggle. 
-                            // Auto-expand assumes data is there or will be fetched? 
-                            // Current implementation: We only setTreeData for what we fetched (targetId). 
-                            // So intermediate nodes might be expanded but empty until manually toggled or fetched?
-                            // Fix: We should probably fetch generic content for ancestors if missing? 
-                            // For MVP, we'll let user manually toggle or assume linear navigation populated the tree.
-                            // But user said: "ao entrar numa pasta... colapsa" (updates tree).
-                            setExpandedFolders(newExpanded);
-                        }
-
-                    } else if (project.cdeConfig!.provider === 'onedrive') {
-                        items = await fetchSharePointContent(project.cdeConfig, targetId);
-                        const rootId = project.cdeConfig!.folderId || 'root';
-                        const currentId = targetId || rootId;
-                        setTreeData(prev => ({
-                            ...prev,
-                            [currentId]: items,
-                            ...(targetId === 'root' || targetId === rootId ? { [rootId]: items, 'root': items } : {})
-                        }));
-
-                        const newExpanded = new Set(expandedFolders);
-                        newExpanded.add(rootId);
-                        newExpanded.add('root');
-                        currentPath.forEach(p => newExpanded.add(p.id));
-                        setExpandedFolders(newExpanded);
-                    } else if (project.cdeConfig!.provider === 'dropbox') {
-                        let initialPath = targetId === 'root' ? '' : targetId;
-                        if (targetId === 'root' && project.cdeConfig!.folderPath) {
-                            initialPath = project.cdeConfig!.folderPath;
-                        }
-                        items = await fetchDropboxContent(project.cdeConfig, initialPath);
-
-                        // Basic Tree Support for Dropbox (using paths as IDs)
-                        const rootId = project.cdeConfig!.folderPath || 'root'; // Dropbox uses paths
-                        setTreeData(prev => ({ ...prev, [targetId === '' ? 'root' : targetId]: items }));
-                        setExpandedFolders(prev => new Set(prev).add(rootId === '' ? 'root' : rootId));
-                    }
-
-                    setDriveItems(items);
-                } catch (err: any) {
-                    console.error('Content Load Error:', err);
-                    setCdeLoadError(err?.message || 'Falha ao carregar conteúdos do CDE.');
-                } finally {
-                    setIsLoadingDrive(false);
-                }
-            };
-            load();
-        }
-    }, [
-        project?.cdeConfig?.lastSync, 
-        project?.cdeConfig?.connected, 
-        project?.cdeConfig?.folderId, 
-        project?.cdeConfig?.folderPath, 
-        currentPath
-    ]);
-
-
-
-
-
-
-
-
-    const FileIcon = ({ type, size = 24, customColor }: { type: string, size?: number, customColor?: string }) => {
-        return <GoogleDriveIcon type={type} size={size} customColor={customColor} />;
-    };
-
-    const toggleFolderExpand = async (folderId: string) => {
-        // Toggle state
-        const newExpanded = new Set(expandedFolders);
-        if (newExpanded.has(folderId)) {
-            newExpanded.delete(folderId);
-        } else {
-            newExpanded.add(folderId);
-            // If opening and not in treeData, fetch
-            if (!treeData[folderId]) {
-                if (project?.cdeConfig?.provider === 'gdrive' && project.cdeConfig.accessToken) {
-                    fetchGenericDriveContent(project.cdeConfig.accessToken, folderId).then(items => {
-                        setTreeData(prev => ({ ...prev, [folderId]: items }));
-                    });
-                } else if (project?.cdeConfig?.provider === 'onedrive') {
-                    fetchSharePointContent(project.cdeConfig, folderId).then(items => {
-                        setTreeData(prev => ({ ...prev, [folderId]: items }));
-                    });
-                } else if (project?.cdeConfig?.provider === 'dropbox') {
-                    fetchDropboxContent(project.cdeConfig, folderId).then(items => {
-                        setTreeData(prev => ({ ...prev, [folderId]: items }));
-                    });
-                }
-            }
-        }
-        setExpandedFolders(newExpanded);
-    };
-
-    const SidebarFolderItem = ({ folder, level = 0 }: { folder: { id: string, name: string }, level?: number }) => {
-        const isExpanded = expandedFolders.has(folder.id);
-        const children = treeData[folder.id]?.filter((i: any) => i.mimeType === 'application/vnd.google-apps.folder') || [];
-        const hasChildren = children.length > 0; // or unknown if not loaded? For now assume valid if loaded.
-
-        // Check if this folder is the currently selected one
-        const isSelected = currentPath.length > 0 && currentPath[currentPath.length - 1].id === folder.id;
-
-        return (
-            <div className="select-none">
-                <div
-                    className={`flex items-center gap-1 px-2 py-2 text-[13px] rounded-r-md transition-colors cursor-pointer group ${isSelected ? 'bg-primary-light text-primary-hover' : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-surface'}`}
-                    style={{ paddingLeft: `${level * 16 + 8}px` }}
-                    onClick={() => {
-                        // Select: Update Path
-                        // Also expand path to here?
-                        // "when expanding... collapse" -> user said 'don't collapse'.
-                        // Logic: Set as current path.
-
-                        // We need to build the full path for Breadcrumbs if we jumped here.
-                        // Limitation: We don't know the full ancestry if we just clicked a node in the tree unless we tracked it.
-                        // Actually, since we render recursivly, we can pass the ancestry down?
-                        // Complex. For now, we assume simple navigation.
-                        // If we click a child in the tree, we append to current path OR we need to find it.
-
-                        // Simplified: tree navigation just updates ID, but we might lose breadcrumbs if we don't reconstruct them.
-                        // However, standard GDrive just changes the view.
-
-                        // Let's rely on standard drill down for now for breadcrumbs logic 
-                        // OR we assume we clicked a known child of a known parent.
-
-                        // IF we click a node in the tree, we want to view it.
-                        // We'll update currentPath to be [Root, ...Ancestors, ThisNode]
-                        // We need to pass ancestors down.
-                    }}
-                >
-                    {/* Chevron - Click to toggle expand only */}
-                    <div
-                        className="p-0.5 rounded hover:bg-gray-300 text-gray-500"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFolderExpand(folder.id);
-                        }}
-                    >
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </div>
-
-                    {/* Name area - Click to select */}
-                    <div
-                        className="flex items-center gap-2 flex-1 overflow-hidden"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            // TODO: Handle Path Construction
-                            // For this MVP refactor, let's just push to path if it's a child?
-                            // Or reset path if we can't determine?
-                            // Ideally, we maintain `currentPath`.
-
-                            // If we are rendering this item, we know its parent.
-                            // We can pass `ancestors` prop recursively.
-                        }}
-                    >
-                        <GoogleDriveIcon type="folder" size={18} customColor={folderColor} />
-                        <span className="truncate">{folder.name}</span>
-                    </div>
-                </div>
-
-                {isExpanded && (
-                    <div className="animate-in slide-in-from-left-1 fade-in duration-200">
-                        {children.length > 0 ? children.map((child: any) => (
-                            <SidebarFolderItem key={child.id} folder={child} level={level + 1} />
-                        )) : (
-                            // Loaded but empty?
-                            treeData[folder.id] ? <div className="pl-8 py-1 text-[10px] text-gray-400 italic font-light ml-4" style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}>(Vazio)</div> : null
-                        )}
-                    </div>
-                )}
-            </div>
-        );
-    };
-
-    // Recursive Tree Component that accepts ancestors for path reconstruction
-    const FolderTreeItem = ({
-        item,
-        level,
-        ancestors
-    }: {
-        item: { id: string, name: string },
-        level: number,
-        ancestors: { id: string, name: string }[]
-    }) => {
-        const isRoot = level === 0 || item.id === (project?.cdeConfig?.folderId || 'root') || item.name === 'Root';
-        const isExpanded = expandedFolders.has(item.id) || (isRoot && (expandedFolders.has('root') || expandedFolders.has(project?.cdeConfig?.folderId || 'root')));
-        const folderItems = treeData[item.id] || (isRoot ? (treeData['root'] || treeData[project?.cdeConfig?.folderId || 'root']) : undefined);
-        const children = folderItems?.filter((i: any) => i.mimeType === 'application/vnd.google-apps.folder') || [];
-        const isLoaded = !!folderItems;
-
-        const isSelected = isRoot 
-            ? currentPath.length === 0 
-            : (currentPath.length > 0 && currentPath[currentPath.length - 1].id === item.id);
-        const rootDisplayName = project?.cdeConfig?.folderPath || (project?.cdeConfig?.provider === 'onedrive' ? 'SharePoint' : 'CDE');
-
-        return (
-            <div>
-                <div
-                    className={`flex items-center gap-1 py-2 pr-2 rounded-r-md cursor-pointer transition-colors group ${isSelected ? 'bg-primary-light' : 'hover:bg-gray-100 dark:hover:bg-surface'}`}
-                    style={{ paddingLeft: `${level * 16 + 4}px` }}
-                >
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFolderExpand(item.id);
-                        }}
-                        className="p-1 rounded hover:bg-gray-200 text-gray-500"
-                    >
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </button>
-
-                    <div
-                        className="flex-1 flex items-center gap-2 overflow-hidden"
-                        onClick={() => {
-                            if (isRoot) {
-                                setCurrentPath([]);
-                            } else {
-                                setCurrentPath([...ancestors, { id: item.id, name: item.name }]);
-                            }
-                        }}
-                    >
-                        <GoogleDriveIcon type="folder" size={18} customColor={folderColor} />
-                        <span className={`truncate text-[13px] ${isSelected ? 'text-primary-hover font-medium' : 'text-gray-700 dark:text-gray-200'}`}>
-                            {isRoot ? rootDisplayName : item.name}
+    return (
+        <div className="space-y-4 p-4 md:p-6">
+            {/* ════════ HEADER: BARRA DE FERRAMENTAS CDE ════════ */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 dark:border-[#444746] gap-4">
+                <div>
+                    <h2 className="text-xl font-normal text-google-text flex items-center gap-2">
+                        <Folder className="text-primary" size={22} />
+                        <span>Documentos da Obra</span>
+                    </h2>
+                    {/* Breadcrumbs Navigation */}
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-1 flex-wrap">
+                        <span
+                            className={cn(
+                                "cursor-pointer transition-colors",
+                                currentPath.length === 0 ? "font-bold text-[var(--text)]" : "hover:underline hover:text-primary"
+                            )}
+                            onClick={() => setCurrentPath([])}
+                        >
+                            {cdeConfig?.connected
+                                ? (cdeConfig.folderPath || (cdeConfig.provider === 'onedrive' ? 'SharePoint / CDE' : 'CDE'))
+                                : 'CDE (Não Ligado)'}
                         </span>
-                    </div>
-                </div>
-
-                {isExpanded && (
-                    <div>
-                        {isLoaded && children.length === 0 && (
-                            <div className="text-[10px] text-gray-400 italic py-1" style={{ paddingLeft: `${(level + 1) * 16 + 24}px` }}>
-
-                            </div>
-                        )}
-                        {children.map((child: any) => (
-                            <FolderTreeItem
-                                key={child.id}
-                                item={{ id: child.id, name: child.name }}
-                                level={level + 1}
-                                ancestors={isRoot ? [] : [...ancestors, { id: item.id, name: item.name }]}
-                            />
+                        {currentPath.map((p, idx) => (
+                            <span key={p.id || idx} className="flex items-center gap-1.5">
+                                <span>/</span>
+                                <span
+                                    className={cn(
+                                        "cursor-pointer transition-colors",
+                                        idx === currentPath.length - 1 ? "font-bold text-[var(--text)]" : "hover:underline hover:text-primary"
+                                    )}
+                                    onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
+                                >
+                                    {p.name}
+                                </span>
+                            </span>
                         ))}
                     </div>
-                )}
-            </div>
-        );
-    };
-
-    return (
-        <div className="flex h-full gap-6">
-            {/* Sidebar (CDE & Folders) */}
-            <div className="w-64 flex-shrink-0 border-r border-gray-100 dark:border-[#444746] pr-4 hidden md:flex md:flex-col pl-4 py-4 h-full">
-
-                {/* Folder Structure - Tree View */}
-                <div className="flex-1 overflow-y-auto min-h-0 mb-4 px-0 pt-2 custom-scrollbar">
-                    {project?.cdeConfig?.connected && (
-                        <FolderTreeItem
-                            item={{ 
-                                id: project.cdeConfig.folderId || 'root', 
-                                name: project.cdeConfig.folderPath || (project.cdeConfig.provider === 'onedrive' ? 'SharePoint' : 'CDE') 
-                            }}
-                            level={0}
-                            ancestors={[]}
-                        />
-                    )}
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Button: Pastas Tipo */}
+                    <button
+                        type="button"
+                        onClick={handleInitializeFolders}
+                        disabled={isInitializingFolders}
+                        className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                        title="Inicializar estrutura de pastas padronizada no CDE da Obra"
+                    >
+                        {isInitializingFolders ? (
+                            <RotateCw size={14} className="animate-spin text-primary" />
+                        ) : (
+                            <FolderPlus size={15} className="text-primary" />
+                        )}
+                        <span>Pastas Tipo</span>
+                    </button>
 
-            </div>
+                    {/* Button: Dropdown Novo */}
+                    <div className="relative">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!cdeConfig?.connected) {
+                                    addNotification('warning', 'Ligue primeiro o CDE da obra para criar pastas ou carregar ficheiros.');
+                                    setIsCdeModalOpen(true);
+                                    return;
+                                }
+                                setIsNewMenuOpen(!isNewMenuOpen);
+                            }}
+                            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-primary rounded-full hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
+                        >
+                            <Plus size={15} className="text-white" />
+                            <span>Novo</span>
+                            <ChevronDown size={13} className="text-white/80" />
+                        </button>
 
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col min-w-0">
-                <div className="flex items-center justify-between pb-4 border-b border-gray-100 dark:border-[#444746] mb-6 px-4 pt-4">
-                    <div>
-                        <h2 className="text-xl font-normal text-google-text">Documents</h2>
-                        {/* Breadcrumbs */}
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                            <span
-                                className={`hover:underline cursor-pointer ${currentPath.length === 0 ? 'font-semibold text-primary' : 'hover:text-primary'}`}
-                                onClick={() => setCurrentPath([])}
-                            >
-                                {project?.cdeConfig?.folderPath || (project?.cdeConfig?.provider === 'onedrive' ? 'SharePoint' : 'CDE')}
-                            </span>
-                            {currentPath.map((p, idx) => (
-                                <span key={p.id} className="flex items-center gap-1">
-                                    <span>/</span>
-                                    <span
-                                        className={`hover:underline cursor-pointer ${idx === currentPath.length - 1 ? 'font-semibold text-gray-800 dark:text-gray-200' : 'hover:text-primary'}`}
-                                        onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
-                                    >
-                                        {p.name}
-                                    </span>
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        {project?.cdeConfig?.connected && (
+                        {isNewMenuOpen && (
                             <>
-                                <button
-                                    onClick={handleInitializeFolders}
-                                    disabled={isInitializing}
-                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all disabled:opacity-50"
-                                >
-                                    <FolderPlus size={18} />
-                                    <span>Pastas Tipo</span>
-                                </button>
-                                <div className="relative">
+                                <div className="fixed inset-0 z-40" onClick={() => setIsNewMenuOpen(false)}></div>
+                                <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-surface rounded-xl shadow-xl border border-gray-100 dark:border-[#444746] py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
                                     <button
-                                        onClick={() => setIsNewMenuOpen(!isNewMenuOpen)}
-                                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-full hover:bg-primary-hover shadow-sm transition-all"
+                                        type="button"
+                                        onClick={() => {
+                                            setIsNewMenuOpen(false);
+                                            setIsNewFolderModalOpen(true);
+                                        }}
+                                        className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
                                     >
-                                        <Plus size={18} className="text-white" />
-                                        <span>Novo</span>
-                                        <ChevronDown size={14} className="text-blue-100" />
+                                        <GoogleDriveIcon type="folder" size={16} />
+                                        <span>Nova pasta</span>
                                     </button>
-                                    {/* Dropdown Menu */}
-                                    {isNewMenuOpen && (
-                                        <>
-                                            <div className="fixed inset-0 z-40" onClick={() => setIsNewMenuOpen(false)}></div>
-                                            <div className="absolute top-full left-0 mt-2 w-56 bg-white dark:bg-surface rounded-lg shadow-xl border border-gray-100 dark:border-[#444746] py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
-                                                <button
-                                                    onClick={() => {
-                                                        setIsNewMenuOpen(false);
-                                                        setIsUploadModalOpen(true);
-                                                        handleCreateFolderAction();
-                                                    }}
-                                                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3"
-                                                >
-                                                    <div className="w-5 flex justify-center"><GoogleDriveIcon type="folder" size={18} /></div>
-                                                    Nova pasta
-                                                </button>
-                                                <div className="h-px bg-gray-100 dark:bg-surface my-1"></div>
-                                                <button
-                                                    onClick={() => {
-                                                        setIsNewMenuOpen(false);
-                                                        fileInputUploadRef.current?.click();
-                                                    }}
-                                                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3"
-                                                >
-                                                    <div className="w-5 flex justify-center"><FileText size={18} className="text-primary" /></div>
-                                                    Carregar ficheiro
-                                                </button>
-                                                <button
-                                                    onClick={() => {
-                                                        setIsNewMenuOpen(false);
-                                                        if (folderInputRef.current) {
-                                                            folderInputRef.current.click();
-                                                        }
-                                                    }}
-                                                    className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3"
-                                                >
-                                                    <div className="w-5 flex justify-center"><GoogleDriveIcon type="folder" size={18} /></div>
-                                                    Carregar pasta
-                                                </button>
-                                            </div>
-                                        </>
-                                    )}
-                                    <input
-                                        type="file"
-                                        ref={fileInputUploadRef}
-                                        className="hidden"
-                                        onChange={handleUploadAction}
-                                    />
-                                    <input
-                                        type="file"
-                                        ref={folderInputRef}
-                                        className="hidden"
-                                        {...({ webkitdirectory: "", directory: "" } as any)}
-                                        onChange={handleUploadAction}
-                                    />
+                                    <div className="h-px bg-gray-100 dark:bg-gray-800 my-1"></div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsNewMenuOpen(false);
+                                            fileInputUploadRef.current?.click();
+                                        }}
+                                        className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
+                                    >
+                                        <FileText size={16} className="text-primary" />
+                                        <span>Carregar ficheiro</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsNewMenuOpen(false);
+                                            folderInputRef.current?.click();
+                                        }}
+                                        className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
+                                    >
+                                        <GoogleDriveIcon type="folder" size={16} />
+                                        <span>Carregar pasta</span>
+                                    </button>
                                 </div>
                             </>
                         )}
-                        <div className="relative">
-                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input type="text" placeholder="Search..." className="bg-gray-100 dark:bg-surface border-none rounded-full pl-10 pr-4 py-2 text-sm w-64 focus:ring-2 focus:ring-primary-light outline-none transition-all focus:bg-white dark:focus:bg-surface focus:shadow-sm" />
-                        </div>
+
+                        <input
+                            type="file"
+                            ref={fileInputUploadRef}
+                            className="hidden"
+                            multiple
+                            onChange={handleUploadAction}
+                        />
+                        <input
+                            type="file"
+                            ref={folderInputRef}
+                            className="hidden"
+                            {...({ webkitdirectory: '', directory: '' } as any)}
+                            onChange={handleUploadAction}
+                        />
+                    </div>
+
+                    {/* Button: Definições CDE */}
+                    <button
+                        type="button"
+                        onClick={() => setIsCdeModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-full hover:bg-gray-50 dark:hover:bg-[#131314] transition-all cursor-pointer shadow-xs"
+                        title="Configurar integração com Cloud CDE da Obra"
+                    >
+                        <Cloud size={14} className={cdeConfig?.connected ? "text-emerald-500" : "text-amber-500"} />
+                        <span>CDE: {cdeConfig?.connected ? (cdeConfig.provider?.toUpperCase() || 'Cloud') : 'Não Ligado'}</span>
+                    </button>
+
+                    {/* Search input */}
+                    <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            placeholder="Pesquisar..."
+                            className="bg-gray-100 dark:bg-surface border-none rounded-full pl-9 pr-4 py-1.5 text-xs w-48 sm:w-56 focus:ring-2 focus:ring-primary-light outline-none transition-all focus:bg-white dark:focus:bg-surface focus:shadow-sm"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* ════════ MAIN EXPLORER: ÁRVORE ESQUERDA & TABELA DIREITA ════════ */}
+            <div className="flex h-[640px] gap-6 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-2xl overflow-hidden shadow-xs">
+                {/* Left Sidebar (Tree View) */}
+                <div className="w-64 flex-shrink-0 border-r border-gray-100 dark:border-[#444746] hidden md:flex md:flex-col p-4 h-full bg-gray-50/50 dark:bg-[#131314]/30">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] pb-2 border-b border-[var(--border)] mb-2 flex items-center justify-between">
+                        <span>Pastas CDE</span>
+                        {cdeConfig?.connected && (
+                            <button
+                                type="button"
+                                onClick={() => loadProjectCdeView(undefined, true)}
+                                className="text-[10px] text-primary hover:underline cursor-pointer flex items-center gap-1"
+                                title="Atualizar pastas do CDE"
+                            >
+                                <RotateCw size={11} className={isLoadingDrive ? "animate-spin" : ""} />
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar pr-1 space-y-0.5">
+                        {!cdeConfig?.connected ? (
+                            <div className="py-8 px-2 text-center text-xs text-[var(--text-muted)]">
+                                Sem pastas (CDE não ligado)
+                            </div>
+                        ) : (
+                            (() => {
+                                const renderTreeItem = (
+                                    folderId: string,
+                                    folderName: string,
+                                    pathUntilNow: Array<{ id: string; name: string }>,
+                                    depth = 0
+                                ): React.ReactNode => {
+                                    const isExpanded = expandedFolders.has(folderId);
+                                    const isCurrent =
+                                        (folderId === 'root' && currentPath.length === 0) ||
+                                        (currentPath.length > 0 && currentPath[currentPath.length - 1].id === folderId);
+                                    const children = (treeData[folderId] || []).filter(
+                                        (i: any) => i.mimeType === 'application/vnd.google-apps.folder' || (i.mimeType || '').includes('folder')
+                                    );
+
+                                    return (
+                                        <div key={folderId} className="select-none">
+                                            <div
+                                                className={cn(
+                                                    "flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs",
+                                                    isCurrent
+                                                        ? "bg-primary-light text-primary font-bold"
+                                                        : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
+                                                )}
+                                                style={{ paddingLeft: `${depth * 14 + 8}px` }}
+                                                onClick={() => {
+                                                    if (folderId === 'root') {
+                                                        setCurrentPath([]);
+                                                    } else {
+                                                        setCurrentPath(pathUntilNow);
+                                                    }
+                                                    if (!isExpanded) {
+                                                        toggleTreeFolderExpand(folderId);
+                                                    }
+                                                }}
+                                            >
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleTreeFolderExpand(folderId);
+                                                    }}
+                                                    className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-surface text-gray-500 cursor-pointer shrink-0"
+                                                >
+                                                    {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                                </button>
+                                                <GoogleDriveIcon type="folder" size={16} />
+                                                <span className="truncate">{folderName}</span>
+                                            </div>
+
+                                            {isExpanded && children.length > 0 && (
+                                                <div className="space-y-0.5 mt-0.5">
+                                                    {children.map((child: any) =>
+                                                        renderTreeItem(
+                                                            child.id,
+                                                            child.name,
+                                                            [...pathUntilNow, { id: child.id, name: child.name }],
+                                                            depth + 1
+                                                        )
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                };
+
+                                return renderTreeItem(
+                                    'root',
+                                    cdeConfig.folderPath || (cdeConfig.provider === 'onedrive' ? 'SharePoint' : 'CDE'),
+                                    [],
+                                    0
+                                );
+                            })()
+                        )}
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 pb-4">
-                    {driveItems.length === 0 && !isLoadingDrive ? (
-                        <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-                            <GoogleDriveIcon type="default" size={48} className="mb-4 opacity-10" />
-                            <p className="text-sm font-medium">Nenhum documento ou pasta encontrado.</p>
-
-                            {/* Error Banner if any */}
-                            {cdeLoadError && (
-                                <div className="mt-3 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300 max-w-md w-full text-center">
-                                    <p className="font-semibold">Erro ao comunicar com o CDE:</p>
-                                    <p className="mt-1">{cdeLoadError}</p>
-                                </div>
-                            )}
-
-                            {/* DEBUG INFO FOR USER */}
-                            {project?.cdeConfig?.connected && (
-                                <div className="mt-4 p-4 bg-gray-50 dark:bg-[#131314] rounded-xl text-xs text-left max-w-sm w-full border border-gray-200 dark:border-gray-800">
-                                    <p className="font-bold mb-2 text-gray-800 dark:text-gray-200">Informação da Ligação CDE:</p>
-                                    <p><span className="font-medium text-gray-500">Fornecedor:</span> {project.cdeConfig.provider}</p>
-                                    <p><span className="font-medium text-gray-500">Pasta:</span> {project.cdeConfig.folderPath || '(Raiz)'}</p>
-                                    <p><span className="font-medium text-gray-500">ID da Pasta:</span> {project.cdeConfig.folderId || '(Raiz)'}</p>
-                                    <button
-                                        className="mt-3 px-3 py-1.5 bg-white dark:bg-surface border border-gray-300 dark:border-[#444746] rounded-lg shadow-sm hover:bg-gray-100 dark:hover:bg-surface w-full font-medium text-gray-700 dark:text-gray-200 transition-colors cursor-pointer"
-                                        onClick={async () => {
-                                            setIsLoadingDrive(true);
-                                            setCdeLoadError('');
-                                            try {
-                                                const defaultRootId = project.cdeConfig!.provider === 'dropbox' 
-                                                    ? (project.cdeConfig!.folderPath || '') 
-                                                    : (project.cdeConfig!.folderId || 'root');
-                                                const targetId = currentPath.length > 0 ? currentPath[currentPath.length - 1].id : defaultRootId;
-                                                let items: any[] = [];
-                                                if (project.cdeConfig!.provider === 'gdrive' && project.cdeConfig!.accessToken) {
-                                                    items = await fetchGoogleDriveContent(project.cdeConfig!.accessToken, targetId);
-                                                } else if (project.cdeConfig!.provider === 'onedrive') {
-                                                    items = await fetchSharePointContent(project.cdeConfig, targetId);
-                                                } else if (project.cdeConfig!.provider === 'dropbox') {
-                                                    items = await fetchDropboxContent(project.cdeConfig, targetId);
-                                                }
-                                                setDriveItems(items);
-                                            } catch (err: any) {
-                                                alert('Erro ao recarregar: ' + err.message);
-                                                setCdeLoadError(err.message);
-                                            } finally {
-                                                setIsLoadingDrive(false);
-                                            }
-                                        }}
-                                    >
-                                        Recarregar Conteúdos
-                                    </button>
-                                </div>
-                            )}
+                {/* Right Main Table */}
+                <div className="flex-1 flex flex-col min-w-0 p-4 overflow-y-auto">
+                    {!cdeConfig?.connected ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-4">
+                                <Cloud size={28} />
+                            </div>
+                            <h3 className="text-sm font-bold text-[var(--text)] mb-1">
+                                Nenhum CDE conectado a esta obra
+                            </h3>
+                            <p className="text-xs text-[var(--text-muted)] max-w-md mb-5 leading-relaxed">
+                                Para visualizar e gerir os documentos e pastas reais da obra no SharePoint, OneDrive, Google Drive ou Dropbox, configure primeiro a ligação ao Ambiente Comum de Dados (CDE).
+                            </p>
+                            <button
+                                type="button"
+                                onClick={() => setIsCdeModalOpen(true)}
+                                className="px-4 py-2 rounded-full text-xs font-bold bg-primary text-white hover:bg-primary-hover shadow-sm transition-all cursor-pointer inline-flex items-center gap-2"
+                            >
+                                <Cloud size={14} />
+                                <span>Configurar Ligação CDE</span>
+                            </button>
+                        </div>
+                    ) : isLoadingDrive ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-gray-400">
+                            <RotateCw size={26} className="animate-spin text-primary mb-3" />
+                            <p className="text-xs">A carregar pastas e documentos do CDE ({cdeConfig.folderPath || (cdeConfig.provider === 'onedrive' ? 'SharePoint' : 'CDE')})...</p>
                         </div>
                     ) : (
-                        <table className="w-full text-left text-sm text-gray-600 dark:text-gray-300">
+                        <table className="w-full text-left text-xs text-gray-600 dark:text-gray-300">
                             <thead>
                                 <tr className="border-b border-gray-200 dark:border-[#444746] text-gray-400 font-normal">
-                                    <th className="py-2 px-2 font-normal w-12 text-center">#</th>
-                                    <th className="py-2 px-2 font-normal">Nome</th>
-                                    <th className="py-2 px-2 font-normal w-24">Versão</th>
-                                    <th className="py-2 px-2 font-normal w-32">Data</th>
-                                    <th className="py-2 px-2 font-normal w-24">Tamanho</th>
-                                    <th className="w-20 text-right pr-4">Ações</th>
+                                    <th className="py-2.5 px-3 font-normal w-10 text-center">#</th>
+                                    <th className="py-2.5 px-3 font-normal">Nome</th>
+                                    <th className="py-2.5 px-3 font-normal w-24">Versão</th>
+                                    <th className="py-2.5 px-3 font-normal w-32">Data</th>
+                                    <th className="py-2.5 px-3 font-normal w-24">Tamanho</th>
+                                    <th className="w-24 text-right pr-4">Ações</th>
                                 </tr>
                             </thead>
-                            <tbody className={isLoadingDrive ? 'opacity-50 pointer-events-none' : ''}>
-                                {/* Back Navigation */}
+                            <tbody>
+                                {/* Parent navigation row */}
                                 {currentPath.length > 0 && (
-                                    <tr className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-50 cursor-pointer group"
+                                    <tr
+                                        className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
                                         onClick={() => setCurrentPath(currentPath.slice(0, currentPath.length - 1))}
                                     >
-                                        <td className="py-1.5 px-2 text-center">
+                                        <td className="py-2 px-3 text-center">
                                             <div className="flex justify-center">
-                                                <GoogleDriveIcon type="folder" size={26} customColor={folderColor} />
+                                                <GoogleDriveIcon type="folder" size={20} />
                                             </div>
                                         </td>
-                                        <td className="py-1.5 px-2 font-medium text-gray-500">
-                                            ..
+                                        <td className="py-2 px-3 font-medium text-gray-500" colSpan={5}>
+                                            .. (Voltar para pasta anterior)
                                         </td>
-                                        <td colSpan={4}></td>
                                     </tr>
                                 )}
-                                {driveItems.map(doc => (
-                                    <tr key={doc.id} className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-50 cursor-pointer group"
-                                        onClick={() => {
-                                            const isFolder = doc.mimeType === 'application/vnd.google-apps.folder' || (doc.mimeType || '').includes('folder');
-                                            if (isFolder) {
-                                                setCurrentPath([...currentPath, { id: doc.id, name: doc.name }]);
-                                            } else {
-                                                window.open(doc.webViewLink, '_blank');
-                                            }
-                                        }}
-                                    >
-                                        {(() => {
-                                            // Match with DB Document
-                                            // Prioritize ID match (Robust against renames), fallback to Name
-                                            const isFolder = doc.mimeType === 'application/vnd.google-apps.folder' || (doc.mimeType || '').includes('folder');
-                                            const dbDoc = dbDocMapById.get(doc.id) || (!isFolder ? dbDocMapByName.get(doc.name.toLowerCase()) : null);
 
-                                            const version = dbDoc?.version ? `v${dbDoc.version}.0` : 'v1.0';
-                                            // Prefer DB date if available, else File date
-                                            const displayDate = dbDoc?.updatedAt
-                                                ? new Date(dbDoc.updatedAt).toLocaleDateString()
-                                                : (doc.createdTime ? new Date(doc.createdTime).toLocaleDateString() : '-');
+                                {(() => {
+                                    let visibleItems = [...driveItems];
+                                    if (searchQuery.trim()) {
+                                        const q = searchQuery.toLowerCase();
+                                        visibleItems = visibleItems.filter((item: any) => (item.name || '').toLowerCase().includes(q));
+                                    }
 
-                                            // For Size: if standard folder, show '-' or if file show size
-                                            const displaySize = doc.size ? (Number(doc.size) / 1024).toFixed(0) + ' KB' : '-';
+                                    // Sort folders first, then alphabetically
+                                    visibleItems.sort((a: any, b: any) => {
+                                        const aIsFolder = a.mimeType === 'application/vnd.google-apps.folder' || (a.mimeType || '').includes('folder');
+                                        const bIsFolder = b.mimeType === 'application/vnd.google-apps.folder' || (b.mimeType || '').includes('folder');
+                                        if (aIsFolder && !bIsFolder) return -1;
+                                        if (!aIsFolder && bIsFolder) return 1;
+                                        return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true });
+                                    });
 
-                                            return (
-                                                <>
-                                                    <td className="py-1.5 px-2 text-center">
-                                                        <div className="flex justify-center">
-                                                            {doc.mimeType === 'application/vnd.google-apps.folder' ? (
-                                                                <GoogleDriveIcon type="folder" size={26} customColor={folderColor} />
-                                                            ) : (
-                                                                <FileIcon type={doc.mimeType} size={26} customColor={folderColor} />
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-1.5 px-2">
-                                                        <span className="font-normal text-gray-900 dark:text-white block">{doc.name}</span>
-                                                    </td>
-                                                    <td className="py-1.5 px-2 text-gray-500">
-                                                        {doc.mimeType === 'application/vnd.google-apps.folder' ? '-' : version}
-                                                    </td>
-                                                    <td className="py-1.5 px-2 text-gray-500">
-                                                        {displayDate}
-                                                    </td>
-                                                    <td className="py-1.5 px-2 text-gray-500 font-mono text-xs">
-                                                        {displaySize}
-                                                    </td>
-                                                    <td className="py-1.5 px-2 text-right">
-                                                        <div className="flex items-center gap-1 justify-end">
-                                                            {doc.mimeType !== 'application/vnd.google-apps.folder' && (
+                                    if (visibleItems.length === 0) {
+                                        return (
+                                            <tr>
+                                                <td colSpan={6} className="py-12 text-center text-gray-400">
+                                                    <GoogleDriveIcon type="default" size={40} className="mx-auto mb-2 opacity-20" />
+                                                    <p className="text-xs font-medium text-[var(--text)] mb-1">
+                                                        Nenhum documento ou pasta encontrado nesta localização do CDE.
+                                                    </p>
+                                                    {cdeLoadError && (
+                                                        <p className="text-[11px] text-red-500 mb-2">
+                                                            Erro: {cdeLoadError}
+                                                        </p>
+                                                    )}
+                                                    <p className="text-[11px] text-[var(--text-muted)] mb-4">
+                                                        Fornecedor: <strong>{cdeConfig.provider?.toUpperCase()}</strong> • Pasta base: <strong>{cdeConfig.folderPath || 'Raiz'}</strong>
+                                                    </p>
+                                                    <div className="flex items-center justify-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => loadProjectCdeView(undefined, true)}
+                                                            className="px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-[var(--text)] hover:bg-gray-200 transition-all cursor-pointer inline-flex items-center gap-1.5"
+                                                        >
+                                                            <RotateCw size={12} /> Recarregar Conteúdos
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleInitializeFolders}
+                                                            className="px-3 py-1.5 rounded-full text-xs font-semibold bg-primary text-white hover:bg-primary-hover shadow-xs transition-all cursor-pointer inline-flex items-center gap-1.5"
+                                                        >
+                                                            <FolderPlus size={12} /> Criar Pastas Tipo
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    }
+
+                                    return visibleItems.map((item: any) => {
+                                        const isFolder = item.mimeType === 'application/vnd.google-apps.folder' || (item.mimeType || '').includes('folder');
+                                        const dbDoc = dbDocMapById.get(item.id) || (!isFolder ? dbDocMapByName.get(item.name.toLowerCase()) : null);
+                                        const version = isFolder ? '—' : (dbDoc?.version ? `v${dbDoc.version}.0` : 'v1.0');
+                                        const displayDate = dbDoc?.updatedAt
+                                            ? new Date(dbDoc.updatedAt).toLocaleDateString()
+                                            : (item.modifiedTime || item.createdTime ? new Date(item.modifiedTime || item.createdTime).toLocaleDateString() : '—');
+                                        const displaySize = !isFolder && item.size
+                                            ? (Number(item.size) > 1048576
+                                                ? `${(Number(item.size) / 1048576).toFixed(1)} MB`
+                                                : `${Math.max(1, Math.round(Number(item.size) / 1024))} KB`)
+                                            : '—';
+
+                                        return (
+                                            <tr
+                                                key={item.id}
+                                                className="hover:bg-gray-50 dark:hover:bg-[#131314] border-b border-gray-100 dark:border-gray-800 cursor-pointer group"
+                                                onClick={() => {
+                                                    if (isFolder) {
+                                                        setCurrentPath([...currentPath, { id: item.id, name: item.name }]);
+                                                    } else if (item.webViewLink) {
+                                                        window.open(item.webViewLink, '_blank');
+                                                    }
+                                                }}
+                                            >
+                                                <td className="py-2 px-3 text-center">
+                                                    <div className="flex justify-center">
+                                                        <GoogleDriveIcon type={isFolder ? 'folder' : (item.mimeType || 'pdf')} size={20} />
+                                                    </div>
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                    <span className={cn(
+                                                        "block group-hover:text-primary transition-colors",
+                                                        isFolder ? "font-semibold text-gray-900 dark:text-white" : "font-medium text-gray-900 dark:text-white"
+                                                    )}>
+                                                        {item.name}
+                                                    </span>
+                                                </td>
+                                                <td className="py-2 px-3 text-gray-500 font-mono">
+                                                    {version}
+                                                </td>
+                                                <td className="py-2 px-3 text-gray-500 font-mono">
+                                                    {displayDate}
+                                                </td>
+                                                <td className="py-2 px-3 text-gray-500 font-mono">
+                                                    {displaySize}
+                                                </td>
+                                                <td className="py-2 px-3 text-right pr-4">
+                                                    <div className="flex items-center gap-1.5 justify-end">
+                                                        {isFolder ? (
+                                                            <ChevronRight size={14} className="text-gray-400 group-hover:text-primary transition-colors" />
+                                                        ) : (
+                                                            <>
                                                                 <button
+                                                                    type="button"
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
-                                                                        handleArchive(doc);
+                                                                        handleArchive(item);
                                                                     }}
-                                                                    className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 dark:hover:bg-surface text-gray-400 hover:text-orange-600 transition-colors"
-                                                                    title="Archive"
+                                                                    className="p-1 rounded-full text-gray-400 hover:text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950/40 inline-flex transition-colors cursor-pointer"
+                                                                    title="Arquivar documento"
                                                                 >
-                                                                    <Archive size={16} />
+                                                                    <Archive size={15} />
                                                                 </button>
-                                                            )}
-                                                            {doc.webViewLink && (
-                                                                <a
-                                                                    href={doc.webViewLink}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                    className="flex items-center justify-center w-8 h-8 rounded-full hover:bg-gray-100 dark:hover:bg-surface text-gray-400 hover:text-primary transition-colors"
-                                                                    title="Open"
-                                                                >
-                                                                    <Upload size={16} className="rotate-90" />
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </>
-                                            );
-                                        })()}
-                                    </tr >
-                                ))}
+                                                                {item.webViewLink && (
+                                                                    <a
+                                                                        href={item.webViewLink}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="p-1 rounded-full text-gray-400 hover:text-primary hover:bg-blue-50 dark:hover:bg-blue-950/40 inline-flex transition-colors"
+                                                                        title="Abrir no SharePoint / Cloud"
+                                                                    >
+                                                                        <ExternalLink size={15} />
+                                                                    </a>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    });
+                                })()}
                             </tbody>
                         </table>
                     )}
                 </div>
             </div>
 
+            {/* ════════ MODAL: CRIAR NOVA PASTA ════════ */}
+            <Modal
+                maxWidth="max-w-md"
+                title={
+                    <div className="flex items-center gap-2">
+                        <FolderPlus size={18} className="text-primary" />
+                        <span className="font-bold text-sm text-[var(--text)]">Criar Nova Pasta</span>
+                    </div>
+                }
+                isOpen={isNewFolderModalOpen}
+                onClose={() => setIsNewFolderModalOpen(false)}
+            >
+                <form onSubmit={handleCreateNewFolder} className="space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                            Pasta de Destino no CDE
+                        </label>
+                        <div className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/60 text-[var(--text-muted)] font-mono truncate">
+                            📁 {currentPath.length > 0
+                                ? `${cdeConfig?.folderPath || 'CDE'} / ${currentPath.map(p => p.name).join(' / ')}`
+                                : (cdeConfig?.folderPath || 'Raiz do CDE')}
+                        </div>
+                    </div>
 
+                    <div>
+                        <label className="block text-xs font-bold text-[var(--text)] mb-1">
+                            Nome da Nova Pasta <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            required
+                            value={newFolderName}
+                            onChange={e => setNewFolderName(e.target.value)}
+                            placeholder="Ex: Auditorias 2026, Declarações Clientes..."
+                            className="w-full text-xs px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text)] focus:outline-none focus:border-primary"
+                        />
+                    </div>
 
-        </div >
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border)]">
+                        <SecondaryButton type="button" onClick={() => setIsNewFolderModalOpen(false)}>
+                            Cancelar
+                        </SecondaryButton>
+                        <PrimaryButton type="submit" className="py-2 px-4 text-xs font-bold">
+                            Criar Pasta
+                        </PrimaryButton>
+                    </div>
+                </form>
+            </Modal>
+
+            {/* ════════ MODAL: RESULTADO DA CRIAÇÃO DE PASTAS ════════ */}
+            <Modal
+                maxWidth="max-w-lg"
+                title={
+                    <div className="flex items-center gap-2">
+                        <FolderCheck size={18} className="text-emerald-500" />
+                        <span className="font-bold text-sm text-[var(--text)]">Estrutura de Pastas Normalizada</span>
+                    </div>
+                }
+                isOpen={isInitResultModalOpen}
+                onClose={() => setIsInitResultModalOpen(false)}
+            >
+                <div className="space-y-4">
+                    <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 space-y-1">
+                        <div className="font-bold flex items-center gap-1.5">
+                            <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
+                            <span>Estrutura da Obra Criada com Sucesso</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed">
+                            As pastas tipo foram geradas e normalizadas segundo os requisitos legais da construção civil e arquivo ISO 19650.
+                        </p>
+                    </div>
+
+                    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-input)]/40 p-3 max-h-60 overflow-y-auto space-y-1 font-mono text-[11px] text-[var(--text-muted)]">
+                        {initResultLogs.map((log, idx) => (
+                            <div key={idx} className="flex items-center gap-1.5">
+                                <span className="text-primary font-bold">&rsaquo;</span>
+                                <span>{log}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="flex justify-end pt-2 border-t border-[var(--border)]">
+                        <PrimaryButton type="button" onClick={() => setIsInitResultModalOpen(false)}>
+                            Fechar
+                        </PrimaryButton>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* ════════ MODAL: CONFIGURAÇÕES CDE ════════ */}
+            <CDESettingsModal
+                isOpen={isCdeModalOpen}
+                onClose={() => setIsCdeModalOpen(false)}
+                projectId={projectId}
+            />
+
+            {/* ════════ MODAL: VISUALIZADOR DE PDF / DOCUMENTOS ════════ */}
+            <PDFViewerModal
+                isOpen={!!viewerDoc}
+                onClose={() => setViewerDoc(null)}
+                fileUrl={viewerDoc?.url || ''}
+                fileName={viewerDoc?.name || 'Documento'}
+            />
+        </div>
     );
-};
-
-export default Documents;
+}

@@ -953,10 +953,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             'Equipamentos',
             '04-Controlo de Acessos',
             '05-Sinistralidade',
-            '06-Formação',
-            '07-Segurança e Saúde',
-            '08-Atas e Comunicações',
-            '09-Modelos e Minutas'
+            '06-Formação'
         ];
         const SPECIAL_SUBFOLDERS: Record<string, string[]> = {
             'Organizações': [
