@@ -245,6 +245,7 @@ export interface AppState {
     updateProjectCDE: (projectId: string, config: Project['cdeConfig']) => void;
 
     // Company Actions
+    deleteCompany: (id: string) => void;
     archiveCompany: (id: string) => void;
     restoreCompany: (id: string) => void;
     // Company Workflow Actions
@@ -1900,6 +1901,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             id,
             number: companyNumber,
             profileId,
+            workflowStatus: company.workflowStatus || 'draft',
             accountId: company.accountId || (project ? project.accountId : (state.currentUser?.accountId || MOCK_ACCOUNT_ID)),
             ifcActorRole: getIfcRoleFromCompanyRole(company.companyRole ?? ''),
             ifcGlobalId: company.ifcGlobalId || generateIfcGuid(),
@@ -3450,6 +3452,14 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const newLog = { ...log, id, createdAt: new Date().toISOString() };
         dbInsert('workflow_logs', newLog).catch(console.error);
         return { workflowLogs: [...(state.workflowLogs || []), newLog] };
+    }),
+
+    deleteCompany: (id: string) => set((state) => {
+        dbRemove('companies', id).catch(console.error);
+        return {
+            companies: state.companies.filter(c => c.id !== id),
+            tickets: state.tickets.filter(t => t.entityId !== id)
+        };
     }),
 
     archiveCompany: (id: string) => set((state) => {

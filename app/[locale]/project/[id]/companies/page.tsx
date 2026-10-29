@@ -90,8 +90,9 @@ export const getWorkflowStatusColors = (status: string | undefined, role: string
 
   switch (status) {
     case "draft":
+      return "bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700";
     case "incomplete":
-      return "bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800";
+      return "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800";
     case "validation_pending":
     case "data_requested":
     case "data_update":
@@ -680,6 +681,7 @@ export default function CompaniesPage() {
     companyProfiles,
     addCompany,
     updateCompany,
+    deleteCompany,
     archiveCompany,
     restoreCompany,
     tickets,
@@ -721,6 +723,7 @@ export default function CompaniesPage() {
       companyProfiles: state.companyProfiles,
       addCompany: state.addCompany,
       updateCompany: state.updateCompany,
+      deleteCompany: state.deleteCompany,
       archiveCompany: state.archiveCompany,
       restoreCompany: state.restoreCompany,
       tickets: state.tickets,
@@ -1995,7 +1998,7 @@ export default function CompaniesPage() {
       case "draft":
         return {
           status: "draft",
-          label: "Em Validação",
+          label: t("status.draft") || "Rascunho",
           color: getWorkflowStatusColors("draft", role),
           details: details,
           waitingForRole: role,
@@ -2059,7 +2062,7 @@ export default function CompaniesPage() {
       case "incomplete":
         return {
           status: "incomplete",
-          label: "Em Validação",
+          label: t("status.incomplete") || "Incompleto",
           color: getWorkflowStatusColors("incomplete", role),
           details: details,
           waitingForRole: role,
@@ -2716,7 +2719,7 @@ export default function CompaniesPage() {
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{
-    type: "archive";
+    type: "archive" | "delete";
     company: Company;
   } | null>(null);
 
@@ -3077,7 +3080,11 @@ export default function CompaniesPage() {
       setIsEditing(true);
       setIsModalOpen(true);
     } else if (action === "delete") {
-      setConfirmation({ type: "archive", company });
+      if (company.workflowStatus === "draft") {
+        setConfirmation({ type: "delete", company });
+      } else {
+        setConfirmation({ type: "archive", company });
+      }
     } else if (action === "restore") {
       restoreCompany(company.id);
     }
@@ -3327,7 +3334,7 @@ export default function CompaniesPage() {
         <StatusIcon size={12} />
         {mode !== "create"
           ? getDisplayStatus(newItem as Company).label
-          : "Em Validação"}
+          : (t("status.draft") || "Rascunho")}
       </span>
       {isActingAsDataUser && (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase border shadow-2xs bg-orange-100 text-orange-800 border-orange-200 animate-pulse">
@@ -3538,23 +3545,11 @@ export default function CompaniesPage() {
               isCreateMode
             ) &&
             (() => {
-              const isDraftReverDisabled =
-                newItem.workflowStatus === "draft" &&
-                tickets.filter(
-                  (t) =>
-                    t.entityId === (newItem as any).id &&
-                    t.status === "open" &&
-                    t.createdBy === currentUser?.id &&
-                    !t.isDraft,
-                ).length === 0;
+              const isDraft = newItem.workflowStatus === "draft";
+              const isDraftReverDisabled = false;
               return (
                 <div
-                  title={
-                    isDraftReverDisabled
-                      ? "Adicione pelo menos um ticket de revisão antes de enviar."
-                      : ""
-                  }
-                  className={isDraftReverDisabled ? "cursor-not-allowed inline-block" : "inline-block"}
+                  className="inline-block"
                 >
                   <button
                     type="button"
@@ -3568,7 +3563,17 @@ export default function CompaniesPage() {
                       isDraftReverDisabled && "opacity-50 pointer-events-none bg-gray-400 hover:bg-gray-400",
                     )}
                   >
-                    <ArrowLeft size={13} /> Rever
+                    {isDraft ? (
+                      <>
+                        <Send size={13} />
+                        <span>Enviar para Atualização de Dados</span>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowLeft size={13} />
+                        <span>Rever</span>
+                      </>
+                    )}
                   </button>
                 </div>
               );
@@ -3989,15 +3994,25 @@ export default function CompaniesPage() {
         isOpen={!!confirmation}
         onClose={() => setConfirmation(null)}
         onConfirm={() => {
-          if (confirmation) archiveCompany(confirmation.company.id);
+          if (confirmation) {
+            if (confirmation.type === "delete" || confirmation.company.workflowStatus === "draft") {
+              deleteCompany(confirmation.company.id);
+            } else {
+              archiveCompany(confirmation.company.id);
+            }
+          }
           setConfirmation(null);
         }}
-        title="Archive Company?"
-        message={`Are you sure you want to archive "${confirmation?.company.name}"?`}
-        description="The company will be moved to the archived list. You can restore it later."
-        confirmText="Archive Company"
-        variant="warning"
-        icon="archive"
+        title={confirmation?.type === "delete" || confirmation?.company.workflowStatus === "draft" ? "Eliminar Rascunho de Organização?" : "Arquivar Organização?"}
+        message={confirmation?.type === "delete" || confirmation?.company.workflowStatus === "draft"
+          ? `Tem a certeza de que pretende eliminar definitivamente o rascunho de "${confirmation?.company.name}"?`
+          : `Tem a certeza de que pretende arquivar a organização "${confirmation?.company.name}"?`}
+        description={confirmation?.type === "delete" || confirmation?.company.workflowStatus === "draft"
+          ? "Como esta organização se encontra em fase de rascunho (pré-workflow), será apagada definitivamente do projeto."
+          : "A organização será movida para a lista de arquivadas e poderá ser restaurada mais tarde."}
+        confirmText={confirmation?.type === "delete" || confirmation?.company.workflowStatus === "draft" ? "Eliminar Rascunho" : "Arquivar Organização"}
+        variant={confirmation?.type === "delete" || confirmation?.company.workflowStatus === "draft" ? "danger" : "warning"}
+        icon={confirmation?.type === "delete" || confirmation?.company.workflowStatus === "draft" ? "trash" : "archive"}
       />
 
       {/* Company Details Drawer (Replaces Modal) */}
