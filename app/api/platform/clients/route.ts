@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma, ensureSubscriptionTable, ensureUserColumns, ensureProjectRequestTable, ensureCompanyInvitationTable } from '@/lib/prisma';
+import fs from 'fs';
+import path from 'path';
 
 // GET /api/platform/clients
 // Retorna todos os Tenants, Users e SubscriptionRequests da base de dados PostgreSQL
@@ -41,6 +43,24 @@ export async function GET() {
             rawCompanyInvitations = await prisma.$queryRawUnsafe(`SELECT * FROM "company_invitations" ORDER BY "createdAt" DESC`);
         } catch {
             rawCompanyInvitations = [];
+        }
+
+        // Fallback e merge com ficheiro persistente (.data) para garantir suporte multi-sessão mesmo em offline/dev
+        try {
+            const invitationsFile = path.join(process.cwd(), '.data', 'company_invitations.json');
+            if (fs.existsSync(invitationsFile)) {
+                const fileInvs = JSON.parse(fs.readFileSync(invitationsFile, 'utf-8'));
+                if (Array.isArray(fileInvs)) {
+                    const existingMap = new Map((rawCompanyInvitations || []).map(r => [r.id, r]));
+                    for (const fi of fileInvs) {
+                        if (!existingMap.has(fi.id)) {
+                            rawCompanyInvitations.push(fi);
+                        }
+                    }
+                }
+            }
+        } catch (fileErr) {
+            console.warn('[API Clients] Fallback reading invitations file:', fileErr);
         }
 
         const accounts = tenants.map(t => {

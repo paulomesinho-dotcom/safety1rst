@@ -674,22 +674,27 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
             // Load Data
             const load = async (table: string) => {
-                const rows = await executeQuery(`SELECT * FROM ${table}`);
-                if (!rows) return [];
-                return rows.map(row => {
-                    const item: any = {};
-                    for (const k of Object.keys(row)) {
-                        const camelKey = k.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-                        let val = row[k];
-                        try {
-                            if (typeof val === 'string' && (val.startsWith('[') || val.startsWith('{'))) {
-                                val = JSON.parse(val);
-                            }
-                        } catch (e) { }
-                        item[camelKey] = val;
-                    }
-                    return item;
-                });
+                try {
+                    const rows = await executeQuery(`SELECT * FROM ${table}`);
+                    if (!rows) return [];
+                    return rows.map(row => {
+                        const item: any = {};
+                        for (const k of Object.keys(row)) {
+                            const camelKey = k.replace(/_([a-z])/g, (g) => g[1].toUpperCase());
+                            let val = row[k];
+                            try {
+                                if (typeof val === 'string' && (val.startsWith('[') || val.startsWith('{'))) {
+                                    val = JSON.parse(val);
+                                }
+                            } catch (e) { }
+                            item[camelKey] = val;
+                        }
+                        return item;
+                    });
+                } catch (err) {
+                    console.warn(`[Store load] Failed to query table "${table}":`, err);
+                    return [];
+                }
             };
 
             const [
@@ -858,7 +863,19 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 workerTrainingRecords: workerTrainingRecords || [],
                 subscriptionRequests: subscriptionRequests || [],
                 projectRequests: projectRequests || [],
-                companyInvitations: companyInvitations || []
+                companyInvitations: (() => {
+                    const inMemoryInvs = get().companyInvitations || [];
+                    const mergedInvsMap = new Map<string, CompanyInvitation>();
+                    for (const inv of inMemoryInvs) {
+                        mergedInvsMap.set(inv.id, inv);
+                    }
+                    if (Array.isArray(companyInvitations)) {
+                        for (const inv of companyInvitations) {
+                            mergedInvsMap.set(inv.id, inv);
+                        }
+                    }
+                    return Array.from(mergedInvsMap.values());
+                })()
             });
             console.log(`[Store] Initialization Complete. Loaded ${documents?.length || 0} documents.`);
 
@@ -867,6 +884,34 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
             // Sincronizar utilizadores e clientes registados da base de dados central PostgreSQL
             get().syncFromServer().catch(() => {});
+
+            // Sincronização direta de convites de associação a empresas
+            fetch('/api/platform/company-invitations')
+                .then(r => r.json())
+                .then(d => {
+                    if (d && d.success && Array.isArray(d.invitations)) {
+                        set((s) => {
+                            const curInvs = [...(s.companyInvitations || [])];
+                            const curMap = new Map(curInvs.map(i => [i.id, i]));
+                            for (const inv of d.invitations) {
+                                if (!curMap.has(inv.id)) {
+                                    curInvs.unshift(inv);
+                                    curMap.set(inv.id, inv);
+                                    dbInsert('company_invitations', inv).catch(() => {});
+                                } else {
+                                    const existing = curMap.get(inv.id);
+                                    if (existing && (existing.status !== inv.status || existing.resolvedAt !== inv.resolvedAt)) {
+                                        const idx = curInvs.findIndex(x => x.id === inv.id);
+                                        if (idx !== -1) curInvs[idx] = { ...existing, ...inv };
+                                        dbUpdate('company_invitations', inv.id, inv).catch(() => {});
+                                    }
+                                }
+                            }
+                            return { companyInvitations: curInvs };
+                        });
+                    }
+                })
+                .catch(() => {});
         } catch (e) {
             console.error("Failed to initialize store from DB", e);
         }
@@ -902,6 +947,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     const updatedUser = { ...user, lastLoginAt: now };
                     set({ currentUser: updatedUser });
                     get().updateUser(user.id, { lastLoginAt: now });
+                    get().syncFromServer().catch(() => {});
                     return { success: true };
                 }
             } else {
@@ -909,6 +955,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 const updatedUser = { ...user, lastLoginAt: now };
                 set({ currentUser: updatedUser });
                 get().updateUser(user.id, { lastLoginAt: now });
+                get().syncFromServer().catch(() => {});
                 return { success: true };
             }
         }
@@ -937,6 +984,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                         get().updateUser(existingUser.id, authenticatedUser);
                     }
                     set({ currentUser: authenticatedUser });
+                    get().syncFromServer().catch(() => {});
                     return { success: true };
                 }
 
@@ -1120,6 +1168,34 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 } catch (planErr) {
                     console.warn('[Store] Falha ao sincronizar planos da plataforma:', planErr);
                 }
+            }
+
+            // Sincronização direta de convites para garantir recebimento mesmo com endpoint agregador indisponível
+            try {
+                const invRes = await fetch('/api/platform/company-invitations');
+                const invData = await invRes.json();
+                if (invRes.ok && invData.success && Array.isArray(invData.invitations)) {
+                    set((state) => {
+                        const existingInvIds = new Set((state.companyInvitations || []).map(i => i.id));
+                        const mergedCompanyInvs = [...(state.companyInvitations || [])];
+                        for (const inv of invData.invitations) {
+                            if (!existingInvIds.has(inv.id)) {
+                                mergedCompanyInvs.push(inv);
+                                existingInvIds.add(inv.id);
+                                dbInsert('company_invitations', inv).catch(() => {});
+                            } else {
+                                const idx = mergedCompanyInvs.findIndex(i => i.id === inv.id);
+                                if (idx !== -1 && (mergedCompanyInvs[idx].status !== inv.status || mergedCompanyInvs[idx].resolvedAt !== inv.resolvedAt)) {
+                                    mergedCompanyInvs[idx] = { ...mergedCompanyInvs[idx], ...inv };
+                                    dbUpdate('company_invitations', inv.id, inv).catch(() => {});
+                                }
+                            }
+                        }
+                        return { companyInvitations: mergedCompanyInvs };
+                    });
+                }
+            } catch (invErr) {
+                console.warn('[Store] Falha ao sincronizar convites:', invErr);
             }
         } catch (e) {
             console.warn('[Store] Falha ao sincronizar com servidor (offline fallback ativo):', e);

@@ -60,7 +60,8 @@ export default function Home() {
         companyInvitations,
         acceptCompanyInvitation,
         rejectCompanyInvitation,
-        cancelCompanyInvitation
+        cancelCompanyInvitation,
+        isInitialized
     } = useStore(useShallow((state: AppState) => ({
         projects: state.projects,
         currentUser: state.currentUser,
@@ -92,6 +93,7 @@ export default function Home() {
         acceptCompanyInvitation: state.acceptCompanyInvitation,
         rejectCompanyInvitation: state.rejectCompanyInvitation,
         cancelCompanyInvitation: state.cancelCompanyInvitation,
+        isInitialized: state.isInitialized,
     })));
 
     // Active Navigation Tab
@@ -143,11 +145,17 @@ export default function Home() {
     const [inviteError, setInviteError] = useState('');
     const [inviteSuccess, setInviteSuccess] = useState('');
 
+    const [hasMounted, setHasMounted] = useState(false);
     useEffect(() => {
-        if (!currentUser) {
+        setHasMounted(true);
+    }, []);
+
+    useEffect(() => {
+        // Redirecionar apenas após montagem do cliente e conclusão da inicialização do store
+        if (hasMounted && isInitialized && !currentUser) {
             router.replace('/login');
         }
-    }, [currentUser, router]);
+    }, [hasMounted, isInitialized, currentUser, router]);
 
     useEffect(() => {
         syncFromServer?.().catch(() => {});
@@ -600,12 +608,19 @@ export default function Home() {
         router.push('/login');
     };
 
-    if (!currentUser) {
+    if (!hasMounted || !isInitialized) {
         return (
             <div className="min-h-screen bg-background flex items-center justify-center">
-                <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-3 border-primary border-t-transparent rounded-full animate-spin" />
+                    <p className="text-xs text-[var(--text-muted)] animate-pulse">A carregar Workplace...</p>
+                </div>
             </div>
         );
+    }
+
+    if (!currentUser) {
+        return null;
     }
 
     return (
