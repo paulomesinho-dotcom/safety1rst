@@ -1754,6 +1754,7 @@ export default function MyCompanyPage() {
                     <DocumentUpload
                         entityId={corporateEntityId}
                         projectId={corporateEntityId}
+                        cdeConfig={companyCdeConfig}
                         category={category}
                         layout="button"
                         label=""
@@ -3467,7 +3468,8 @@ export default function MyCompanyPage() {
                                             </div>
                                             <DocumentUpload
                                                 entityId={corporateEntityId}
-                                                projectId={corporateEntityId}
+                        projectId={corporateEntityId}
+                        cdeConfig={companyCdeConfig}
                                                 category="general"
                                                 layout="button"
                                                 label="Carregar Documento"
@@ -3475,8 +3477,8 @@ export default function MyCompanyPage() {
                                         </div>
 
                                         <DocumentList
-                                            entityId={corporateEntityId}
-                                            projectId={corporateEntityId}
+                                                entityId={corporateEntityId}
+                                                projectId={corporateEntityId}
                                             isEditing={companyModalMode === 'edit'}
                                         />
                                     </div>
@@ -4515,6 +4517,7 @@ export default function MyCompanyPage() {
                                                         <DocumentUpload
                                                             entityId={editingWorkerId || 'new_worker'}
                                                             projectId={corporateEntityId}
+                                                            cdeConfig={companyCdeConfig}
                                                             category="worker"
                                                             layout="button"
                                                             label="Carregar Documento"

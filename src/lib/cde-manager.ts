@@ -708,7 +708,7 @@ export async function archiveCDEFile(
 
         if (config.provider === 'gdrive') {
             // 1. Find or Create "Arquivo" in parentId
-            const res = await createGoogleDriveFolder(config.accessToken, parentId, 'Arquivo');
+            const res = await createGoogleDriveFolder(config.accessToken!, parentId, 'Arquivo');
             archiveFolderId = res.id;
 
             // 2. Rename File (Append Timestamp)
@@ -742,7 +742,7 @@ export async function archiveCDEFile(
 
         } else if (config.provider === 'dropbox') {
             // 1. Find or Create "Arquivo"
-            const res = await createDropboxFolder(config.accessToken, parentId, 'Arquivo');
+            const res = await createDropboxFolder(config.accessToken!, parentId, 'Arquivo');
             const archivePath = res.id;
 
             // 2. Move File
@@ -986,7 +986,13 @@ export async function uploadToEntityFolder(
     versionTag?: string, // Optional version to tag the *archived* file with
     onTokenRefresh?: (token: string, expiresAt: number) => void
 ): Promise<{ id: string, webViewLink: string, archivedId?: string, archivedParentId?: string, archivedNewId?: string, archivedNewName?: string }> {
-    if (!config.connected || !config.accessToken) throw new Error('CDE Not Connected');
+    if (!config.connected) throw new Error('CDE Not Connected');
+    if (config.provider === 'gdrive' && !config.accessToken && !config.serviceAccountKey) {
+        throw new Error('Google Drive: Token de acesso ausente ou sessão expirada. Por favor volte a ligar o CDE nas definições.');
+    }
+    if (config.provider === 'dropbox' && !config.accessToken && !config.refreshToken) {
+        throw new Error('Dropbox: Token de acesso ausente ou expirado. Por favor volte a ligar o CDE nas definições.');
+    }
 
     let archivedNewName: string | undefined;
 
@@ -1015,10 +1021,10 @@ export async function uploadToEntityFolder(
             const rootId = config.folderId || 'root';
 
             // Resolve Parent (01-Empresas)
-            const parentRes = await createGoogleDriveFolder(config.accessToken, rootId, parentName);
+            const parentRes = await createGoogleDriveFolder(config.accessToken!, rootId, parentName);
 
             // Resolve Entity Folder
-            const entityRes = await createGoogleDriveFolder(config.accessToken, parentRes.id, folderName);
+            const entityRes = await createGoogleDriveFolder(config.accessToken!, parentRes.id, folderName);
             targetFolderId = entityRes.id;
             archivedParentId = targetFolderId; // Parent of file before overwrite was THIS folder
 
@@ -1047,17 +1053,17 @@ export async function uploadToEntityFolder(
             }
 
             // 4. Upload
-            const upRes = await uploadToGoogleDrive(config.accessToken, targetFolderId, file);
+            const upRes = await uploadToGoogleDrive(config.accessToken!, targetFolderId, file);
             return { ...upRes, archivedId, archivedParentId, archivedNewName };
 
         } else if (config.provider === 'dropbox') {
             const rootPath = config.folderPath || '';
 
             // Resolve Parent
-            const parentRes = await createDropboxFolder(config.accessToken, rootPath, parentName);
+            const parentRes = await createDropboxFolder(config.accessToken!, rootPath, parentName);
 
             // Resolve Entity Folder
-            const entityRes = await createDropboxFolder(config.accessToken, parentRes.id, folderName);
+            const entityRes = await createDropboxFolder(config.accessToken!, parentRes.id, folderName);
             targetFolderPath = entityRes.id; // path_display
             archivedParentId = targetFolderPath;
 
@@ -1091,7 +1097,7 @@ export async function uploadToEntityFolder(
                     console.log(`Archives: Dropbox Path Update ${existing.id} -> ${arcRes.newId}`);
                 }
                 if (arcRes.newId) return {
-                    ...await uploadToDropbox(config.accessToken, targetFolderPath, file),
+                    ...await uploadToDropbox(config.accessToken!, targetFolderPath, file),
                     archivedId: existing.id,
                     archivedNewId: arcRes.newId,
                     archivedNewName: arcRes.newName, // Return the new name!
@@ -1100,7 +1106,7 @@ export async function uploadToEntityFolder(
             }
 
             // 4. Upload
-            const upRes = await uploadToDropbox(config.accessToken, targetFolderPath, file);
+            const upRes = await uploadToDropbox(config.accessToken!, targetFolderPath, file);
             return { ...upRes, archivedId, archivedParentId }; // archivedNewId undefined if no collision
         } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
             const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';

@@ -18,12 +18,13 @@ interface DocumentUploadProps {
     enableAI?: boolean; // New prop to enable AI scanning
     aiType?: 'date' | 'text'; // Type of data to extract
     draftAuthorId?: string;
+    cdeConfig?: any;
     onUploadComplete?: () => void;
     onSmartComplete?: (data: ExtractedData) => void;
     onOperation?: (op: { type: 'upload', fileId: string, archivedId?: string, archivedParentId?: string }) => void;
 }
 
-export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projectId, category, layout = 'zone', label, systemLabel, enableAI = false, aiType = 'text', draftAuthorId, onUploadComplete, onSmartComplete, onOperation }) => {
+export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projectId, category, layout = 'zone', label, systemLabel, enableAI = false, aiType = 'text', draftAuthorId, cdeConfig, onUploadComplete, onSmartComplete, onOperation }) => {
     const { addDocument, updateDocument, documents, projects } = useStore();
     const [uploading, setUploading] = useState(false);
     const [scanning, setScanning] = useState(false);
@@ -122,10 +123,33 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
 
                     // 4. Check CDE Connection
                     const companyForCde = company || storeState.companies.find(c => c.id === entityId || c.id === projectId || (!c.projectId && c.accountId === storeState.currentUser?.accountId));
-                    const effectiveCdeConfig = project?.cdeConfig || (companyForCde as any)?.cdeConfig;
+                    let effectiveCdeConfig = cdeConfig || project?.cdeConfig || (companyForCde as any)?.cdeConfig;
+
+                    // If not found in local memory, dynamically query server endpoint for this project or entity
+                    if (!effectiveCdeConfig || !effectiveCdeConfig.connected) {
+                        const targetLookupId = projectId || entityId || (companyForCde as any)?.id;
+                        if (targetLookupId) {
+                            try {
+                                const cdeFetchRes = await fetch(`/api/projects/${targetLookupId}/cde`);
+                                if (cdeFetchRes.ok) {
+                                    const cdeData = await cdeFetchRes.json();
+                                    if (cdeData?.cdeConfig?.connected) {
+                                        effectiveCdeConfig = {
+                                            ...cdeData.cdeConfig,
+                                            projectId: targetLookupId,
+                                            companyId: targetLookupId
+                                        };
+                                        console.log('DocumentUpload: Dynamically loaded CDE config from server:', effectiveCdeConfig);
+                                    }
+                                }
+                            } catch (cdeErr) {
+                                console.warn('DocumentUpload: Could not query CDE endpoint for', targetLookupId, cdeErr);
+                            }
+                        }
+                    }
 
                     if (effectiveCdeConfig?.connected) {
-                        console.log(`DocumentUpload: Uploading to Entity Folder (${entityType})...`);
+                        console.log(`DocumentUpload: Uploading to CDE Cloud (${effectiveCdeConfig.provider})...`);
                         const versionTag = prevActiveDoc ? `v${prevActiveDoc.version || 1}` : undefined;
 
                         const uploadRes = await uploadToEntityFolder(
@@ -228,7 +252,7 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({ entityId, projec
             if (onUploadComplete) onUploadComplete();
         }, 500);
 
-    }, [entityId, projectId, category, provider, addDocument, updateDocument, onUploadComplete, enableAI, aiType, onSmartComplete, project, draftAuthorId, label, systemLabel, onOperation]);
+    }, [entityId, projectId, category, provider, addDocument, updateDocument, onUploadComplete, enableAI, aiType, onSmartComplete, project, draftAuthorId, cdeConfig, label, systemLabel, onOperation]);
 
     const { getRootProps, getInputProps, isDragActive, open } = useDropzone({ onDrop, noClick: layout === 'button' });
 

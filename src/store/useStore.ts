@@ -3370,7 +3370,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
     updateProjectCDE: (projectId: string, config: any) => set((state) => {
         dbUpdate('projects', projectId, { cdeConfig: config }).catch(console.error);
-        return { projects: state.projects.map(p => p.id === projectId ? { ...p, cdeConfig: config } : p) };
+        return {
+            projects: state.projects.map(p => p.id === projectId ? { ...p, cdeConfig: config } : p),
+            companies: state.companies.map(c => (c.id === projectId || (!c.projectId && c.accountId === state.currentUser?.accountId)) ? { ...c, cdeConfig: config } : c)
+        };
     }),
 
 

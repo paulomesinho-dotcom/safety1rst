@@ -5628,6 +5628,7 @@ export default function CompaniesPage() {
                                                 <DocumentUpload
                                                   entityId={row.entityId}
                                                   projectId={projectId}
+                                                  cdeConfig={currentProject?.cdeConfig}
                                                   category={row.category}
                                                   layout="button"
                                                   label=""
@@ -5748,6 +5749,7 @@ export default function CompaniesPage() {
                               label={t("actions.uploadDocument")}
                               entityId={(newItem as any).id}
                               projectId={projectId}
+                              cdeConfig={currentProject?.cdeConfig}
                               category="general"
                               onOperation={handleUploadOperation}
                             />
