@@ -242,10 +242,10 @@ const ListView: React.FC<{
                       className={cn(
                         "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ring-1 ring-inset",
                         tier === 1
-                          ? "bg-primary-light text-primary-hover ring-blue-200"
+                          ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
                           : tier === 2
-                            ? "bg-purple-50 text-purple-700 ring-purple-200"
-                            : "bg-orange-50 text-orange-700 ring-orange-200",
+                            ? "bg-purple-50 text-purple-700 ring-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:ring-purple-800"
+                            : "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/60 dark:text-orange-300 dark:ring-orange-800",
                       )}
                     >
                       {tier}
@@ -406,15 +406,20 @@ const GridView: React.FC<{
           className="bg-white dark:bg-surface p-5 rounded-xl shadow-sm border border-gray-200 dark:border-[#444746] hover:border-primary/30 transition-all cursor-pointer group hover:shadow-md"
         >
           <div className="flex justify-between items-start mb-4">
-            <div className="w-12 h-12 rounded-lg bg-primary-light text-primary flex items-center justify-center">
+            <div className="w-12 h-12 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <Building2 size={24} />
             </div>
             <span
               className={cn(
-                "px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-surface text-gray-600 dark:text-gray-300",
+                "px-2 py-0.5 rounded text-xs font-semibold ring-1 ring-inset",
+                (company.tier || 1) === 1
+                  ? "bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:ring-blue-800"
+                  : company.tier === 2
+                    ? "bg-purple-50 text-purple-700 ring-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:ring-purple-800"
+                    : "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-950/60 dark:text-orange-300 dark:ring-orange-800",
               )}
             >
-              Tier {company.tier}
+              Tier {company.tier || 1}
             </span>
           </div>
           <div>
@@ -541,7 +546,7 @@ const DocumentRow: React.FC<{
               className={cn(
                 "p-2 rounded-lg transition-colors mt-0.5 sm:mt-0",
                 isExpanded
-                  ? "bg-primary-light text-primary"
+                  ? "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400"
                   : "bg-gray-50 dark:bg-[#131314] text-gray-400",
               )}
             >
@@ -569,7 +574,7 @@ const DocumentRow: React.FC<{
               </span>
             )}
             {approvalStatus === "approved" && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary-light text-primary-hover text-[10px] font-bold border border-primary/10 uppercase">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 text-[10px] font-bold border border-purple-200 dark:border-purple-800 uppercase">
                 <Shield size={10} strokeWidth={3} /> {t("status.approved")}
               </span>
             )}
@@ -3485,7 +3490,7 @@ export default function CompaniesPage() {
           {projectManagers.slice(0, 3).map((mgr, i) => (
             <div
               key={mgr.id}
-              className="w-6 h-6 rounded-full bg-primary-light border-2 border-white flex items-center justify-center text-[10px] font-medium text-primary-hover relative z-20 ring-1 ring-white"
+              className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-200 border-2 border-white dark:border-gray-800 flex items-center justify-center text-[10px] font-bold relative z-20 ring-1 ring-white"
               title={`Manager: ${mgr.name}`}
             >
               {mgr.name.charAt(0)}

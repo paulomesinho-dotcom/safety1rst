@@ -24,11 +24,12 @@ export const GoogleDriveIcon: React.FC<GoogleDriveIconProps> = ({ type, size = 2
     };
 
     const iconType = getIconType(type);
+    const effectiveSize = iconType === 'folder' ? Math.round(size * 1.15) : size;
 
     const icons = {
         folder: (
-            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-                <path d="M10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z" fill={customColor || "#5F6368"} opacity={customColor ? "1" : "0.8"} />
+            <svg width={effectiveSize} height={effectiveSize} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+                <path d="M10 4H4C2.9 4 2 4.9 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V8C22 6.9 21.1 6 20 6H12L10 4Z" fill={customColor || "#5F6368"} opacity={customColor ? "1" : "0.9"} />
             </svg>
         ),
         pdf: (

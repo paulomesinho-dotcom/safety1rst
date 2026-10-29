@@ -683,7 +683,7 @@ const LocationsView = ({ projectId }: { projectId: string }) => {
                                 </td>
                                 <td className="px-6 py-4 capitalize">
                                     <span className={cn("px-2 py-1 rounded-full text-xs font-medium border",
-                                        point.category === 'site' ? "bg-primary-light text-primary-hover border-primary/10" :
+                                        point.category === 'site' ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800" :
                                             point.category === 'zone' ? "bg-purple-50 text-purple-700 border-purple-100" :
                                                 point.category === 'safe_point' ? "bg-green-50 text-green-700 border-green-100" :
                                                     "bg-gray-50 dark:bg-[#131314] text-gray-700 dark:text-gray-200 border-gray-200 dark:border-[#444746]"
@@ -1518,7 +1518,7 @@ const AttendanceView = ({ projectId }: { projectId: string }) => {
                                                 </span>
                                             ) : (
                                                 <span className={cn("px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                                                    row.status === 'Complete' ? "bg-green-100 text-green-700" : "bg-primary-light text-primary-hover animate-pulse"
+                                                    row.status === 'Complete' ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 animate-pulse"
                                                 )}>
                                                     {row.status}
                                                 </span>
@@ -1533,7 +1533,7 @@ const AttendanceView = ({ projectId }: { projectId: string }) => {
                                                     <div className="flex flex-wrap gap-4">
                                                         {row.sessions.map((s: any, idx: number) => (
                                                             <div key={idx} className="flex items-center gap-3 bg-white dark:bg-surface border border-gray-200 dark:border-[#444746] rounded-lg p-3 shadow-sm min-w-[200px]">
-                                                                <div className="bg-primary-light text-primary p-2 rounded-md">
+                                                                <div className="bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 p-2 rounded-md">
                                                                     <Clock size={16} />
                                                                 </div>
                                                                 <div>

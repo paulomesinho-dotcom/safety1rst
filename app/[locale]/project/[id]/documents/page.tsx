@@ -362,7 +362,7 @@ export default function ProjectDocumentsPage() {
                                         }}
                                         className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
                                     >
-                                        <GoogleDriveIcon type="folder" size={16} />
+                                        <GoogleDriveIcon type="folder" size={18} />
                                         <span>Nova pasta</span>
                                     </button>
                                     <div className="h-px bg-gray-100 dark:bg-gray-800 my-1"></div>
@@ -385,7 +385,7 @@ export default function ProjectDocumentsPage() {
                                         }}
                                         className="w-full text-left px-4 py-2.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-[#131314] flex items-center gap-3 cursor-pointer"
                                     >
-                                        <GoogleDriveIcon type="folder" size={16} />
+                                        <GoogleDriveIcon type="folder" size={18} />
                                         <span>Carregar pasta</span>
                                     </button>
                                 </div>
@@ -476,10 +476,10 @@ export default function ProjectDocumentsPage() {
                                         <div key={folderId} className="select-none">
                                             <div
                                                 className={cn(
-                                                    "flex items-center gap-1.5 py-1.5 px-2 rounded-lg cursor-pointer transition-colors text-xs",
+                                                    "flex items-center gap-2 py-1.5 px-2.5 rounded-lg cursor-pointer transition-colors text-xs font-medium",
                                                     isCurrent
-                                                        ? "bg-primary-light text-primary font-bold"
-                                                        : "hover:bg-gray-200/50 dark:hover:bg-surface text-[var(--text)]"
+                                                        ? "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800/60 shadow-xs"
+                                                        : "hover:bg-gray-100 dark:hover:bg-surface text-gray-700 dark:text-gray-200"
                                                 )}
                                                 style={{ paddingLeft: `${depth * 14 + 8}px` }}
                                                 onClick={() => {
@@ -499,11 +499,20 @@ export default function ProjectDocumentsPage() {
                                                         e.stopPropagation();
                                                         toggleTreeFolderExpand(folderId);
                                                     }}
-                                                    className="p-0.5 rounded hover:bg-gray-300 dark:hover:bg-surface text-gray-500 cursor-pointer shrink-0"
+                                                    className={cn(
+                                                        "p-0.5 rounded cursor-pointer shrink-0 transition-colors",
+                                                        isCurrent
+                                                            ? "text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40"
+                                                            : "text-gray-400 dark:text-gray-500 hover:bg-gray-200 dark:hover:bg-surface"
+                                                    )}
                                                 >
-                                                    {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                                                 </button>
-                                                <GoogleDriveIcon type="folder" size={16} />
+                                                <GoogleDriveIcon
+                                                    type="folder"
+                                                    size={20}
+                                                    customColor={isCurrent ? "#2563EB" : undefined}
+                                                />
                                                 <span className="truncate">{folderName}</span>
                                             </div>
 
@@ -582,7 +591,7 @@ export default function ProjectDocumentsPage() {
                                     >
                                         <td className="py-2 px-3 text-center">
                                             <div className="flex justify-center">
-                                                <GoogleDriveIcon type="folder" size={20} />
+                                                <GoogleDriveIcon type="folder" size={24} />
                                             </div>
                                         </td>
                                         <td className="py-2 px-3 font-medium text-gray-500" colSpan={5}>
@@ -664,7 +673,7 @@ export default function ProjectDocumentsPage() {
                                             >
                                                 <td className="py-2 px-3 text-center">
                                                     <div className="flex justify-center">
-                                                        <GoogleDriveIcon type={isFolder ? 'folder' : (item.mimeType || 'pdf')} size={20} />
+                                                        <GoogleDriveIcon type={isFolder ? 'folder' : (item.mimeType || 'pdf')} size={isFolder ? 24 : 20} />
                                                     </div>
                                                 </td>
                                                 <td className="py-2 px-3">

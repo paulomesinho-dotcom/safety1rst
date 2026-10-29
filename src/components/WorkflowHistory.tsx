@@ -98,7 +98,7 @@ export const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({ entityId, proj
                         color = 'bg-green-100 text-green-600';
                     } else if (log.newStatus === 'validation_pending') {
                         icon = <Clock size={16} />;
-                        color = 'bg-primary-light text-primary';
+                        color = 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300';
                     } else if (log.newStatus === 'approved') {
                         icon = <CheckCircle size={16} />;
                         color = 'bg-emerald-100 text-emerald-600';
@@ -138,7 +138,7 @@ export const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({ entityId, proj
                     title = 'Submetido para Validação';
                     description = 'O processo foi submetido para validação.';
                     icon = <Shield size={16} />;
-                    color = 'bg-primary-light text-primary';
+                    color = 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300';
                     type = 'workflow_submission';
                     break;
                 case 'rejected':
@@ -174,7 +174,7 @@ export const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({ entityId, proj
                 title: 'Empresa Criada',
                 description: `A empresa ${company.name} foi registada no sistema.`,
                 icon: <Building2 size={16} />,
-                color: 'bg-primary-light text-primary',
+                color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300',
                 user: 'System'
             });
         }
@@ -187,7 +187,7 @@ export const WorkflowHistory: React.FC<WorkflowHistoryProps> = ({ entityId, proj
                 title: 'Trabalhador Adicionado',
                 description: `O trabalhador ${worker.name} foi adicionado ao estaleiro.`,
                 icon: <UserIcon size={16} />,
-                color: 'bg-primary-light text-primary',
+                color: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300',
                 user: 'System'
             });
         }

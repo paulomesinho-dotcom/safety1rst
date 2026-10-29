@@ -204,7 +204,7 @@ export default function AccountDashboardPage() {
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
-                        <div className="bg-primary-light text-primary-hover px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide">
+                        <div className="bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wide">
                             {currentUser?.role}
                         </div>
                     </div>
@@ -237,7 +237,7 @@ export default function AccountDashboardPage() {
                                         <button className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><MoreVertical size={16} /></button>
                                     </div>
                                     <div className="mb-3">
-                                        <div className="w-10 h-10 rounded-lg bg-primary-light text-primary flex items-center justify-center mb-3">
+                                        <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-3">
                                             <Folder size={20} />
                                         </div>
                                         <h3 className="font-semibold text-gray-900 dark:text-white truncate">{project.name}</h3>
@@ -322,7 +322,7 @@ export default function AccountDashboardPage() {
                                             <span className={cn("px-2 py-0.5 rounded text-xs font-semibold capitalize border",
                                                 isGuest ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800" :
                                                 isOwnerAdmin ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800" :
-                                                user.role === 'manager' ? "bg-primary-light text-primary-hover border-primary/10" :
+                                                user.role === 'manager' ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800" :
                                                 user.role === 'editor' ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800" :
                                                 "bg-gray-50 dark:bg-[#131314] text-gray-600 dark:text-gray-300 border-gray-100 dark:border-[#444746]")}>
                                                 {isGuest ? 'Convidado' : isOwnerAdmin ? 'Administrador' : user.role}

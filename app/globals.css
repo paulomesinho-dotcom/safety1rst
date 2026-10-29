@@ -42,7 +42,7 @@
     /* FundacaoJM Light Mode (.light) */
     .light {
         --primary: 26 115 232; /* #1A73E8 */
-        --primary-light: 66 133 244; /* #4285F4 */
+        --primary-light: 232 240 254; /* #E8F0FE - Light Google Blue Pastel Tint */
         --primary-hover: 21 87 176; /* #1557B0 */
         --primary-dark: 21 87 176; /* #1557B0 */
         --accent: 124 58 237; /* #7C3AED */
