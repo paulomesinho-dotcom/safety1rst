@@ -391,6 +391,7 @@ export interface CustomDocumentDefinition {
     requiresUpload: boolean; // If true, shows DocumentUpload
     isExpirationDate?: boolean; // Se a data expirar, gera ticket de retificação
     toleranceDays?: number; // Extra days after the date before considered expired (0 = day-after default)
+    subject?: string; // Assunto / Grupo de agregação (ex: "Seguros e Apólices", "Obrigações do Estado", "Documentos de Obra")
 }
 
 export interface CompanyProfile {
