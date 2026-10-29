@@ -15,7 +15,7 @@ import {
     LogOut, Share2, UploadCloud, Download, ExternalLink, CheckCircle, Eye,
     User, Briefcase, Activity, AlertTriangle, X, Cloud, Filter,
     FolderPlus, FolderCheck, FileSpreadsheet, HardDrive, RotateCw, History, Paperclip, ChevronDown,
-    Archive, ShieldCheck, Server, Settings as SettingsIcon
+    Archive, ShieldCheck, Server, Settings as SettingsIcon, Lock
 } from 'lucide-react';
 import { CDESettingsModal } from '@/components/CDESettingsModal';
 import { ProfileManagerModal, type ProfileType } from '@/components/ProfileManagerModal';
@@ -294,6 +294,12 @@ export default function MyCompanyPage() {
 
     const currentPlan = userAccount?.plan || 'free';
     const isPaidOrAdmin = currentPlan !== 'free' || currentUser?.role === 'admin' || currentUser?.role === 'superadmin';
+
+    // Regra 3: O Admin da conta pode dar autorização ao manager para acesso aos dados da minha empresa e atualizar/criar os mesmos.
+    const isAccountAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin';
+    const isManagerUser = currentUser?.role === 'manager' || currentUser?.projectAccess?.some(pa => pa.role === 'manager');
+    const isAuthorizedManager = isManagerUser && !!currentUser?.canManageCompanyData;
+    const hasCompanyAccess = isAccountAdmin || isAuthorizedManager;
 
     // Find the master company entity strictly for this account/user
     const masterCompany = useMemo(() => {
@@ -1894,6 +1900,28 @@ export default function MyCompanyPage() {
                                 className="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
                             >
                                 Voltar ao Workplace e Conhecer Planos
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : !hasCompanyAccess ? (
+                <div className="flex h-screen items-center justify-center bg-[var(--bg)] px-4">
+                    <div className="max-w-md w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-8 text-center shadow-lg space-y-4">
+                        <div className="w-14 h-14 mx-auto rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                            <Lock size={28} />
+                        </div>
+                        <h1 className="text-xl font-bold text-[var(--text)]">Acesso Restrito ao Módulo Corporativo</h1>
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                            {isManagerUser 
+                                ? "Como Manager, necessita de autorização explícita concedida pelo Administrador da Conta para consultar, criar e atualizar os dados em \"A Minha Empresa\"."
+                                : "Apenas o Administrador da Conta ou Managers com autorização explícita podem aceder e gerir os dados corporativos da empresa."}
+                        </p>
+                        <div className="pt-2 flex flex-col gap-2">
+                            <button
+                                onClick={() => router.push('/')}
+                                className="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold hover:bg-primary-hover shadow-sm transition-all cursor-pointer"
+                            >
+                                Voltar ao Workplace
                             </button>
                         </div>
                     </div>

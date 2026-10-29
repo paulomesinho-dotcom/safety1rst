@@ -680,9 +680,24 @@ export default function Home() {
                                     if (!isPaidOrAdmin) {
                                         setActiveTab('subscriptions');
                                         addNotification('warning', 'O acesso ao módulo "A Minha Empresa" requer no mínimo o Plano Básico.');
-                                    } else {
-                                        router.push('/company');
+                                        return;
                                     }
+
+                                    // Regra 3: Admin tem acesso direto; Manager só tem acesso se autorizado pelo Admin
+                                    const isAccountAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.role === 'client_admin';
+                                    const isManager = currentUser?.role === 'manager' || currentUser?.projectAccess?.some(pa => pa.role === 'manager');
+                                    const isAuthorizedManager = isManager && !!currentUser?.canManageCompanyData;
+
+                                    if (!isAccountAdmin && !isAuthorizedManager) {
+                                        if (isManager) {
+                                            addNotification('warning', 'Como Manager, necessita de autorização prévia do Administrador da Conta para aceder e gerir "A Minha Empresa".');
+                                        } else {
+                                            addNotification('warning', 'Apenas o Administrador da Conta ou Managers com autorização explícita podem aceder a "A Minha Empresa".');
+                                        }
+                                        return;
+                                    }
+
+                                    router.push('/company');
                                 }}
                                 className="px-3.5 py-2 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer"
                                 title="Gerir a minha empresa, trabalhadores, equipamentos, formação e documentos"

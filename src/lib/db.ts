@@ -430,6 +430,7 @@ const createSchema = async () => {
     // Migrations: Add columns that may not exist in older databases
     const migrations = [
         `ALTER TABLE users ADD COLUMN password TEXT`,
+        `ALTER TABLE users ADD COLUMN can_manage_company_data BOOLEAN DEFAULT 0`,
         `ALTER TABLE company_profiles ADD COLUMN standard_doc_config TEXT DEFAULT '{}'`,
         `ALTER TABLE worker_profiles ADD COLUMN standard_doc_config TEXT DEFAULT '{}'`,
         `ALTER TABLE equipment_profiles ADD COLUMN standard_doc_config TEXT DEFAULT '{}'`,

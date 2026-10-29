@@ -46,7 +46,9 @@ const ProjectSettings = () => {
         resolveProjectRequest, 
         updateProjectSettings, 
         updateProjectCDE, 
-        updateProject 
+        updateProject,
+        updateUser,
+        addNotification
     } = useStore();
 
     // Tab State
@@ -63,6 +65,7 @@ const ProjectSettings = () => {
     const [role, setRole] = useState<ProjectRole>('viewer');
     const [allowedModules, setAllowedModules] = useState<string[]>([]);
     const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([]);
+    const [canManageCompany, setCanManageCompany] = useState(false);
     const [copiedCode, setCopiedCode] = useState(false);
 
     // --- Config Tab State & Functions ---
@@ -150,6 +153,7 @@ const ProjectSettings = () => {
         setRole(projectAccess?.role || 'viewer');
         setAllowedModules(projectAccess?.allowedModules || []);
         setSelectedCompanyIds(projectAccess?.companyIds || []);
+        setCanManageCompany(!!user?.canManageCompanyData);
         setRoleError('');
         setIsModalOpen(true);
     };
@@ -175,12 +179,27 @@ const ProjectSettings = () => {
             allowedModules: role === 'manager' ? modules.map(m => m.id) : allowedModules,
             companyIds: role === 'data_user' ? selectedCompanyIds : undefined
         });
+
+        // Regra 3: Se o utilizador atual for Administrador da Conta e o membro for Manager, persistir a autorização para "A Minha Empresa"
+        const isAccountAdmin = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || project?.creatorId === currentUser?.id;
+        if (isAccountAdmin) {
+            updateUser(selectedUser, { canManageCompanyData: canManageCompany });
+        }
+
         setIsModalOpen(false);
     };
 
     const handleRemove = (userId: string) => setRemoveConfirmation(userId);
 
     const handleApproveRequest = (reqId: string, roleToAssign: ProjectRole) => {
+        const req = projectRequests.find(r => r.id === reqId);
+        if (req) {
+            const validation = useStore.getState().canAssignRole(req.userId, projectId, roleToAssign);
+            if (!validation.allowed) {
+                addNotification('warning', validation.reason || 'Não é possível atribuir este perfil.');
+                return;
+            }
+        }
         resolveProjectRequest(reqId, 'approved', roleToAssign);
     };
 
@@ -417,11 +436,19 @@ const ProjectSettings = () => {
                                                             onChange={(e) => setPendingRoles(prev => ({ ...prev, [req.id]: e.target.value as ProjectRole }))}
                                                             className="bg-[var(--bg-input)] border border-primary/40 focus:border-primary rounded-lg px-2.5 py-1.5 text-xs text-[var(--text)] font-semibold outline-none cursor-pointer shadow-sm"
                                                         >
-                                                            <option value="manager">Manager</option>
-                                                            <option value="editor">Editor</option>
-                                                            <option value="viewer">Viewer</option>
-                                                            <option value="data_user">Data User</option>
-                                                            <option value="approval_user">Approval</option>
+                                                            {(() => {
+                                                                const reqUser = users.find(u => u.id === req.userId);
+                                                                const isMem = currentUser?.role === 'superadmin' || (reqUser && project && ((reqUser.accountId && project.accountId && reqUser.accountId === project.accountId) || (project.creatorId && reqUser.id === project.creatorId)));
+                                                                return (
+                                                                    <>
+                                                                        {isMem && <option value="manager">Manager</option>}
+                                                                        {isMem && <option value="editor">Editor</option>}
+                                                                        <option value="viewer">Viewer</option>
+                                                                        <option value="data_user">Data User</option>
+                                                                        <option value="approval_user">Approval</option>
+                                                                    </>
+                                                                );
+                                                            })()}
                                                         </select>
                                                     </td>
                                                     <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -1174,31 +1201,83 @@ const ProjectSettings = () => {
                 <div className="space-y-5">
                     <div>
                         <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">Perfil de Acesso na Obra</label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                            {(['manager', 'editor', 'viewer', 'data_user', 'approval_user'] as ProjectRole[]).map(r => (
-                                <button
-                                    key={r}
-                                    type="button"
-                                    onClick={() => setRole(r)}
-                                    className={cn(
-                                        "py-2 px-3 text-xs font-semibold rounded-xl border transition-all text-left flex items-center gap-2 cursor-pointer",
-                                        role === r 
-                                            ? "bg-primary text-white border-primary shadow-sm" 
-                                            : "bg-[var(--bg-input)] text-[var(--text)] border-[var(--border)] hover:border-primary/40"
+                        {(() => {
+                            const selectedUserObj = users.find(u => u.id === selectedUser);
+                            const isMemberOfAccount = currentUser?.role === 'superadmin' || (selectedUserObj && project && (
+                                (selectedUserObj.accountId && project.accountId && selectedUserObj.accountId === project.accountId) ||
+                                (project.creatorId && selectedUserObj.id === project.creatorId)
+                            ));
+                            const existingManager = users.find(u =>
+                                u.id !== selectedUser &&
+                                u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'manager')
+                            );
+
+                            return (
+                                <>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {(['manager', 'editor', 'viewer', 'data_user', 'approval_user'] as ProjectRole[]).map(r => {
+                                            const isRestrictedForExternal = !isMemberOfAccount && (r === 'manager' || r === 'editor');
+                                            const isManagerOccupied = r === 'manager' && !!existingManager;
+
+                                            return (
+                                                <button
+                                                    key={r}
+                                                    type="button"
+                                                    onClick={() => setRole(r)}
+                                                    className={cn(
+                                                        "py-2 px-3 text-xs font-semibold rounded-xl border transition-all text-left flex flex-col gap-1 cursor-pointer",
+                                                        role === r 
+                                                            ? "bg-primary text-white border-primary shadow-sm" 
+                                                            : "bg-[var(--bg-input)] text-[var(--text)] border-[var(--border)] hover:border-primary/40",
+                                                        (isRestrictedForExternal || isManagerOccupied) && role !== r && "opacity-60"
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={cn("w-3 h-3 rounded-full border border-current shrink-0", role === r ? "bg-white" : "bg-transparent")} />
+                                                        <span className="truncate">{getRoleLabel(r)}</span>
+                                                    </div>
+                                                    {isRestrictedForExternal && (
+                                                        <span className="text-[9px] text-amber-500 font-medium">Requer membro da empresa</span>
+                                                    )}
+                                                    {isManagerOccupied && (
+                                                        <span className="text-[9px] text-indigo-400 font-medium">Já existe Manager</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <p className="text-[11px] text-[var(--text-muted)] mt-2 bg-[var(--bg-input)] p-2.5 rounded-xl border border-[var(--border)]">
+                                        {role === 'manager' && "Manager: Gestor do projeto (limite de 1 por obra). Acesso e controlo total das operações da obra."}
+                                        {role === 'editor' && "Editor: Membro da empresa. Pode adicionar e editar dados em módulos atribuídos. Não altera configurações da obra."}
+                                        {role === 'viewer' && "Viewer: Acesso exclusivo de consulta e leitura nos módulos permitidos."}
+                                        {role === 'data_user' && "Data User: Restrito exclusivamente aos dados das empresas e subempreiteiros associados."}
+                                        {role === 'approval_user' && "Approval: Validação e aprovação de requisitos, conformidades e formulários de segurança."}
+                                    </p>
+
+                                    {/* Regra 3: Autorização para "A Minha Empresa" se for Manager e utilizador for Admin */}
+                                    {role === 'manager' && (currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || project?.creatorId === currentUser?.id) && (
+                                        <div className="p-3 rounded-xl border border-primary/20 bg-primary/5 space-y-1 mt-2.5">
+                                            <label className="flex items-start gap-2.5 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={canManageCompany}
+                                                    onChange={(e) => setCanManageCompany(e.target.checked)}
+                                                    className="mt-0.5 rounded text-primary"
+                                                />
+                                                <div>
+                                                    <span className="text-xs font-bold text-[var(--text)] block">
+                                                        Autorizar Acesso a &ldquo;A Minha Empresa&rdquo;
+                                                    </span>
+                                                    <span className="text-[11px] text-[var(--text-muted)] block leading-relaxed mt-0.5">
+                                                        O Administrador da Conta autoriza este Manager a consultar, atualizar e criar dados corporativos (empresas, trabalhadores, equipamentos e documentos-mestre).
+                                                    </span>
+                                                </div>
+                                            </label>
+                                        </div>
                                     )}
-                                >
-                                    <div className={cn("w-3 h-3 rounded-full border border-current shrink-0", role === r ? "bg-white" : "bg-transparent")} />
-                                    <span className="truncate">{getRoleLabel(r)}</span>
-                                </button>
-                            ))}
-                        </div>
-                        <p className="text-[11px] text-[var(--text-muted)] mt-2 bg-[var(--bg-input)] p-2.5 rounded-xl border border-[var(--border)]">
-                            {role === 'manager' && "Manager: Gestor do projeto. Acesso e controlo total das operações da obra."}
-                            {role === 'editor' && "Editor: Pode adicionar e editar dados em módulos atribuídos. Não altera configurações da obra."}
-                            {role === 'viewer' && "Viewer: Acesso exclusivo de consulta e leitura nos módulos permitidos."}
-                            {role === 'data_user' && "Data User: Restrito exclusivamente aos dados das empresas e subempreiteiros associados."}
-                            {role === 'approval_user' && "Approval: Validação e aprovação de requisitos, conformidades e formulários de segurança."}
-                        </p>
+                                </>
+                            );
+                        })()}
                     </div>
 
                     {role === 'data_user' && (

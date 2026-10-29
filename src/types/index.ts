@@ -31,6 +31,7 @@ export interface User {
     isPaidPlan?: boolean;
     activeProjectsCount?: number;
     hasActiveProjects?: boolean;
+    canManageCompanyData?: boolean; // Permissão concedida pelo Admin da Conta para o Manager aceder e atualizar/criar dados em "A Minha Empresa"
     createdAt: string;
 }
 

@@ -106,6 +106,12 @@ export default function AccountDashboardPage() {
     const handleRoleChange = (projectId: string, newRole: ProjectRole) => {
         if (!selectedUserForAccess) return;
 
+        const validation = useStore.getState().canAssignRole(selectedUserForAccess.id, projectId, newRole);
+        if (!validation.allowed) {
+            alert(validation.reason || 'Não é possível atribuir este perfil.');
+            return;
+        }
+
         const newAccessList = (selectedUserForAccess.projectAccess || []).map(access =>
             access.projectId === projectId ? { ...access, role: newRole } : access
         );
@@ -252,6 +258,11 @@ export default function AccountDashboardPage() {
                                         <div className="mb-4 flex-1">
                                             <h3 className="font-semibold text-gray-900 dark:text-white truncate">{user.name}</h3>
                                             <p className="text-sm text-gray-500 truncate">{user.email}</p>
+                                            {user.canManageCompanyData && (
+                                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-2 py-0.5 rounded-full inline-block mt-2">
+                                                    ✓ A Minha Empresa
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="pt-4 border-t border-gray-100 dark:border-[#444746] mt-auto">
                                             <button
@@ -290,7 +301,12 @@ export default function AccountDashboardPage() {
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <span className="capitalize text-gray-700 dark:text-gray-200">{user.role}</span>
+                                                    <span className="capitalize text-gray-700 dark:text-gray-200 block">{user.role}</span>
+                                                    {user.canManageCompanyData && (
+                                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                                                            ✓ A Minha Empresa
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="px-6 py-4 text-gray-500">
                                                     {(user.projectAccess?.length || 0)} Projects Assigned
@@ -410,6 +426,30 @@ export default function AccountDashboardPage() {
                                         );
                                     })
                                 )}
+                            </div>
+
+                            {/* Autorização Corporativa para A Minha Empresa */}
+                            <div className="pt-3 border-t border-gray-200 dark:border-[#444746]">
+                                <label className="flex items-start gap-3 p-3 rounded-xl border border-gray-200 dark:border-[#444746] bg-gray-50/50 dark:bg-[#131314]/50 cursor-pointer hover:border-primary/40 transition-all">
+                                    <input
+                                        type="checkbox"
+                                        className="mt-0.5 rounded text-primary"
+                                        checked={!!selectedUserForAccess.canManageCompanyData}
+                                        onChange={(e) => {
+                                            const val = e.target.checked;
+                                            setSelectedUserForAccess({ ...selectedUserForAccess, canManageCompanyData: val });
+                                            updateUser(selectedUserForAccess.id, { canManageCompanyData: val });
+                                        }}
+                                    />
+                                    <div>
+                                        <span className="text-xs font-bold text-gray-900 dark:text-white block">
+                                            Autorização para &ldquo;A Minha Empresa&rdquo;
+                                        </span>
+                                        <span className="text-[11px] text-gray-500 block leading-relaxed mt-0.5">
+                                            Autoriza este utilizador a aceder aos dados corporativos da empresa, consultar, atualizar e criar registos (organizações, colaboradores, equipamentos e documentos-mestre).
+                                        </span>
+                                    </div>
+                                </label>
                             </div>
 
                             <div className="flex justify-end pt-2">

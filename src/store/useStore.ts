@@ -274,6 +274,7 @@ export interface AppState {
     addEquipmentProfile: (profile: EquipmentProfile) => void;
     updateEquipmentProfile: (id: string, updates: Partial<EquipmentProfile>) => void;
     deleteEquipmentProfile: (id: string) => void;
+    canAccessCompanyModule: (user?: User | null) => boolean;
 }
 
 // Mock Data
@@ -1244,7 +1245,9 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }),
     updateUser: (id, updates) => set((state) => {
         dbUpdate('users', id, updates).catch(console.error);
-        return { users: state.users.map(u => u.id === id ? { ...u, ...updates } : u) };
+        const updatedUsers = state.users.map(u => u.id === id ? { ...u, ...updates } : u);
+        const updatedCurrentUser = state.currentUser?.id === id ? { ...state.currentUser, ...updates } : state.currentUser;
+        return { users: updatedUsers, currentUser: updatedCurrentUser };
     }),
 
     ensureSuperAdmin: () => set((state) => {
@@ -2244,6 +2247,30 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     resolvedRole = 'data_user';
                 }
             }
+
+            // Regra 1 e Regra 2: Validar papel ao aprovar pedido
+            const proj = state.projects.find(p => p.id === req.projectId);
+            const reqUser = state.users.find(u => u.id === req.userId);
+            const isSuper = state.currentUser?.role === 'superadmin' || reqUser?.role === 'superadmin';
+            const isMember = isSuper || (reqUser && proj && (
+                (reqUser.accountId && proj.accountId && reqUser.accountId === proj.accountId) ||
+                (proj.creatorId && reqUser.id === proj.creatorId)
+            ));
+
+            if ((resolvedRole === 'manager' || resolvedRole === 'editor') && !isMember) {
+                get().addNotification('warning', `O utilizador ${reqUser?.name || ''} não pode ser ${resolvedRole === 'manager' ? 'Manager' : 'Editor'} por não ser membro da empresa titular da obra. Foi atribuído perfil Viewer.`);
+                resolvedRole = 'viewer';
+            } else if (resolvedRole === 'manager') {
+                const existingManager = state.users.find(u =>
+                    u.id !== req.userId &&
+                    u.projectAccess?.some(pa => pa.projectId === req.projectId && pa.role === 'manager')
+                );
+                if (existingManager) {
+                    get().addNotification('warning', `A obra "${proj?.name || ''}" já tem um Manager designado (${existingManager.name || existingManager.email}). Foi atribuído perfil Editor.`);
+                    resolvedRole = 'editor';
+                }
+            }
+
             const assignedRole: ProjectRole = (resolvedRole || 'none') as ProjectRole;
             newUsers = state.users.map(u => {
                 if (u.id !== req.userId) return u;
@@ -3674,14 +3701,48 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
     canAssignRole: (userId, projectId, role, companyIds) => {
         const state = get();
+        const proj = state.projects.find(p => p.id === projectId);
+        const targetUser = state.users.find(u => u.id === userId);
 
-        // O Administrador da Conta pode sempre designar ou alterar o Manager do projeto
+        // Regra 1: Um manager e um editor só pode ter esse papel se estiver associado à conta como membro da empresa titular da obra
+        if (role === 'manager' || role === 'editor') {
+            const isSuper = state.currentUser?.role === 'superadmin' || targetUser?.role === 'superadmin';
+            const isMemberOfAccount = isSuper || (targetUser && proj && (
+                (targetUser.accountId && proj.accountId && targetUser.accountId === proj.accountId) ||
+                (proj.creatorId && targetUser.id === proj.creatorId)
+            ));
+
+            if (!isMemberOfAccount) {
+                const roleName = role === 'manager' ? 'Manager' : 'Editor';
+                return {
+                    allowed: false,
+                    reason: `Um utilizador só pode ser ${roleName} se for membro da empresa associada à conta desta obra (${proj?.name || 'Projeto'}). Utilizadores externos e subempreiteiros apenas podem ser designados como Data User, Approval ou Viewer.`
+                };
+            }
+        }
+
+        // Regra 2: Cada obra só pode ter um único manager
         if (role === 'manager') {
-            const proj = state.projects.find(p => p.id === projectId);
-            const isAccAdmin = state.currentUser?.role === 'admin' || state.currentUser?.role === 'superadmin' || proj?.creatorId === state.currentUser?.id;
+            const isAccAdmin = state.currentUser?.role === 'admin' ||
+                               state.currentUser?.role === 'superadmin' ||
+                               state.currentUser?.role === 'client_admin' ||
+                               proj?.creatorId === state.currentUser?.id;
             if (!isAccAdmin) {
                 return { allowed: false, reason: 'Apenas o Administrador da Conta pode designar um Manager para o projeto.' };
             }
+
+            // Verificar se já existe outro Manager na obra
+            const existingManager = state.users.find(u =>
+                u.id !== userId &&
+                u.projectAccess?.some(pa => pa.projectId === projectId && pa.role === 'manager')
+            );
+            if (existingManager) {
+                return {
+                    allowed: false,
+                    reason: `Esta obra já tem um Manager designado (${existingManager.name || existingManager.email}). Cada obra só pode ter um único Manager. Para nomear outro, altere primeiro o perfil do Manager atual.`
+                };
+            }
+
             return { allowed: true };
         }
 
@@ -3705,6 +3766,16 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }
 
         return { allowed: true };
+    },
+
+    // Regra 3 Helper: Acesso a "A Minha Empresa"
+    canAccessCompanyModule: (user): boolean => {
+        const state = get();
+        const u = user || state.currentUser;
+        if (!u) return false;
+        if (u.role === 'superadmin' || u.role === 'admin' || u.role === 'client_admin') return true;
+        const isManager = u.role === 'manager' || u.projectAccess?.some(pa => pa.role === 'manager');
+        return Boolean(isManager && u.canManageCompanyData);
     },
 
     getProjectStats: (projectId) => {
