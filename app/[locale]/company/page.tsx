@@ -8,7 +8,7 @@ import { useTheme } from '@/providers/ThemeProvider';
 import Header from '@/components/Header';
 import { useTranslations } from 'next-intl';
 import { 
-    Building2, Users, Wrench, GraduationCap, Folder, 
+    Building2, Users, Wrench, GraduationCap, Folder, Unlink, 
     ArrowLeft, ArrowRight, Plus, Search, Trash2, Edit2, Pencil, Check, 
     FileText, Shield, Calendar, Phone, Mail, MapPin, 
     Clock, AlertCircle, Save, CheckCircle2, ChevronRight, ChevronLeft,
@@ -260,6 +260,7 @@ export default function MyCompanyPage() {
         updateEquipment,
         addNotification,
         importCompanyToProject,
+        unsyncCompanyFromProject,
         importWorkerToProject,
         importEquipmentToProject,
         documents,
@@ -378,6 +379,8 @@ export default function MyCompanyPage() {
 
     // Export / Sincronizar Modal State
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isUnsyncModalOpen, setIsUnsyncModalOpen] = useState(false);
+    const [projectToUnsync, setProjectToUnsync] = useState<{ projectId: string; projectName: string } | null>(null);
     const [exportEntityType, setExportEntityType] = useState<'company' | 'worker' | 'equipment'>('company');
     const [exportTargetProjectId, setExportTargetProjectId] = useState<string>('');
     const [exportProjectRole, setExportProjectRole] = useState<string>('subempreiteiro');
@@ -2732,13 +2735,27 @@ export default function MyCompanyPage() {
                                                                             </span>
                                                                         </td>
                                                                         <td className="py-3 px-3 text-right">
-                                                                            <Link
-                                                                                href={`/project/${proj.projectId}/dashboard`}
-                                                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
-                                                                            >
-                                                                                <span>Abrir Obra</span>
-                                                                                <ArrowRight size={12} />
-                                                                            </Link>
+                                                                            <div className="flex items-center justify-end gap-2">
+                                                                                <Link
+                                                                                    href={`/project/${proj.projectId}/dashboard`}
+                                                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-all cursor-pointer"
+                                                                                >
+                                                                                    <span>Abrir Obra</span>
+                                                                                    <ArrowRight size={12} />
+                                                                                </Link>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => {
+                                                                                        setProjectToUnsync({ projectId: proj.projectId, projectName: proj.projectName });
+                                                                                        setIsUnsyncModalOpen(true);
+                                                                                    }}
+                                                                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-900/50 transition-all cursor-pointer"
+                                                                                    title="Remover sincronização com esta obra"
+                                                                                >
+                                                                                    <Unlink size={12} />
+                                                                                    <span>Remover</span>
+                                                                                </button>
+                                                                            </div>
                                                                         </td>
                                                                     </tr>
                                                                 ))}
@@ -6381,6 +6398,65 @@ export default function MyCompanyPage() {
                         projectId={corporateEntityId}
                         title="Ambiente Comum de Dados (CDE) da Empresa"
                     />
+
+                    {/* Modal Confirmação de Remoção de Sincronização de Obra */}
+                    <Modal
+                        title="Remover Sincronização com a Obra"
+                        isOpen={isUnsyncModalOpen}
+                        onClose={() => {
+                            setIsUnsyncModalOpen(false);
+                            setProjectToUnsync(null);
+                        }}
+                    >
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3 p-3.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 rounded-xl text-red-800 dark:text-red-300">
+                                <AlertTriangle size={20} className="shrink-0 text-red-600" />
+                                <div className="text-xs">
+                                    <p className="font-bold">Desassociar obra e intervenção</p>
+                                    <p className="text-[11px] text-red-700/80 dark:text-red-300/80 mt-0.5">
+                                        Esta ação desassocia a ficha da empresa e recursos clonados da obra selecionada.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                                Tem a certeza de que pretende remover a sincronização da sua empresa com a obra{' '}
+                                <strong className="text-[var(--text)]">{projectToUnsync?.projectName}</strong>?
+                            </p>
+
+                            <div className="p-3 bg-[var(--bg-input)]/50 border border-[var(--border)] rounded-xl text-[11px] text-[var(--text-muted)] space-y-1">
+                                <p>• A ficha da empresa no estaleiro será desassociada da lista de intervenientes da obra.</p>
+                                <p>• Os colaboradores e equipamentos sincronizados nesta obra deixarão de constar no respetivo projeto.</p>
+                                <p>• Os dados mestres no seu espaço corporativo <strong>"A Minha Empresa"</strong> mantêm-se 100% preservados.</p>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-2 pt-2">
+                                <SecondaryButton
+                                    type="button"
+                                    onClick={() => {
+                                        setIsUnsyncModalOpen(false);
+                                        setProjectToUnsync(null);
+                                    }}
+                                >
+                                    Cancelar
+                                </SecondaryButton>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (projectToUnsync) {
+                                            unsyncCompanyFromProject(masterCompany?.id || corporateEntityId || '', projectToUnsync.projectId);
+                                        }
+                                        setIsUnsyncModalOpen(false);
+                                        setProjectToUnsync(null);
+                                    }}
+                                    className="py-2 px-4 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                                >
+                                    <Unlink size={13} />
+                                    <span>Remover Sincronização</span>
+                                </button>
+                            </div>
+                        </div>
+                    </Modal>
 
                     {/* Modal Perfis de Documentos da Empresa */}
                     {isProfileModalOpen && (

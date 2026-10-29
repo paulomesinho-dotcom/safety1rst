@@ -134,6 +134,7 @@ export interface AppState {
 
     // Importações e Compatibilização entre Espaço Corporativo e Obras
     importCompanyToProject: (corporateCompanyId: string, targetProjectId: string, roleInProject?: string, parentId?: string) => Company | null;
+    unsyncCompanyFromProject: (corporateCompanyId: string, targetProjectId: string) => void;
     importWorkerToProject: (corporateWorkerId: string, targetProjectId: string, targetCompanyId: string) => Worker | null;
     importEquipmentToProject: (corporateEquipmentId: string, targetProjectId: string, targetCompanyId: string) => Equipment | null;
 
@@ -2188,16 +2189,67 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             tier: parentId ? 2 : 1,
             companyRole: roleInProject || master.companyRole || 'subempreiteiro',
             status: 'active',
-            workflowStatus: 'validation_pending',
+            workflowStatus: 'draft',
             createdAt: new Date().toISOString()
         };
 
         set(s => ({ companies: [...s.companies, newProjectCompany] }));
         dbInsert('companies', newProjectCompany).catch(console.error);
 
-        get().addNotification('success', `Empresa "${master.name}" importada para a obra com sucesso! Compatibilização documental iniciada.`);
+        get().addNotification('success', `Empresa "${master.name}" importada para a obra em modo rascunho com sucesso. O gestor pode agora proceder à validação documental.`);
         return newProjectCompany;
     },
+    unsyncCompanyFromProject: (corporateCompanyId, targetProjectId) => {
+        const state = get();
+        const master = state.companies.find(c => c.id === corporateCompanyId);
+        const masterNif = master?.nif;
+
+        const compInPrj = state.companies.find(c => 
+            c.projectId === targetProjectId && 
+            (c.corporateCompanyId === corporateCompanyId || (masterNif && c.nif === masterNif))
+        );
+
+        if (!compInPrj) {
+            get().addNotification('warning', 'Esta empresa não se encontra associada a esta obra.');
+            return;
+        }
+
+        const project = state.projects.find(p => p.id === targetProjectId);
+        const projectName = project?.name || 'Obra';
+
+        // Identificar colaboradores e equipamentos sincronizados desta empresa na obra
+        const workersToRemove = state.workers.filter(w => 
+            w.projectId === targetProjectId && 
+            (w.companyId === compInPrj.id || (w.corporateWorkerId && state.workers.some(cw => cw.id === w.corporateWorkerId && cw.companyId === corporateCompanyId)))
+        );
+        const workerIdsToRemove = new Set(workersToRemove.map(w => w.id));
+
+        const equipmentToRemove = state.equipment.filter(e => 
+            e.projectId === targetProjectId && 
+            (e.companyId === compInPrj.id || (e.corporateEquipmentId && state.equipment.some(ce => ce.id === e.corporateEquipmentId && ce.companyId === corporateCompanyId)))
+        );
+        const equipIdsToRemove = new Set(equipmentToRemove.map(e => e.id));
+
+        const trainingRecordsToRemove = state.workerTrainingRecords.filter(r => 
+            r.projectId === targetProjectId && workerIdsToRemove.has(r.workerId)
+        );
+
+        // Remover da base de dados persistente
+        dbRemove('companies', compInPrj.id).catch(console.error);
+        workersToRemove.forEach(w => dbRemove('workers', w.id).catch(console.error));
+        equipmentToRemove.forEach(e => dbRemove('equipment', e.id).catch(console.error));
+        trainingRecordsToRemove.forEach(tr => dbRemove('worker_training_records', tr.id).catch(console.error));
+
+        set(s => ({
+            companies: s.companies.filter(c => c.id !== compInPrj.id),
+            workers: s.workers.filter(w => !workerIdsToRemove.has(w.id)),
+            equipment: s.equipment.filter(e => !equipIdsToRemove.has(e.id)),
+            workerTrainingRecords: s.workerTrainingRecords.filter(r => !(r.projectId === targetProjectId && workerIdsToRemove.has(r.workerId)))
+        }));
+
+        get().addNotification('success', `Sincronização com a obra "${projectName}" removida com sucesso.`);
+    },
+
 
     importWorkerToProject: (corporateWorkerId, targetProjectId, targetCompanyId) => {
         const state = get();
@@ -2224,7 +2276,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             corporateWorkerId: master.id,
             profileId,
             status: 'active',
-            workflowStatus: 'validation_pending',
+            workflowStatus: 'draft',
         };
 
         // Clone any corporate training records to the project worker
@@ -2274,7 +2326,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             corporateEquipmentId: master.id,
             profileId,
             status: 'operational',
-            workflowStatus: 'validation_pending',
+            workflowStatus: 'draft',
             createdAt: new Date().toISOString()
         };
 

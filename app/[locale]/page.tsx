@@ -1013,7 +1013,7 @@ export default function Home() {
                                 className="px-3.5 py-2 rounded-lg border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary font-bold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer"
                                 title={`Gerir a empresa ${officialCompanyName}, trabalhadores, equipamentos, formação e documentos`}
                             >
-                                <Building2 size={15} /> {officialCompanyName}
+                                <Building2 size={15} /> A Minha Empresa
                             </button>
 
                             {currentPlan !== 'free' && (
