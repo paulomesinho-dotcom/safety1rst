@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
+import { cn } from '@/lib/utils';
 import {
     Box,
     MapPin,
@@ -21,6 +22,7 @@ import {
     RotateCcw,
     X,
     Maximize2,
+    Minimize2,
     Building2,
     Calendar,
     User,
@@ -229,6 +231,8 @@ export default function BimViewerPage() {
     const [loadedIfcName, setLoadedIfcName] = useState<string | null>(null);
     const [uploadedModels, setUploadedModels] = useState<Array<{ id: string; name: string; size: string; count: number }>>([]);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isDraggingFile, setIsDraggingFile] = useState(false);
 
     // New observation form
     const [pendingPinData, setPendingPinData] = useState<{
@@ -1198,229 +1202,228 @@ export default function BimViewerPage() {
     }, [projectObservations, categoryFilter, statusFilter, searchFilter]);
 
     return (
-        <div className="relative w-full h-[calc(100vh-64px)] overflow-hidden bg-slate-100 flex flex-col select-none">
-            {/* Top Sleek Glassmorphism Toolbar */}
-            <div className="h-14 bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border-b border-slate-200 dark:border-[#333] px-4 flex items-center justify-between z-20 shrink-0">
-                <div className="flex items-center gap-3">
-                    {/* Project & Module Branding */}
-                    <div className="flex items-center gap-2 pr-3 border-r border-slate-200 dark:border-neutral-700">
-                        <Box className="w-5 h-5 text-blue-600" />
-                        <div>
-                            <div className="flex items-center gap-1.5">
-                                <h1 className="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">
-                                    Visualizador BIM & Visitas
-                                </h1>
-                                <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                    IFC 4.3 & 2D
-                                </span>
-                            </div>
+        <div className={cn(
+            "relative w-full overflow-hidden bg-slate-100 dark:bg-neutral-950 flex flex-col select-none transition-all duration-200",
+            isFullscreen
+                ? "fixed inset-0 z-50 h-screen max-h-none rounded-none"
+                : "h-[calc(100vh-175px)] min-h-[460px] max-h-[680px] rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-sm"
+        )}>
+            {/* Revit-style Ribbon Toolbar */}
+            <div className="bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border-b border-slate-200 dark:border-neutral-800 px-3 py-1.5 flex items-center justify-between gap-2 z-20 shrink-0">
+                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+                    {/* PAINEL 1: PROJEÇÃO & VISTA */}
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Vista</span>
+                        <div className="flex items-center bg-white dark:bg-neutral-700 p-0.5 rounded-md border border-slate-200 dark:border-neutral-600 text-xs">
+                            <button
+                                onClick={() => handleToggleViewDimension('3d')}
+                                className={cn(
+                                    "px-2.5 py-0.5 rounded text-[11px] font-bold transition-all",
+                                    viewDimension === '3d'
+                                        ? "bg-blue-600 text-white shadow-xs"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
+                                )}
+                            >
+                                3D
+                            </button>
+                            <button
+                                onClick={() => handleToggleViewDimension('2d')}
+                                className={cn(
+                                    "px-2.5 py-0.5 rounded text-[11px] font-bold transition-all",
+                                    viewDimension === '2d'
+                                        ? "bg-blue-600 text-white shadow-xs"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-blue-600"
+                                )}
+                            >
+                                Planta 2D
+                            </button>
                         </div>
-                    </div>
-
-                    {/* 3D vs 2D View Switch */}
-                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 text-xs font-semibold">
-                        <button
-                            onClick={() => handleToggleViewDimension('3d')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-                                viewDimension === '3d'
-                                    ? 'bg-white dark:bg-neutral-700 text-blue-600 dark:text-blue-400 shadow-sm font-bold'
-                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                            }`}
-                        >
-                            <Box size={14} />
-                            Perspetiva 3D
-                        </button>
-                        <button
-                            onClick={() => handleToggleViewDimension('2d')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-                                viewDimension === '2d'
-                                    ? 'bg-blue-600 text-white shadow-sm font-bold'
-                                    : 'text-slate-600 dark:text-slate-400 hover:text-blue-600'
-                            }`}
-                        >
-                            <Layers size={14} />
-                            Planta 2D
-                        </button>
-                    </div>
-
-                    {/* Mode Toggle (Navegação vs Adicionar Ponto) */}
-                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 text-xs font-medium">
-                        <button
-                            onClick={() => setActiveMode('navigate')}
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-all ${
-                                activeMode === 'navigate'
-                                    ? 'bg-white dark:bg-neutral-700 text-blue-600 dark:text-blue-400 shadow-sm font-semibold'
-                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                            }`}
-                        >
-                            <Eye size={14} />
-                            Navegação
-                        </button>
-                        <button
-                            onClick={() => setActiveMode('add_point')}
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-all ${
-                                activeMode === 'add_point'
-                                    ? 'bg-red-600 text-white shadow-sm font-bold'
-                                    : 'text-slate-600 dark:text-slate-400 hover:text-red-600'
-                            }`}
-                        >
-                            <MapPin size={14} className={activeMode === 'add_point' ? 'animate-bounce' : ''} />
-                            Adicionar Ponto de Visita
-                        </button>
-                    </div>
-
-                    {/* Discipline Selector (Estruturas, Arquitetura, MEP, Segurança) */}
-                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 text-xs">
-                        <button
-                            onClick={() => setSelectedDiscipline('all')}
-                            className={`px-2.5 py-1.5 rounded-md transition-all font-medium ${
-                                selectedDiscipline === 'all'
-                                    ? 'bg-white dark:bg-neutral-700 text-slate-900 dark:text-white shadow-sm font-bold'
-                                    : 'text-slate-500 hover:text-slate-800'
-                            }`}
-                            title="Modelo Federado Completo"
-                        >
-                            🏢 Federado
-                        </button>
-                        <button
-                            onClick={() => setSelectedDiscipline('structure')}
-                            className={`px-2.5 py-1.5 rounded-md transition-all font-medium ${
-                                selectedDiscipline === 'structure'
-                                    ? 'bg-blue-600 text-white shadow-sm font-bold'
-                                    : 'text-slate-600 hover:text-blue-600'
-                            }`}
-                            title="Fase de Estruturas: Fundações, Pilares, Vigas e Lajes"
-                        >
-                            🏗️ Estruturas
-                        </button>
-                        <button
-                            onClick={() => setSelectedDiscipline('architecture')}
-                            className={`px-2.5 py-1.5 rounded-md transition-all font-medium ${
-                                selectedDiscipline === 'architecture'
-                                    ? 'bg-indigo-600 text-white shadow-sm font-bold'
-                                    : 'text-slate-600 hover:text-indigo-600'
-                            }`}
-                            title="Fase de Arquitetura: Paredes, Vãos, Cobertura e Fachadas"
-                        >
-                            📐 Arquitetura
-                        </button>
-                        <button
-                            onClick={() => setSelectedDiscipline('mep')}
-                            className={`px-2.5 py-1.5 rounded-md transition-all font-medium ${
-                                selectedDiscipline === 'mep'
-                                    ? 'bg-emerald-600 text-white shadow-sm font-bold'
-                                    : 'text-slate-600 hover:text-emerald-600'
-                            }`}
-                            title="Instalações Técnicas / Especialidades (AVAC, Eletricidade, Redes)"
-                        >
-                            ⚙️ MEP
-                        </button>
-                        <button
-                            onClick={() => setSelectedDiscipline('safety')}
-                            className={`px-2.5 py-1.5 rounded-md transition-all font-medium ${
-                                selectedDiscipline === 'safety'
-                                    ? 'bg-amber-600 text-white shadow-sm font-bold'
-                                    : 'text-slate-600 hover:text-amber-600'
-                            }`}
-                            title="Segurança & Estaleiro: Guarda-corpos, Andaimes e Grua"
-                        >
-                            🦺 Segurança
-                        </button>
-                    </div>
-
-                    {/* Floor / Storey Selector */}
-                    <div className="flex items-center gap-1.5">
-                        <Layers size={14} className="text-slate-400" />
                         <select
                             value={selectedStorey}
                             onChange={(e) => setSelectedStorey(e.target.value)}
-                            className="bg-slate-50 dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-xs rounded-md px-2.5 py-1.5 text-slate-700 dark:text-slate-200 outline-none font-medium focus:ring-1 focus:ring-blue-500"
+                            className="bg-white dark:bg-neutral-700 border border-slate-200 dark:border-neutral-600 text-[11px] rounded-md px-2 py-1 font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
                         >
-                            <option value="all">🏢 Todos os Pisos</option>
+                            <option value="all">🏢 Pisos: Todos</option>
                             <option value="Piso 0">Piso 0 (R/C & Fundação)</option>
                             <option value="Piso 1">Piso 1 (Estrutura)</option>
-                            <option value="Piso 2">Piso 2 (Frente de Trabalho)</option>
+                            <option value="Piso 2">Piso 2 (Frente Trabalho)</option>
                             <option value="Cobertura">Cobertura & HVAC</option>
                             <option value="Exterior">Exterior & Grua</option>
                         </select>
                     </div>
+
+                    {/* PAINEL 2: FASE / DISCIPLINA (REVIT STYLE) */}
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Disciplina</span>
+                        <select
+                            value={selectedDiscipline}
+                            onChange={(e) => setSelectedDiscipline(e.target.value as any)}
+                            className="bg-white dark:bg-neutral-700 border border-slate-200 dark:border-neutral-600 text-[11px] rounded-md px-2 py-1 font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+                        >
+                            <option value="all">🏢 Modelo Federado (Tudo)</option>
+                            <option value="structure">🏗️ Fase de Estruturas</option>
+                            <option value="architecture">📐 Fase de Arquitetura</option>
+                            <option value="mep">⚙️ Instalações Técnicas / MEP</option>
+                            <option value="safety">🦺 Segurança & Estaleiro</option>
+                        </select>
+                        <button
+                            onClick={() => setGhostMode(!ghostMode)}
+                            className={cn(
+                                "px-2 py-1 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer",
+                                ghostMode
+                                    ? "bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/50 dark:border-blue-800 dark:text-blue-300"
+                                    : "bg-white border-slate-200 text-slate-500 dark:bg-neutral-700 dark:border-neutral-600"
+                            )}
+                            title="Modo Raio-X: Mostra outras disciplinas como translúcidas para contexto espacial"
+                        >
+                            <Sliders size={12} />
+                            <span>{ghostMode ? 'Raio-X On' : 'Raio-X Off'}</span>
+                        </button>
+                    </div>
+
+                    {/* PAINEL 3: FICHEIROS & CDE (MUITO DESTACADO) */}
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50/90 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-800/70 shadow-xs shrink-0">
+                        <span className="text-[9px] font-extrabold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Ficheiros</span>
+
+                        {/* BOTÃO CARREGAR IFC - DESTACADO E SEMPRE VISÍVEL */}
+                        <label
+                            className="cursor-pointer px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all hover:scale-[1.02] active:scale-95 shrink-0"
+                            title="Carregar ficheiro IFC (.ifc) do seu computador"
+                        >
+                            <Upload size={14} className="stroke-[2.5]" />
+                            <span>{loadedIfcName ? `IFC: ${loadedIfcName.slice(0, 12)}...` : 'Carregar IFC'}</span>
+                            <input
+                                type="file"
+                                accept=".ifc"
+                                className="hidden"
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        handleProcessIfcFile(file);
+                                    }
+                                }}
+                            />
+                        </label>
+
+                        {loadedIfcName && (
+                            <button
+                                onClick={() => {
+                                    if (bimGroupRef.current) {
+                                        buildDefaultBimBuilding(bimGroupRef.current);
+                                        setLoadedIfcName(null);
+                                        showToast('Modelo padrão da obra restaurado.');
+                                    }
+                                }}
+                                className="p-1 text-slate-400 hover:text-red-500 rounded cursor-pointer"
+                                title="Restaurar modelo original"
+                            >
+                                <X size={13} />
+                            </button>
+                        )}
+
+                        <button
+                            onClick={() => setIs2dDrawingsModalOpen(true)}
+                            className="px-2.5 py-1 bg-white dark:bg-neutral-800 hover:bg-slate-50 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-xs transition-colors shrink-0 cursor-pointer"
+                        >
+                            <FileText size={13} className="text-amber-600" />
+                            <span>Desenhos 2D</span>
+                        </button>
+
+                        <button
+                            onClick={() => setIsCdeHelpOpen(true)}
+                            className="px-2.5 py-1 bg-white dark:bg-neutral-800 hover:bg-slate-50 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-xs transition-colors shrink-0 cursor-pointer"
+                            title="Onde colocar os ficheiros IFC e 2D no CDE Cloud"
+                        >
+                            <FolderTree size={13} className="text-blue-600" />
+                            <span>Pastas CDE</span>
+                        </button>
+                    </div>
+
+                    {/* PAINEL 4: VISITAS & APONTAMENTOS */}
+                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Visitas</span>
+                        <button
+                            onClick={() => setActiveMode(activeMode === 'add_point' ? 'navigate' : 'add_point')}
+                            className={cn(
+                                "px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-xs shrink-0 cursor-pointer",
+                                activeMode === 'add_point'
+                                    ? "bg-red-600 text-white animate-pulse"
+                                    : "bg-white dark:bg-neutral-700 hover:bg-red-50 text-slate-700 dark:text-slate-200 hover:text-red-600 border border-slate-200 dark:border-neutral-600"
+                            )}
+                        >
+                            <MapPin size={13} className={activeMode === 'add_point' ? 'animate-bounce' : ''} />
+                            <span>{activeMode === 'add_point' ? 'Clique no Modelo...' : 'Novo Ponto'}</span>
+                        </button>
+                        <button
+                            onClick={handleExportPDF}
+                            className="px-2 py-1 bg-white dark:bg-neutral-700 hover:bg-slate-50 border border-slate-200 dark:border-neutral-600 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-xs transition-colors shrink-0 cursor-pointer"
+                            title="Exportar Relatório PDF da Visita"
+                        >
+                            <Download size={13} />
+                            <span>PDF</span>
+                        </button>
+                    </div>
                 </div>
 
-                {/* Right Actions */}
-                <div className="flex items-center gap-2">
-                    {/* Ghost Mode Toggle */}
+                {/* AÇÕES DE JANELA & SIDEBAR */}
+                <div className="flex items-center gap-1.5 shrink-0 pl-1 border-l border-slate-200 dark:border-neutral-700">
                     <button
-                        onClick={() => setGhostMode(!ghostMode)}
-                        className={`px-2.5 py-1.5 rounded-lg border text-xs flex items-center gap-1 font-medium transition-colors ${
-                            ghostMode
-                                ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300'
-                                : 'bg-white border-slate-200 text-slate-600 dark:bg-neutral-800 dark:border-neutral-700 dark:text-slate-300'
-                        }`}
-                        title="Modo Raio-X: Mostra outras disciplinas como translúcidas"
+                        onClick={() => setPresetView('iso')}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
+                        title="Repor câmara isométrica inicial"
                     >
-                        <Sliders size={13} />
-                        {ghostMode ? 'Raio-X: Ativo' : 'Raio-X: Ocultar'}
+                        <RotateCcw size={13} />
                     </button>
 
-                    {/* Desenhos 2D Drawer Button */}
                     <button
-                        onClick={() => setIs2dDrawingsModalOpen(true)}
-                        className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs flex items-center gap-1.5 font-medium shadow-sm transition-colors"
-                        title="Ver Plantas e Cortes 2D do CDE"
+                        onClick={() => setIsFullscreen(!isFullscreen)}
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
+                        title={isFullscreen ? 'Sair de Ecrã Completo' : 'Ecrã Completo'}
                     >
-                        <FileText size={14} className="text-amber-600" />
-                        <span>Desenhos 2D (CDE)</span>
+                        {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
                     </button>
 
-                    {/* CDE Help Guide */}
-                    <button
-                        onClick={() => setIsCdeHelpOpen(true)}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs flex items-center gap-1 font-medium shadow-sm"
-                        title="Onde carregar ficheiros IFC no CDE?"
-                    >
-                        <FolderTree size={14} className="text-blue-600" />
-                        <span className="hidden md:inline">Pastas CDE</span>
-                    </button>
-
-                    {/* Real IFC File Upload */}
-                    <label className="cursor-pointer px-3 py-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs flex items-center gap-1.5 font-semibold shadow-sm transition-colors">
-                        <Upload size={14} className="text-blue-600" />
-                        <span>{loadedIfcName ? `IFC: ${loadedIfcName.slice(0, 14)}...` : 'Carregar IFC'}</span>
-                        <input
-                            type="file"
-                            accept=".ifc"
-                            className="hidden"
-                            onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                    handleProcessIfcFile(file);
-                                }
-                            }}
-                        />
-                    </label>
-
-                    {/* Export PDF Report */}
-                    <button
-                        onClick={handleExportPDF}
-                        className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center gap-1.5 font-medium shadow-sm transition-all"
-                    >
-                        <Download size={14} />
-                        Exportar PDF
-                    </button>
-
-                    {/* Toggle Sidebar */}
                     <button
                         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-sm transition-colors"
-                        title={isSidebarOpen ? 'Ocultar apontamentos' : 'Mostrar apontamentos'}
+                        className={cn(
+                            "px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer",
+                            isSidebarOpen
+                                ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent"
+                                : "bg-white text-slate-700 dark:bg-neutral-800 dark:text-slate-200 border-slate-200 dark:border-neutral-700 hover:bg-slate-50"
+                        )}
+                        title={isSidebarOpen ? 'Ocultar lista de visitas' : 'Mostrar lista de visitas'}
                     >
-                        <ChevronRight className={`w-4 h-4 transition-transform ${isSidebarOpen ? '' : 'rotate-180'}`} />
+                        <MapPin size={13} />
+                        <span>Pontos ({filteredObservations.length})</span>
+                        <ChevronRight className={cn("w-3.5 h-3.5 transition-transform", isSidebarOpen ? "" : "rotate-180")} />
                     </button>
                 </div>
             </div>
 
-            {/* Main Interactive Canvas Area */}
-            <div className="relative flex-1 w-full h-full flex overflow-hidden">
+            {/* Main Interactive Canvas Area with Drag & Drop */}
+            <div
+                onDragOver={(e) => { e.preventDefault(); setIsDraggingFile(true); }}
+                onDragLeave={() => setIsDraggingFile(false)}
+                onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingFile(false);
+                    const file = e.dataTransfer?.files?.[0];
+                    if (file && file.name.toLowerCase().endsWith('.ifc')) {
+                        handleProcessIfcFile(file);
+                    } else if (file) {
+                        showToast('Por favor largue um ficheiro com extensão .ifc');
+                    }
+                }}
+                className="relative flex-1 w-full h-full flex overflow-hidden"
+            >
+                {/* Drag & Drop Overlay */}
+                {isDraggingFile && (
+                    <div className="absolute inset-0 z-35 bg-blue-600/20 backdrop-blur-xs border-4 border-dashed border-blue-500 rounded-xl flex flex-col items-center justify-center pointer-events-none text-blue-900 dark:text-white">
+                        <Upload size={48} className="animate-bounce mb-2 text-blue-600" />
+                        <span className="text-base font-bold">Largar Ficheiro IFC (.ifc) Aqui</span>
+                        <span className="text-xs text-slate-600 dark:text-slate-300">O modelo 3D será processado automaticamente</span>
+                    </div>
+                )}
                 {/* Loading HUD when parsing IFC file */}
                 {isLoadingModel && (
                     <div className="absolute inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center text-white">
