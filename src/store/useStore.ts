@@ -43,6 +43,11 @@ export interface AppState {
     accounts: Account[];
     currentUser: User | null;
     setCurrentUser: (user: User | null) => void;
+    activeSessionId: string | null;
+    sessionTerminatedReason: string | null;
+    clearSessionTerminatedReason: () => void;
+    syncOperationalDataFromServer: () => Promise<void>;
+    logout: (involuntary?: boolean, reason?: string) => Promise<void>;
     users: User[];
     account: Account | null;
     projects: Project[];
@@ -90,7 +95,7 @@ export interface AppState {
     setFieldPermission: (entityId: string, entityType: 'company' | 'worker' | 'equipment', field: string, allowEdit: boolean) => void;
 
     // Users
-    login: (email: string, password?: string) => Promise<{ success: boolean; error?: string }>;
+    login: (email: string, password?: string, forceTakeover?: boolean) => Promise<{ success: boolean; error?: string; canTakeover?: boolean }>;
     addUser: (user: Omit<User, 'id' | 'createdAt'> & { id?: string }) => void;
     addAccount: (account: Omit<Account, 'id' | 'createdAt'> & { id?: string }) => void;
     updateAccount: (id: string, updates: Partial<Account>) => void;
@@ -528,6 +533,9 @@ const MOCK_ACCIDENTS: Accident[] = [
 
 export const useStore = create<AppState>()(persist((set, get) => ({
     currentUser: null,
+    activeSessionId: null,
+    sessionTerminatedReason: null,
+    clearSessionTerminatedReason: () => set({ sessionTerminatedReason: null }),
     users: [],
     accounts: [],
     account: null,
@@ -1053,20 +1061,255 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                     }
                 })
                 .catch(() => {});
+
+            // Sincronizar dados operacionais da base de dados central
+            await get().syncOperationalDataFromServer().catch(() => {});
+
+            // Validar sessão ativa e instalar verificações de heartbeat e background sync
+            if (typeof window !== 'undefined') {
+                const curUser = get().currentUser;
+                const sId = localStorage.getItem('safesite_session_id');
+
+                if (curUser && sId) {
+                    fetch('/api/auth/session', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'validate',
+                            email: curUser.email,
+                            sessionId: sId,
+                        }),
+                    })
+                        .then(r => r.json())
+                        .then(d => {
+                            if (d && d.valid === false) {
+                                console.warn('[Session] Sessão não válida no carregamento:', d.reason);
+                                get().logout(true, 'A sua sessão foi encerrada porque a conta foi acedida noutro navegador.');
+                            }
+                        })
+                        .catch(() => {});
+                }
+
+                if (!(window as any).__safesite_sync_intervals_installed) {
+                    (window as any).__safesite_sync_intervals_installed = true;
+
+                    // Heartbeat a cada 15 segundos
+                    setInterval(async () => {
+                        const u = get().currentUser;
+                        const sid = localStorage.getItem('safesite_session_id');
+                        if (!u || !sid) return;
+
+                        try {
+                            const res = await fetch('/api/auth/session', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    action: 'heartbeat',
+                                    email: u.email,
+                                    sessionId: sid,
+                                }),
+                            });
+                            const hb = await res.json();
+                            if (hb && hb.valid === false) {
+                                console.warn('[Session] Heartbeat falhou:', hb.reason);
+                                await get().logout(true, 'A sua sessão foi encerrada porque a conta foi acedida noutro navegador.');
+                            }
+                        } catch (_) {}
+                    }, 15000);
+
+                    // Sincronização periódica dos dados operacionais a cada 10 segundos
+                    setInterval(() => {
+                        if (get().currentUser) {
+                            get().syncOperationalDataFromServer().catch(() => {});
+                        }
+                    }, 10000);
+
+                    // Sincronização ao focar a janela
+                    window.addEventListener('focus', () => {
+                        const u = get().currentUser;
+                        const sid = localStorage.getItem('safesite_session_id');
+                        if (u && sid) {
+                            fetch('/api/auth/session', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    action: 'validate',
+                                    email: u.email,
+                                    sessionId: sid,
+                                }),
+                            })
+                                .then(r => r.json())
+                                .then(d => {
+                                    if (d && d.valid === false) {
+                                        get().logout(true, 'A sua sessão foi encerrada porque a conta foi acedida noutro navegador.');
+                                    } else {
+                                        get().syncOperationalDataFromServer().catch(() => {});
+                                    }
+                                })
+                                .catch(() => {});
+                        }
+                    });
+                }
+            }
         } catch (e) {
             console.error("Failed to initialize store from DB", e);
         }
     },
 
-    login: async (email: string, password?: string) => {
-        const users = get().users;
+    syncOperationalDataFromServer: async () => {
+        try {
+            const res = await fetch('/api/data/sync');
+            if (!res.ok) return;
+            const resJson = await res.json();
+            if (!resJson.success || !resJson.data) return;
+
+            const srv = resJson.data;
+
+            set((state) => {
+                const newState: Partial<AppState> = {};
+
+                if (Array.isArray(srv.companies) && srv.companies.length > 0) newState.companies = srv.companies;
+                if (Array.isArray(srv.workers) && srv.workers.length > 0) newState.workers = srv.workers;
+                if (Array.isArray(srv.equipment) && srv.equipment.length > 0) newState.equipment = srv.equipment;
+                if (Array.isArray(srv.documents) && srv.documents.length > 0) newState.documents = srv.documents;
+                if (Array.isArray(srv.companyProfiles) && srv.companyProfiles.length > 0) newState.companyProfiles = srv.companyProfiles;
+                if (Array.isArray(srv.workerProfiles) && srv.workerProfiles.length > 0) newState.workerProfiles = srv.workerProfiles;
+                if (Array.isArray(srv.equipmentProfiles) && srv.equipmentProfiles.length > 0) newState.equipmentProfiles = srv.equipmentProfiles;
+                if (Array.isArray(srv.tickets)) newState.tickets = srv.tickets;
+                if (Array.isArray(srv.ticketMessages)) newState.ticketMessages = srv.ticketMessages;
+                if (Array.isArray(srv.accessPoints) && srv.accessPoints.length > 0) newState.accessPoints = srv.accessPoints;
+                if (Array.isArray(srv.accessLogs)) newState.accessLogs = srv.accessLogs;
+                if (Array.isArray(srv.trainings) && srv.trainings.length > 0) newState.trainings = srv.trainings;
+                if (Array.isArray(srv.courses) && srv.courses.length > 0) newState.courses = srv.courses;
+                if (Array.isArray(srv.trainingSessions)) newState.trainingSessions = srv.trainingSessions;
+                if (Array.isArray(srv.workerTrainingRecords)) newState.workerTrainingRecords = srv.workerTrainingRecords;
+                if (Array.isArray(srv.accidents)) newState.accidents = srv.accidents;
+                if (Array.isArray(srv.riskAssessments)) newState.riskAssessments = srv.riskAssessments;
+
+                return newState;
+            });
+            console.log('[Store] Sincronização operacional do servidor concluída (v' + resJson.version + ')');
+        } catch (e) {
+            console.warn('[Store] Falha ao sincronizar dados operacionais do servidor:', e);
+        }
+    },
+
+    logout: async (involuntary = false, reason?: string) => {
+        const user = get().currentUser;
+        const sessionId = typeof window !== 'undefined' ? localStorage.getItem('safesite_session_id') : null;
+
+        if (user && sessionId && !involuntary) {
+            try {
+                await fetch('/api/auth/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'logout',
+                        email: user.email,
+                        sessionId,
+                    }),
+                });
+            } catch (_) {}
+        }
+
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('safesite_session_id');
+            localStorage.removeItem('safesite_user_email');
+        }
+
+        set({
+            currentUser: null,
+            activeSessionId: null,
+            sessionTerminatedReason: involuntary
+                ? (reason || 'A sua sessão foi encerrada porque a sua conta foi acedida noutro navegador.')
+                : null,
+        });
+    },
+
+    login: async (email: string, password?: string, forceTakeover: boolean = false) => {
         const cleanEmail = email.trim().toLowerCase();
+        let sId = typeof window !== 'undefined' ? localStorage.getItem('safesite_session_id') : null;
+        if (!sId && typeof window !== 'undefined') {
+            sId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            localStorage.setItem('safesite_session_id', sId);
+        }
+        if (!sId) sId = 'sess_srv';
+
+        // 1. Tentar autenticação e aquisição de sessão única no servidor
+        try {
+            const res = await fetch('/api/auth/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'acquire',
+                    email: cleanEmail,
+                    password,
+                    sessionId: sId,
+                    forceTakeover,
+                }),
+            });
+
+            const data = await res.json();
+
+            if (res.status === 409) {
+                // Outra sessão ativa existe noutro navegador
+                return {
+                    success: false,
+                    error: data.message || 'A sua conta já tem uma sessão ativa noutro navegador ou dispositivo.',
+                    canTakeover: true,
+                };
+            }
+
+            if (res.ok && data.success && data.user) {
+                const authenticatedUser = data.user;
+                const now = new Date().toISOString();
+                const userWithLogin = { ...authenticatedUser, lastLoginAt: now };
+
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem('safesite_session_id', sId);
+                    localStorage.setItem('safesite_user_email', cleanEmail);
+                }
+
+                set({
+                    currentUser: userWithLogin,
+                    activeSessionId: sId,
+                    sessionTerminatedReason: null,
+                });
+
+                if (data.account) {
+                    const existingAcc = get().accounts.find(a => a.id === data.account.id);
+                    if (!existingAcc) {
+                        get().addAccount(data.account);
+                    }
+                }
+                const existingUser = get().users.find(u => u.id === userWithLogin.id || (u.email && u.email.toLowerCase() === cleanEmail));
+                if (!existingUser) {
+                    get().addUser(userWithLogin);
+                } else {
+                    get().updateUser(existingUser.id, userWithLogin);
+                }
+
+                // Sincronizar imediatamente todos os dados operacionais do servidor
+                await get().syncOperationalDataFromServer().catch(() => {});
+                get().syncFromServer().catch(() => {});
+
+                return { success: true };
+            }
+
+            if (!res.ok && data.message) {
+                return { success: false, error: data.message, canTakeover: false };
+            }
+        } catch (serverErr) {
+            console.warn('[Store] Erro ao contactar endpoint de sessão central:', serverErr);
+        }
+
+        // 2. Fallback local se o servidor estiver inacessível offline
+        const users = get().users;
         let user = users.find(u => u.email.trim().toLowerCase() === cleanEmail);
         if (!user) {
             user = MOCK_USERS.find(u => u.email.trim().toLowerCase() === cleanEmail);
         }
         if (user) {
-            // Verificar suspensão temporária ou eliminação RGPD
             if (user.status === 'suspended') {
                 return {
                     success: false,
@@ -1082,59 +1325,18 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 };
             }
 
-            if (user.password) {
-                if (password && user.password === password) {
-                    const now = new Date().toISOString();
-                    const updatedUser = { ...user, lastLoginAt: now };
-                    set({ currentUser: updatedUser });
-                    get().updateUser(user.id, { lastLoginAt: now });
-                    get().syncFromServer().catch(() => {});
-                    return { success: true };
-                }
-            } else {
+            if (!user.password || (password && user.password === password)) {
                 const now = new Date().toISOString();
                 const updatedUser = { ...user, lastLoginAt: now };
-                set({ currentUser: updatedUser });
+                if (typeof window !== 'undefined') {
+                    localStorage.setItem('safesite_session_id', sId);
+                    localStorage.setItem('safesite_user_email', cleanEmail);
+                }
+                set({ currentUser: updatedUser, activeSessionId: sId, sessionTerminatedReason: null });
                 get().updateUser(user.id, { lastLoginAt: now });
                 get().syncFromServer().catch(() => {});
                 return { success: true };
             }
-        }
-
-        // Validação de fallback contra o PostgreSQL no servidor (garante login após deploy ou em novos navegadores)
-        try {
-            if (password) {
-                const res = await fetch('/api/auth/login-verify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: cleanEmail, password }),
-                });
-                const data = await res.json();
-                if (res.ok && data.success && data.user) {
-                    const authenticatedUser = data.user;
-                    if (data.account) {
-                        const existingAcc = get().accounts.find(a => a.id === data.account.id);
-                        if (!existingAcc) {
-                            get().addAccount(data.account);
-                        }
-                    }
-                    const existingUser = get().users.find(u => u.id === authenticatedUser.id || u.email.toLowerCase() === cleanEmail);
-                    if (!existingUser) {
-                        get().addUser(authenticatedUser);
-                    } else {
-                        get().updateUser(existingUser.id, authenticatedUser);
-                    }
-                    set({ currentUser: authenticatedUser });
-                    get().syncFromServer().catch(() => {});
-                    return { success: true };
-                }
-
-                if (!res.ok && data.message) {
-                    return { success: false, error: data.message };
-                }
-            }
-        } catch (serverErr) {
-            console.warn('[Store] Fallback de autenticação no servidor falhou:', serverErr);
         }
 
         return { success: false, error: 'E-mail ou palavra-passe incorretos.' };
@@ -1482,7 +1684,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         }
     },
 
-    setCurrentUser: (user: User | null) => set({ currentUser: user }),
+    setCurrentUser: (user: User | null) => {
+        if (user === null) {
+            get().logout().catch(() => {});
+        } else {
+            set({ currentUser: user });
+        }
+    },
     addNotification: (type: 'success' | 'error' | 'info' | 'warning', message: string) => set((state) => ({
         notifications: [...state.notifications, {
             id: nanoid(),

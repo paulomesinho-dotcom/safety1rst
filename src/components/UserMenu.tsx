@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 
 export const UserMenu = () => {
     const currentUser = useStore((state) => state.currentUser);
+    const logout = useStore((state) => state.logout);
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
     const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -29,10 +30,14 @@ export const UserMenu = () => {
 
     if (!currentUser) return null;
 
-    const handleLogout = () => {
-        // Implement logout logic here
-        // For now, simple redirect
-        router.push('/');
+    const handleLogout = async () => {
+        setIsOpen(false);
+        await logout();
+        router.push('/login');
+
+
+
+
     };
 
     const handleMouseEnter = () => {

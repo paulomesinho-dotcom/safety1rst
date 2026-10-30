@@ -65,6 +65,12 @@ export const toSnake = (str: string) => {
 
 export const insert = async (table: string, data: any) => {
     if (!data) return;
+    if (Array.isArray(data)) {
+        for (const item of data) {
+            await insert(table, item);
+        }
+        return;
+    }
     const dbItem: any = {};
     for (const k of Object.keys(data)) {
         if (data[k] === undefined) continue;
@@ -80,6 +86,15 @@ export const insert = async (table: string, data: any) => {
     const placeholders = Object.keys(dbItem).map(() => '?').join(', ');
     const values = Object.values(dbItem);
     await executeQuery(`INSERT INTO ${table} (${cols}) VALUES (${placeholders})`, values);
+
+    // Sync mutation to central server database asynchronously
+    if (typeof window !== 'undefined' && data.id) {
+        fetch('/api/data/mutation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'insert', table, id: data.id, data }),
+        }).catch((err) => console.warn('[Server Sync Mutation Error]:', err));
+    }
 };
 
 export const update = async (table: string, id: string, data: any) => {
@@ -100,10 +115,28 @@ export const update = async (table: string, id: string, data: any) => {
     const setClause = Object.keys(dbItem).map(k => `${k} = ?`).join(', ');
     const values = [...Object.values(dbItem), id];
     await executeQuery(`UPDATE ${table} SET ${setClause} WHERE id = ?`, values);
+
+    // Sync mutation to central server database asynchronously
+    if (typeof window !== 'undefined') {
+        fetch('/api/data/mutation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'update', table, id, data }),
+        }).catch((err) => console.warn('[Server Sync Mutation Error]:', err));
+    }
 };
 
 export const remove = async (table: string, id: string) => {
     await executeQuery(`DELETE FROM ${table} WHERE id = ?`, [id]);
+
+    // Sync deletion to central server database asynchronously
+    if (typeof window !== 'undefined') {
+        fetch('/api/data/mutation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'remove', table, id }),
+        }).catch((err) => console.warn('[Server Sync Mutation Error]:', err));
+    }
 };
 
 // Schema Definition (Called after Worker Init)

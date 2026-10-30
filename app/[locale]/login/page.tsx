@@ -13,7 +13,7 @@ export default function LoginPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const verifiedParam = searchParams.get('verified') === 'true';
-    const { users, setCurrentUser, login, addSubscriptionRequest, subscriptionRequests } = useStore();
+    const { users, setCurrentUser, login, addSubscriptionRequest, subscriptionRequests, sessionTerminatedReason, clearSessionTerminatedReason } = useStore();
     const [isLogin, setIsLogin] = useState(true);
 
     // Login State
@@ -21,6 +21,10 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loginLoading, setLoginLoading] = useState(false);
+    const [takeoverModal, setTakeoverModal] = useState<{
+        open: boolean;
+        message: string;
+    } | null>(null);
 
     // Registration Success / Email Pending State
     const [isRegisteredSuccess, setIsRegisteredSuccess] = useState(false);
@@ -80,8 +84,8 @@ export default function LoginPage() {
         }
     }, []);
 
-    const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleLogin = async (e?: React.FormEvent, forceTakeover: boolean = false) => {
+        if (e) e.preventDefault();
         setError('');
 
         const cleanEmail = email.trim().toLowerCase();
@@ -92,12 +96,21 @@ export default function LoginPage() {
 
         setLoginLoading(true);
         try {
-            const res = await login(cleanEmail, password);
+            const res = await login(cleanEmail, password, forceTakeover);
 
             if (res.success) {
+                setTakeoverModal(null);
+                clearSessionTerminatedReason();
                 router.push('/');
             } else {
-                setError(res.error || 'E-mail ou palavra-passe incorretos.');
+                if (res.canTakeover) {
+                    setTakeoverModal({
+                        open: true,
+                        message: res.error || 'A sua conta já tem uma sessão ativa noutro navegador ou dispositivo.',
+                    });
+                } else {
+                    setError(res.error || 'E-mail ou palavra-passe incorretos.');
+                }
             }
         } catch (err) {
             setError('Erro inesperado ao iniciar sessão. Por favor tente novamente.');
@@ -107,7 +120,7 @@ export default function LoginPage() {
     };
 
     const handleRegister = async (e: React.FormEvent) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         setRegError('');
 
         if (!regData.name.trim() || !regData.email.trim() || !regData.password) {
@@ -191,7 +204,7 @@ export default function LoginPage() {
     };
 
     const handleForgotPassword = async (e: React.FormEvent) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         setForgotError('');
 
         const cleanEmail = forgotEmail.trim().toLowerCase();
@@ -311,6 +324,19 @@ export default function LoginPage() {
 
                             {isLogin ? (
                                 <form className="space-y-5" onSubmit={handleLogin}>
+                                    {sessionTerminatedReason && (
+                                        <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 text-amber-900 dark:text-amber-200 text-xs rounded-xl flex items-start gap-2.5">
+                                            <AlertCircle size={16} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                            <div className="flex-1 leading-snug">{sessionTerminatedReason}</div>
+                                            <button
+                                                type="button"
+                                                onClick={clearSessionTerminatedReason}
+                                                className="text-amber-700 hover:text-amber-900 font-bold ml-1"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    )}
                                     {verifiedParam && (
                                         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
                                             <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
@@ -772,6 +798,48 @@ export default function LoginPage() {
                     </form>
                 )}
             </Modal>
+
+            {/* Modal de Conflito de Sessão Ativa */}
+            {takeoverModal?.open && (
+                <Modal
+                    title="Sessão Ativa Noutro Navegador"
+                    isOpen={takeoverModal.open}
+                    onClose={() => setTakeoverModal(null)}
+                >
+                    <div className="space-y-4 py-2">
+                        <div className="flex items-start gap-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs">
+                            <AlertCircle size={18} className="shrink-0 mt-0.5 text-amber-600" />
+                            <div className="leading-relaxed">{takeoverModal.message}</div>
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">
+                            Por motivos de integridade dos dados e segurança, não é permitido manter mais de uma sessão aberta em simultâneo com a mesma conta. Se optar por aceder agora, a sessão no outro navegador será terminada imediatamente.
+                        </p>
+                        <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                            <button
+                                type="button"
+                                onClick={() => setTakeoverModal(null)}
+                                className="px-3.5 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <PrimaryButton
+                                type="button"
+                                onClick={() => handleLogin(undefined, true)}
+                                disabled={loginLoading}
+                                className="text-xs py-2 px-4 bg-primary text-white hover:bg-primary-hover font-medium"
+                            >
+                                {loginLoading ? (
+                                    <span className="flex items-center gap-1.5">
+                                        <Loader2 size={13} className="animate-spin" /> A transferir sessão...
+                                    </span>
+                                ) : (
+                                    'Terminar a outra sessão e aceder aqui'
+                                )}
+                            </PrimaryButton>
+                        </div>
+                    </div>
+                </Modal>
+            )}
         </div>
     );
 }
