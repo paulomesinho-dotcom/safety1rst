@@ -569,6 +569,34 @@ export async function initializeProjectCompanyStructure(
 
             logs.push(subFolder.exists ? `    └─ 📁 ${sub}` : `    └─ 📁 ${sub} (criada)`);
 
+            // Se for Documentos de Obra, criar pastas padrão para Modelos BIM e Desenhos 2D
+            if (sub === 'Documentos de Obra') {
+                try {
+                    let bimFolder: CreateFolderResult | null = null;
+                    if (config.provider === 'gdrive') {
+                        bimFolder = await createGoogleDriveFolder(config.accessToken!, subFolder.id, 'Modelos BIM (IFC)');
+                        await createGoogleDriveFolder(config.accessToken!, bimFolder.id, '01-Arquitetura');
+                        await createGoogleDriveFolder(config.accessToken!, bimFolder.id, '02-Estruturas');
+                        await createGoogleDriveFolder(config.accessToken!, bimFolder.id, '03-Especialidades (MEP)');
+                        await createGoogleDriveFolder(config.accessToken!, subFolder.id, 'Desenhos 2D (Plantas e Cortes)');
+                    } else if (config.provider === 'dropbox') {
+                        bimFolder = await createDropboxFolder(config.accessToken!, subFolder.id, 'Modelos BIM (IFC)');
+                        await createDropboxFolder(config.accessToken!, bimFolder.id, '01-Arquitetura');
+                        await createDropboxFolder(config.accessToken!, bimFolder.id, '02-Estruturas');
+                        await createDropboxFolder(config.accessToken!, bimFolder.id, '03-Especialidades (MEP)');
+                        await createDropboxFolder(config.accessToken!, subFolder.id, 'Desenhos 2D (Plantas e Cortes)');
+                    } else {
+                        bimFolder = await createOneDriveFolder(config, subFolder.id, 'Modelos BIM (IFC)');
+                        await createOneDriveFolder(config, bimFolder.id, '01-Arquitetura');
+                        await createOneDriveFolder(config, bimFolder.id, '02-Estruturas');
+                        await createOneDriveFolder(config, bimFolder.id, '03-Especialidades (MEP)');
+                        await createOneDriveFolder(config, subFolder.id, 'Desenhos 2D (Plantas e Cortes)');
+                    }
+                    logs.push(`       └─ 📁 Modelos BIM (IFC)`);
+                    logs.push(`       └─ 📁 Desenhos 2D (Plantas e Cortes)`);
+                } catch (_) {}
+            }
+
             // Arquivo
             let archFolder: CreateFolderResult | null = null;
             if (config.provider === 'gdrive') {

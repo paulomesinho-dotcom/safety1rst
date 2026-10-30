@@ -1024,6 +1024,18 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
                         const subRes = await ensureSharePointFolder(themeRes.id, sub, driveId);
                         logs.push(subRes.exists ? `    └─ 📁 ${sub}` : `    └─ 📁 ${sub} (criada)`);
 
+                        // Se for Documentos de Obra, criar pastas padrão para Modelos BIM e Desenhos 2D
+                        if (sub === 'Documentos de Obra') {
+                            try {
+                                const bimFolder = await ensureSharePointFolder(subRes.id, 'Modelos BIM (IFC)', driveId);
+                                logs.push(`       └─ 📁 Modelos BIM (IFC)`);
+                                await ensureSharePointFolder(bimFolder.id, '01-Arquitetura', driveId).catch(() => null);
+                                await ensureSharePointFolder(bimFolder.id, '02-Estruturas', driveId).catch(() => null);
+                                await ensureSharePointFolder(bimFolder.id, '03-Especialidades (MEP)', driveId).catch(() => null);
+                                await ensureSharePointFolder(subRes.id, 'Desenhos 2D (Plantas e Cortes)', driveId).catch(() => null);
+                            } catch (_) {}
+                        }
+
                         // Subpasta Arquivo dentro de cada assunto
                         try {
                             const archRes = await ensureSharePointFolder(subRes.id, 'Arquivo', driveId);
