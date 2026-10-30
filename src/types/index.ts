@@ -1295,3 +1295,17 @@ export interface SiteObservation {
     createdBy?: string;
     createdByName?: string;
 }
+
+// Site Logistics & Emergency Planning Elements (Planta de Estaleiro & Emergência)
+export interface SiteLogisticsItem {
+    id: string;
+    projectId: string;
+    type: 'crane' | 'gate' | 'office_container' | 'dining_container' | 'first_aid' | 'meeting_point' | 'fire_extinguisher' | 'waste_bay' | 'evacuation_route' | 'fuel_depot';
+    name: string;
+    category: 'logistics' | 'emergency';
+    position: [number, number, number];
+    rotation?: number;
+    radius?: number; // e.g. for crane jib radius or safety zone
+    notes?: string;
+    status?: 'active' | 'planned' | 'decommissioned';
+}

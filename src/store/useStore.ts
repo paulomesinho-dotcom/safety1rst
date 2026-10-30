@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation, SiteObservation } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation, SiteObservation, SiteLogisticsItem } from '../types';
 import { DEFAULT_PLATFORM_PLANS } from '../types';
 
 export interface ProjectRequest {
@@ -74,6 +74,10 @@ export interface AppState {
     addSiteObservation: (obs: Omit<SiteObservation, 'id' | 'createdAt'> & { id?: string }) => void;
     updateSiteObservation: (id: string, updates: Partial<SiteObservation>) => void;
     deleteSiteObservation: (id: string) => void;
+    siteLogisticsItems: SiteLogisticsItem[];
+    addSiteLogisticsItem: (item: Omit<SiteLogisticsItem, 'id'> & { id?: string }) => void;
+    updateSiteLogisticsItem: (id: string, updates: Partial<SiteLogisticsItem>) => void;
+    deleteSiteLogisticsItem: (id: string) => void;
 
     // Course Module
     courses: Course[];
@@ -573,6 +577,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     trainingSessions: [],
     workerTrainingRecords: [],
     siteObservations: [],
+    siteLogisticsItems: [],
 
     isInitialized: false,
 
@@ -3479,6 +3484,18 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         dbRemove('site_observations', id).catch(console.error);
         return { siteObservations: (state.siteObservations || []).filter(o => o.id !== id) };
     }),
+
+    addSiteLogisticsItem: (item) => set((state) => {
+        const id = item.id || nanoid();
+        const newItem: SiteLogisticsItem = { ...item, id };
+        return { siteLogisticsItems: [newItem, ...(state.siteLogisticsItems || [])] };
+    }),
+    updateSiteLogisticsItem: (id, updates) => set((state) => ({
+        siteLogisticsItems: (state.siteLogisticsItems || []).map(i => i.id === id ? { ...i, ...updates } : i)
+    })),
+    deleteSiteLogisticsItem: (id) => set((state) => ({
+        siteLogisticsItems: (state.siteLogisticsItems || []).filter(i => i.id !== id)
+    })),
 
     // Documents
     addDocument: (doc) => set((state) => {
