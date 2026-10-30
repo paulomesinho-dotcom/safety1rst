@@ -36,38 +36,79 @@ export interface DecryptedCdeConfig {
  * This runs ONLY on the server.
  */
 export async function getProjectCdeConfig(id: string): Promise<DecryptedCdeConfig | null> {
-    if (!id || id === 'comp_master') return null;
+    if (!id) return null;
 
-    const project = await prisma.project.findUnique({
-        where: { id },
-        select: { id: true, cdeConfig: true }
-    });
+    if (id !== 'comp_master' && !id.startsWith('comp_')) {
+        const project = await prisma.project.findUnique({
+            where: { id },
+            select: { id: true, cdeConfig: true, tenantId: true }
+        });
 
-    if (project && project.cdeConfig && typeof project.cdeConfig === 'object') {
-        const raw = project.cdeConfig as Record<string, any>;
-        return {
-            provider: raw.provider || null,
-            connected: Boolean(raw.connected),
-            lastSync: raw.lastSync,
-            siteUrl: raw.siteUrl,
-            folderUrl: raw.folderUrl,
-            folderPath: raw.folderPath,
-            folderId: raw.folderId,
-            tenantId: raw.tenantId,
-            clientId: raw.clientId,
-            appKey: raw.appKey,
-            // Decrypt sensitive secrets in memory on the server
-            clientSecret: decryptSecret(raw.clientSecret),
-            appSecret: decryptSecret(raw.appSecret),
-            refreshToken: decryptSecret(raw.refreshToken),
-            accessToken: decryptSecret(raw.accessToken),
-            serviceAccountKey: decryptSecret(raw.serviceAccountKey),
-        };
+        if (project && project.cdeConfig && typeof project.cdeConfig === 'object') {
+            const raw = project.cdeConfig as Record<string, any>;
+            if (raw.connected || raw.provider) {
+                return {
+                    provider: raw.provider || null,
+                    connected: Boolean(raw.connected),
+                    lastSync: raw.lastSync,
+                    siteUrl: raw.siteUrl,
+                    folderUrl: raw.folderUrl,
+                    folderPath: raw.folderPath,
+                    folderId: raw.folderId,
+                    tenantId: raw.tenantId,
+                    clientId: raw.clientId,
+                    appKey: raw.appKey,
+                    // Decrypt sensitive secrets in memory on the server
+                    clientSecret: decryptSecret(raw.clientSecret),
+                    appSecret: decryptSecret(raw.appSecret),
+                    refreshToken: decryptSecret(raw.refreshToken),
+                    accessToken: decryptSecret(raw.accessToken),
+                    serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+                };
+            }
+        }
+
+        // Fallback: check if the project's tenant has a connected Company CDE
+        if (project?.tenantId) {
+            const tenantCompany = await prisma.company.findFirst({
+                where: { tenantId: project.tenantId },
+                select: { id: true, customDocuments: true }
+            });
+            if (tenantCompany && tenantCompany.customDocuments && typeof tenantCompany.customDocuments === 'object') {
+                const cd = tenantCompany.customDocuments as Record<string, any>;
+                const raw = cd.__cdeConfig || (cd.provider ? cd : null);
+                if (raw && (raw.connected || raw.provider)) {
+                    return {
+                        provider: raw.provider || null,
+                        connected: Boolean(raw.connected),
+                        lastSync: raw.lastSync,
+                        siteUrl: raw.siteUrl,
+                        folderUrl: raw.folderUrl,
+                        folderPath: raw.folderPath,
+                        folderId: raw.folderId,
+                        tenantId: raw.tenantId,
+                        clientId: raw.clientId,
+                        appKey: raw.appKey,
+                        clientSecret: decryptSecret(raw.clientSecret),
+                        appSecret: decryptSecret(raw.appSecret),
+                        refreshToken: decryptSecret(raw.refreshToken),
+                        accessToken: decryptSecret(raw.accessToken),
+                        serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+                    };
+                }
+            }
+        }
     }
 
-    // Fallback: check if id is a Company record
+    // Resolve company record (including comp_master fallback)
+    let targetCompanyId = id;
+    if (id === 'comp_master') {
+        const firstComp = await prisma.company.findFirst({ select: { id: true } });
+        if (firstComp) targetCompanyId = firstComp.id;
+    }
+
     const company = await prisma.company.findUnique({
-        where: { id },
+        where: { id: targetCompanyId },
         select: { id: true, customDocuments: true }
     });
 
@@ -1150,14 +1191,17 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const baseFolderId = baseFolder.id;
         const driveId = baseFolder.driveId;
 
-        const reqFolderId = payload.folderId || payload.parentId;
+        const reqFolderId = payload.folderId || payload.parentId || payload.path;
         const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolderId : reqFolderId;
 
         const fileBuffer = Buffer.from(fileBase64, 'base64');
         const isRoot = !targetFolderId || targetFolderId === 'root';
+        const isPath = typeof targetFolderId === 'string' && targetFolderId.includes('/');
         const uploadUrl = isRoot
             ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(fileName)}:/content`)
-            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content`);
+            : isPath
+                ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${targetFolderId.replace(/^\//, '')}/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${targetFolderId.replace(/^\//, '')}/${encodeURIComponent(fileName)}:/content`)
+                : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content`);
 
         const uploadRes = await fetch(uploadUrl, {
             method: 'PUT',
@@ -1328,6 +1372,47 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
         return { success: true, message: 'Pastas BIM e 2D criadas na raiz do Dropbox com sucesso!', logs };
     }
 
+    if (action === 'upload' || action === 'upload_file') {
+        const { fileName, fileBase64 } = payload;
+        if (!fileName) throw new Error('Nome do ficheiro obrigatório.');
+        if (!fileBase64) throw new Error('Conteúdo do ficheiro obrigatório.');
+
+        let targetFolder = payload.folderId || payload.parentId || payload.path || config.folderPath || '';
+        if (targetFolder === 'root' || targetFolder === '/') targetFolder = '';
+        targetFolder = targetFolder.replace(/\/$/, '');
+
+        const dropboxFilePath = targetFolder ? (targetFolder.startsWith('/') ? `${targetFolder}/${fileName}` : `/${targetFolder}/${fileName}`) : `/${fileName}`;
+        const fileBuffer = Buffer.from(fileBase64, 'base64');
+
+        const uploadRes = await fetch('https://content.dropboxapi.com/2/files/upload', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Dropbox-API-Arg': JSON.stringify({
+                    path: dropboxFilePath,
+                    mode: 'add',
+                    autorename: true,
+                    mute: false
+                }),
+                'Content-Type': 'application/octet-stream'
+            },
+            body: fileBuffer
+        });
+
+        if (!uploadRes.ok) {
+            const err = await uploadRes.text();
+            throw new Error(`Falha ao carregar ficheiro para o Dropbox: ${err}`);
+        }
+
+        const item = await uploadRes.json();
+        return {
+            id: item.path_display || item.id,
+            name: item.name,
+            webViewLink: item.path_display,
+            size: item.size
+        };
+    }
+
     throw new Error(`Ação '${action}' não suportada para Dropbox.`);
 }
 
@@ -1354,6 +1439,95 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
             } catch (_) {}
         }
         return { success: true, message: 'Google Drive configurado e cifrado no servidor com sucesso!' };
+    }
+
+    if (action === 'list') {
+        const parentId = payload.path || payload.folderId || config.folderId || 'root';
+        const q = `'${parentId}' in parents and trashed = false`;
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,webViewLink)`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`Erro ao listar Google Drive: ${err}`);
+        }
+        const data = await res.json();
+        return { files: data.files || [] };
+    }
+
+    if (action === 'create_folder') {
+        const parentId = payload.path || payload.parentId || config.folderId || 'root';
+        const res = await fetch('https://www.googleapis.com/drive/v3/files', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: payload.name,
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [parentId]
+            })
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`Erro ao criar pasta no Google Drive: ${err}`);
+        }
+        const data = await res.json();
+        return { id: data.id, name: payload.name };
+    }
+
+    if (action === 'upload' || action === 'upload_file') {
+        const { fileName, fileBase64, mimeType } = payload;
+        if (!fileName) throw new Error('Nome do ficheiro obrigatório.');
+        if (!fileBase64) throw new Error('Conteúdo do ficheiro obrigatório.');
+
+        const reqFolderId = payload.folderId || payload.parentId;
+        const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? (config.folderId || 'root') : reqFolderId;
+
+        const boundary = '-------safesiteupload' + Date.now();
+        const delimiter = "\r\n--" + boundary + "\r\n";
+        const close_delim = "\r\n--" + boundary + "--";
+
+        const metadata = {
+            name: fileName,
+            parents: targetFolderId !== 'root' ? [targetFolderId] : []
+        };
+
+        const fileBuffer = Buffer.from(fileBase64, 'base64');
+        const multipartBody = Buffer.concat([
+            Buffer.from(
+                delimiter +
+                'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+                JSON.stringify(metadata) +
+                delimiter +
+                `Content-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`
+            ),
+            fileBuffer,
+            Buffer.from(close_delim)
+        ]);
+
+        const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': `multipart/related; boundary=${boundary}`
+            },
+            body: multipartBody
+        });
+
+        if (!uploadRes.ok) {
+            const err = await uploadRes.text();
+            throw new Error(`Falha ao carregar ficheiro para o Google Drive: ${err}`);
+        }
+
+        const item = await uploadRes.json();
+        return {
+            id: item.id,
+            name: item.name,
+            webViewLink: `https://drive.google.com/file/d/${item.id}/view`,
+            size: fileBuffer.length
+        };
     }
 
     if (action === 'init_project_bim_structure') {

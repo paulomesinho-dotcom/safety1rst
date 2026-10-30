@@ -742,47 +742,37 @@ export async function uploadToCDEFolder(
     targetFolderIdOrPath: string,
     file: File
 ): Promise<{ id: string; webViewLink?: string; size: number; name: string }> {
-    if (!config.connected || !config.accessToken) {
-        throw new Error('CDE não conectado');
+    if (!config || !config.connected) {
+        throw new Error('CDE não está conectado a este projeto ou empresa.');
     }
 
-    if (config.provider === 'gdrive') {
-        const uploaded = await uploadToGoogleDrive(config.accessToken!, targetFolderIdOrPath, file);
-        return {
-            id: uploaded.id,
-            webViewLink: uploaded.webViewLink,
-            size: file.size,
-            name: file.name
-        };
-    } else if (config.provider === 'dropbox') {
-        const uploaded = await uploadToDropbox(config.accessToken!, targetFolderIdOrPath, file);
-        return {
-            id: uploaded.id,
-            webViewLink: uploaded.webViewLink,
-            size: file.size,
-            name: file.name
-        };
-    } else if (config.provider === 'onedrive' || (config.provider as string) === 'sharepoint') {
-        const compOrProjId = (config as any).projectId || (config as any).companyId || 'comp_master';
+    const compOrProjId = (config as any).projectId || (config as any).companyId || (config as any).id;
+    const targetId = compOrProjId || 'comp_master';
+
+    // Prioritize server-side action (required when secrets/tokens are encrypted on server)
+    if (!config.accessToken || config.provider === 'onedrive' || (config.provider as string) === 'sharepoint' || Boolean(compOrProjId)) {
         const arrayBuffer = await file.arrayBuffer();
         const base64 = Buffer.from(arrayBuffer).toString('base64');
-        const srvRes = await fetch(`/api/projects/${compOrProjId}/cde/action`, {
+        const srvRes = await fetch(`/api/projects/${targetId}/cde/action`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 action: 'upload_file',
                 payload: {
                     folderId: targetFolderIdOrPath,
+                    path: targetFolderIdOrPath,
                     fileName: file.name,
                     fileBase64: base64,
                     mimeType: file.type || 'application/octet-stream'
                 }
             })
         });
+
         if (!srvRes.ok) {
-            const err = await srvRes.json().catch(() => ({ error: 'Falha no upload para SharePoint' }));
-            throw new Error(err.error || 'Falha no upload para SharePoint');
+            const err = await srvRes.json().catch(() => ({ error: 'Falha no upload para o CDE' }));
+            throw new Error(err.error || 'Falha no upload para o CDE');
         }
+
         const srvData = await srvRes.json();
         const item = srvData.result;
         return {
@@ -790,6 +780,24 @@ export async function uploadToCDEFolder(
             webViewLink: item.webViewLink,
             size: item.size || file.size,
             name: item.name
+        };
+    }
+
+    if (config.provider === 'gdrive' && config.accessToken) {
+        const uploaded = await uploadToGoogleDrive(config.accessToken, targetFolderIdOrPath, file);
+        return {
+            id: uploaded.id,
+            webViewLink: uploaded.webViewLink,
+            size: file.size,
+            name: file.name
+        };
+    } else if (config.provider === 'dropbox' && config.accessToken) {
+        const uploaded = await uploadToDropbox(config.accessToken, targetFolderIdOrPath, file);
+        return {
+            id: uploaded.id,
+            webViewLink: uploaded.webViewLink,
+            size: file.size,
+            name: file.name
         };
     }
 

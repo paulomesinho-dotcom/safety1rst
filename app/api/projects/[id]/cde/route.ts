@@ -18,10 +18,31 @@ export async function GET(
 
         const project = await prisma.project.findUnique({
             where: { id: projectId },
-            select: { id: true, cdeConfig: true }
+            select: { id: true, cdeConfig: true, tenantId: true }
         });
 
         if (project) {
+            const raw = project.cdeConfig as Record<string, any> | null;
+            if (raw && (raw.connected || raw.provider)) {
+                const sanitized = sanitizeCdeConfig(project.cdeConfig);
+                return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
+            }
+
+            if (project.tenantId) {
+                const tenantCompany = await prisma.company.findFirst({
+                    where: { tenantId: project.tenantId },
+                    select: { id: true, customDocuments: true }
+                });
+                if (tenantCompany && tenantCompany.customDocuments) {
+                    const cd = (tenantCompany.customDocuments as Record<string, any>) || {};
+                    const rawComp = cd.__cdeConfig || (cd.provider ? cd : null);
+                    if (rawComp && (rawComp.connected || rawComp.provider)) {
+                        const sanitized = sanitizeCdeConfig(rawComp);
+                        return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
+                    }
+                }
+            }
+
             const sanitized = sanitizeCdeConfig(project.cdeConfig);
             return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
         }

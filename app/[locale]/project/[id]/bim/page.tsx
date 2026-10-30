@@ -57,6 +57,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { SiteObservation, SiteLogisticsItem } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { uploadToCDEFolder } from '@/lib/cde-manager';
 
 // Seed observations for realistic site demonstration
 const SEED_OBSERVATIONS: Omit<SiteObservation, 'id' | 'createdAt'>[] = [
@@ -1377,6 +1378,23 @@ export default function BimViewerPage() {
                 ];
             });
             showToast(`Modelo IFC "${file.name}" carregado com sucesso (${loadedMeshesCount} elementos 3D).`);
+
+            // Sincronização automática para a pasta CDE Cloud caso esteja ligado
+            fetch(`/api/projects/${projectId}/cde`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data?.cdeConfig?.connected) {
+                        uploadToCDEFolder(
+                            { ...data.cdeConfig, projectId } as any,
+                            'Modelos BIM (IFC)/01-Arquitetura',
+                            file
+                        ).then(() => {
+                            showToast(`Ficheiro "${file.name}" sincronizado com sucesso na Cloud CDE.`);
+                        }).catch(cdeErr => {
+                            console.warn('[BIM CDE Sync warning]', cdeErr);
+                        });
+                    }
+                }).catch(() => {});
         } catch (err: any) {
             console.error('Error loading IFC file:', err);
             alert(`Aviso ao carregar IFC: ${err.message || 'Ficheiro não reconhecido'}`);

@@ -22,7 +22,9 @@ export async function POST(
                     const member = await prisma.projectMember.findUnique({
                         where: { projectId_userId: { projectId, userId: session.user.id! } }
                     });
-                    if (!member) {
+                    const user = await prisma.user.findUnique({ where: { id: session.user.id! } });
+                    const isSameTenant = Boolean(user?.tenantId && project.tenantId && user.tenantId === project.tenantId);
+                    if (!member && !isSameTenant && (session.user as any).accountId !== project.tenantId) {
                         return NextResponse.json({ error: 'Acesso negado: utilizador não pertence a esta obra.' }, { status: 403 });
                     }
                 } else {
