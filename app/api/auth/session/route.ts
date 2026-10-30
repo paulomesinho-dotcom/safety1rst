@@ -174,27 +174,14 @@ export async function POST(req: NextRequest) {
                 );
             }
 
-            // C. Enforce Single Active Session
-            const sessionAcquisition = acquireUserSession({
+            // Register session
+            acquireUserSession({
                 email: cleanEmail,
                 sessionId,
                 userAgent,
                 ip,
-                forceTakeover: Boolean(forceTakeover),
+                forceTakeover: true,
             });
-
-            if (!sessionAcquisition.success) {
-                return NextResponse.json(
-                    {
-                        success: false,
-                        error: sessionAcquisition.error,
-                        message: sessionAcquisition.message,
-                        canTakeover: sessionAcquisition.canTakeover,
-                        activeSession: sessionAcquisition.activeSession,
-                    },
-                    { status: 409 } // 409 Conflict: active session exists
-                );
-            }
 
             // Update lastLoginAt in PostgreSQL asynchronously
             prisma.user.update({

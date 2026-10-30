@@ -1071,57 +1071,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             // Sincronizar dados operacionais da base de dados central
             await get().syncOperationalDataFromServer().catch(() => {});
 
-            // Validar sessão ativa e instalar verificações de heartbeat e background sync
+            // Instalar sincronizações periódicas de fundo sem bloqueios de sessão
             if (typeof window !== 'undefined') {
-                const curUser = get().currentUser;
-                const sId = localStorage.getItem('safesite_session_id');
-
-                if (curUser && sId) {
-                    fetch('/api/auth/session', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            action: 'validate',
-                            email: curUser.email,
-                            sessionId: sId,
-                        }),
-                    })
-                        .then(r => r.json())
-                        .then(d => {
-                            if (d && d.valid === false) {
-                                console.warn('[Session] Sessão não válida no carregamento:', d.reason);
-                                get().logout(true, 'A sua sessão foi encerrada porque a conta foi acedida noutro navegador.');
-                            }
-                        })
-                        .catch(() => {});
-                }
-
                 if (!(window as any).__safesite_sync_intervals_installed) {
                     (window as any).__safesite_sync_intervals_installed = true;
-
-                    // Heartbeat a cada 15 segundos
-                    setInterval(async () => {
-                        const u = get().currentUser;
-                        const sid = localStorage.getItem('safesite_session_id');
-                        if (!u || !sid) return;
-
-                        try {
-                            const res = await fetch('/api/auth/session', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    action: 'heartbeat',
-                                    email: u.email,
-                                    sessionId: sid,
-                                }),
-                            });
-                            const hb = await res.json();
-                            if (hb && hb.valid === false) {
-                                console.warn('[Session] Heartbeat falhou:', hb.reason);
-                                await get().logout(true, 'A sua sessão foi encerrada porque a conta foi acedida noutro navegador.');
-                            }
-                        } catch (_) {}
-                    }, 15000);
 
                     // Sincronização periódica dos dados operacionais a cada 10 segundos
                     setInterval(() => {
@@ -1132,27 +1085,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
                     // Sincronização ao focar a janela
                     window.addEventListener('focus', () => {
-                        const u = get().currentUser;
-                        const sid = localStorage.getItem('safesite_session_id');
-                        if (u && sid) {
-                            fetch('/api/auth/session', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    action: 'validate',
-                                    email: u.email,
-                                    sessionId: sid,
-                                }),
-                            })
-                                .then(r => r.json())
-                                .then(d => {
-                                    if (d && d.valid === false) {
-                                        get().logout(true, 'A sua sessão foi encerrada porque a conta foi acedida noutro navegador.');
-                                    } else {
-                                        get().syncOperationalDataFromServer().catch(() => {});
-                                    }
-                                })
-                                .catch(() => {});
+                        if (get().currentUser) {
+                            get().syncOperationalDataFromServer().catch(() => {});
                         }
                     });
                 }
@@ -1258,14 +1192,6 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
             const data = await res.json();
 
-            if (res.status === 409) {
-                // Outra sessão ativa existe noutro navegador
-                return {
-                    success: false,
-                    error: data.message || 'A sua conta já tem uma sessão ativa noutro navegador ou dispositivo.',
-                    canTakeover: true,
-                };
-            }
 
             if (res.ok && data.success && data.user) {
                 const authenticatedUser = data.user;

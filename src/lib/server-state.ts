@@ -337,36 +337,7 @@ export function acquireUserSession(params: {
     const sessions = getActiveSessionsMap();
     const now = Date.now();
 
-    const existing = sessions.get(cleanEmail);
-
-    if (existing) {
-        const isSameSession = existing.sessionId === params.sessionId;
-        const isAlive = now - existing.lastHeartbeat < SESSION_TIMEOUT_MS;
-
-        if (isSameSession) {
-            // Refresh heartbeat for the same browser session
-            existing.lastHeartbeat = now;
-            sessions.set(cleanEmail, existing);
-            return { success: true };
-        }
-
-        if (isAlive && !params.forceTakeover) {
-            // Blocked: Another active session exists in another browser/device!
-            const minutesActive = Math.round((now - existing.createdAt) / 60000);
-            return {
-                success: false,
-                error: 'active_session_exists',
-                canTakeover: true,
-                message: `A sua conta já tem uma sessão ativa noutro navegador ou dispositivo${minutesActive > 0 ? ` (iniciada há ${minutesActive} min)` : ''}. Por segurança, não é permitido aceder em simultâneo com a mesma conta.`,
-                activeSession: {
-                    createdAt: existing.createdAt,
-                    lastHeartbeat: existing.lastHeartbeat,
-                },
-            };
-        }
-    }
-
-    // Assign new active session (or force takeover)
+    // Register session seamlessly without blocking user logins
     sessions.set(cleanEmail, {
         email: cleanEmail,
         sessionId: params.sessionId,
@@ -388,24 +359,10 @@ export function heartbeatUserSession(params: {
     const now = Date.now();
 
     const existing = sessions.get(cleanEmail);
-    if (!existing) {
-        // Automatically establish session if not yet registered
-        sessions.set(cleanEmail, {
-            email: cleanEmail,
-            sessionId: params.sessionId,
-            createdAt: now,
-            lastHeartbeat: now,
-        });
-        return { valid: true };
+    if (existing) {
+        existing.lastHeartbeat = now;
+        sessions.set(cleanEmail, existing);
     }
-
-    if (existing.sessionId !== params.sessionId) {
-        // Session was taken over or superseded by another browser
-        return { valid: false, reason: 'taken_over' };
-    }
-
-    existing.lastHeartbeat = now;
-    sessions.set(cleanEmail, existing);
     return { valid: true };
 }
 
@@ -413,38 +370,6 @@ export function validateUserSession(params: {
     email: string;
     sessionId: string;
 }): { valid: boolean; reason?: string } {
-    const cleanEmail = params.email.trim().toLowerCase();
-    const sessions = getActiveSessionsMap();
-    const now = Date.now();
-
-    const existing = sessions.get(cleanEmail);
-    if (!existing) {
-        // If no active session is on record, this browser claims it
-        sessions.set(cleanEmail, {
-            email: cleanEmail,
-            sessionId: params.sessionId,
-            createdAt: now,
-            lastHeartbeat: now,
-        });
-        return { valid: true };
-    }
-
-    if (existing.sessionId !== params.sessionId) {
-        const isAlive = now - existing.lastHeartbeat < SESSION_TIMEOUT_MS;
-        if (isAlive) {
-            return { valid: false, reason: 'active_elsewhere' };
-        }
-        // Stale session, this browser claims it
-        sessions.set(cleanEmail, {
-            email: cleanEmail,
-            sessionId: params.sessionId,
-            createdAt: now,
-            lastHeartbeat: now,
-        });
-        return { valid: true };
-    }
-
-    existing.lastHeartbeat = now;
     return { valid: true };
 }
 
