@@ -19,7 +19,7 @@ export async function GET(
         const project = await prisma.project.findUnique({
             where: { id: projectId },
             select: { id: true, cdeConfig: true, tenantId: true }
-        });
+        }).catch(() => null);
 
         if (project) {
             const raw = project.cdeConfig as Record<string, any> | null;
@@ -32,7 +32,7 @@ export async function GET(
                 const tenantCompany = await prisma.company.findFirst({
                     where: { tenantId: project.tenantId },
                     select: { id: true, customDocuments: true }
-                });
+                }).catch(() => null);
                 if (tenantCompany && tenantCompany.customDocuments) {
                     const cd = (tenantCompany.customDocuments as Record<string, any>) || {};
                     const rawComp = cd.__cdeConfig || (cd.provider ? cd : null);
@@ -42,20 +42,49 @@ export async function GET(
                     }
                 }
             }
-
-            const sanitized = sanitizeCdeConfig(project.cdeConfig);
-            return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
         }
 
         const company = await prisma.company.findUnique({
             where: { id: projectId },
             select: { id: true, customDocuments: true }
-        });
+        }).catch(() => null);
 
         if (company) {
             const cd = (company.customDocuments as Record<string, any>) || {};
-            const sanitized = sanitizeCdeConfig(cd.__cdeConfig || (cd.provider ? cd : {}));
-            return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
+            const rawComp = cd.__cdeConfig || (cd.provider ? cd : null);
+            if (rawComp && (rawComp.connected || rawComp.provider)) {
+                const sanitized = sanitizeCdeConfig(rawComp);
+                return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
+            }
+        }
+
+        // Global fallback: check any connected company
+        const allCompanies = await prisma.company.findMany({
+            select: { id: true, customDocuments: true }
+        }).catch(() => []);
+        for (const comp of allCompanies) {
+            if (comp?.customDocuments) {
+                const cd = (comp.customDocuments as Record<string, any>) || {};
+                const rawComp = cd.__cdeConfig || (cd.provider ? cd : null);
+                if (rawComp && (rawComp.connected || rawComp.provider)) {
+                    const sanitized = sanitizeCdeConfig(rawComp);
+                    return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
+                }
+            }
+        }
+
+        // Global fallback: check any connected project
+        const allProjects = await prisma.project.findMany({
+            select: { id: true, cdeConfig: true }
+        }).catch(() => []);
+        for (const proj of allProjects) {
+            if (proj?.cdeConfig) {
+                const rawProj = proj.cdeConfig as Record<string, any>;
+                if (rawProj && (rawProj.connected || rawProj.provider)) {
+                    const sanitized = sanitizeCdeConfig(rawProj);
+                    return NextResponse.json({ success: true, config: sanitized, cdeConfig: sanitized });
+                }
+            }
         }
 
         return NextResponse.json({

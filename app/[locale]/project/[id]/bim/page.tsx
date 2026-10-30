@@ -345,6 +345,8 @@ export default function BimViewerPage() {
     const [isSyncingCde, setIsSyncingCde] = useState(false);
     const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(DEFAULT_2D_DRAWINGS);
     const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(DEFAULT_2D_DRAWINGS[0] || null);
+    const [drawingViewMode, setDrawingViewMode] = useState<'interactive' | 'pdf'>('interactive');
+    const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
     const [sheetZoom, setSheetZoom] = useState<number>(1);
     const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
@@ -429,24 +431,88 @@ export default function BimViewerPage() {
         setTimeout(() => setToastMessage(null), 4000);
     }, []);
 
+    // Synchronize Real-time PDF Blob for the selected 2D Drawing
+    useEffect(() => {
+        if (!selected2dDrawing) {
+            if (currentPdfUrl) {
+                URL.revokeObjectURL(currentPdfUrl);
+                setCurrentPdfUrl(null);
+            }
+            return;
+        }
+
+        try {
+            const buf = generateRealisticPdfDrawing(
+                selected2dDrawing.fileName,
+                selected2dDrawing.title,
+                selected2dDrawing.code,
+                selected2dDrawing.storey || 'Piso 0'
+            );
+            const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+            const blob = new Blob([uint8 as any], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            setCurrentPdfUrl(url);
+
+            return () => {
+                URL.revokeObjectURL(url);
+            };
+        } catch (e) {
+            console.warn('Erro ao gerar blob do PDF:', e);
+        }
+    }, [selected2dDrawing]);
+
     // Load Real CDE Cloud Files
     const loadRealCdeFiles = useCallback(async () => {
         setIsSyncingCde(true);
         try {
+            // First check status directly from server endpoint
+            const statusRes = await fetch(`/api/projects/${projectId}/cde`).catch(() => null);
+            let activeCfg = (currentProject as any)?.cdeConfig;
+            if (statusRes?.ok) {
+                const sData = await statusRes.json().catch(() => ({}));
+                const sCfg = sData?.cdeConfig || sData?.config;
+                if (sCfg?.connected) {
+                    activeCfg = sCfg;
+                    setCdeStatus({
+                        connected: true,
+                        provider: sCfg.provider,
+                        hasFiles: true
+                    });
+                }
+            } else if (activeCfg?.connected) {
+                setCdeStatus({
+                    connected: true,
+                    provider: activeCfg.provider,
+                    hasFiles: true
+                });
+            }
+
             const res = await fetch(`/api/projects/${projectId}/cde/action`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'list_bim_files' })
+                body: JSON.stringify({
+                    action: 'list_bim_files',
+                    payload: { cdeConfig: activeCfg }
+                })
             });
+
             if (res.ok) {
                 const data = await res.json();
-                if (data.connected) {
-                    setCdeStatus({ connected: true, provider: data.provider, hasFiles: data.hasFiles });
-                    if (data.models && data.models.length > 0) {
-                        setCdeModels(data.models);
+                const result = data.result || data;
+                if (result.connected || activeCfg?.connected) {
+                    setCdeStatus({
+                        connected: true,
+                        provider: result.provider || activeCfg?.provider,
+                        hasFiles: result.hasFiles ?? true
+                    });
+                    if (result.models && result.models.length > 0) {
+                        setCdeModels(result.models);
                     }
-                    if (data.drawings && data.drawings.length > 0) {
-                        setCdeDrawings(data.drawings);
+                    if (result.drawings && result.drawings.length > 0) {
+                        setCdeDrawings(result.drawings);
+                        if (!selected2dDrawing) {
+                            setSelected2dDrawing(result.drawings[0]);
+                        }
                     }
                 }
             }
@@ -455,7 +521,7 @@ export default function BimViewerPage() {
         } finally {
             setIsSyncingCde(false);
         }
-    }, [projectId]);
+    }, [projectId, currentProject, selected2dDrawing]);
 
     useEffect(() => {
         loadRealCdeFiles();
@@ -466,14 +532,19 @@ export default function BimViewerPage() {
         setIsCreatingCdeFolders(true);
         showToast('A enviar modelos IFC e pranchas 2D fidedignas para o seu CDE conectado...');
         try {
+            const activeCfg = (currentProject as any)?.cdeConfig;
             const res = await fetch(`/api/projects/${projectId}/cde/action`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'seed_bim_sample_files' })
+                body: JSON.stringify({
+                    action: 'seed_bim_sample_files',
+                    payload: { cdeConfig: activeCfg }
+                })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Erro ao carregar no CDE');
-            showToast('Modelos BIM e Desenhos 2D carregados com sucesso no seu CDE!');
+            const result = data.result || data;
+            showToast(result.message || 'Modelos BIM e Desenhos 2D carregados com sucesso no seu CDE!');
             await loadRealCdeFiles();
         } catch (err: any) {
             showToast(`Aviso: ${err.message || 'Verifique a ligação ao CDE'}`);
@@ -1177,6 +1248,9 @@ export default function BimViewerPage() {
     // Toggle 2D vs 3D View Dimension
     const handleToggleViewDimension = (mode: '3d' | '2d') => {
         setViewDimension(mode);
+        if (mode === '2d' && !selected2dDrawing && cdeDrawings.length > 0) {
+            setSelected2dDrawing(cdeDrawings[0]);
+        }
         if (!cameraRef.current || !controlsRef.current) return;
 
         if (grid2dGroupRef.current) {
@@ -1421,10 +1495,14 @@ export default function BimViewerPage() {
         showToast('A criar pastas "Modelos BIM (IFC)" e "Desenhos 2D" na raiz do projeto...');
 
         try {
+            const activeCfg = (currentProject as any)?.cdeConfig;
             const res = await fetch(`/api/projects/${projectId}/cde/action`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'init_project_bim_structure' })
+                body: JSON.stringify({
+                    action: 'init_project_bim_structure',
+                    payload: { cdeConfig: activeCfg }
+                })
             });
 
             const data = await res.json();
@@ -1434,6 +1512,7 @@ export default function BimViewerPage() {
 
             showToast('Estrutura de pastas BIM e 2D criada com sucesso na raiz do projeto!');
             alert('Pastas criadas com sucesso na raiz do projeto:\n📁 Modelos BIM (IFC)/\n   ├── 📁 01-Arquitetura/\n   ├── 📁 02-Estruturas/\n   └── 📁 03-Especialidades (MEP)/\n📁 Desenhos 2D (Plantas e Cortes)/');
+            await loadRealCdeFiles();
         } catch (err: any) {
             console.error('Erro CDE:', err);
             alert(`Aviso CDE: ${err.message || 'Verifique se o CDE está ligado nas Definições do Projeto.'}`);
@@ -2300,30 +2379,51 @@ export default function BimViewerPage() {
 
                                             {expandedFolders.drawings_root && (
                                                 <div className="pl-3.5 space-y-1 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
-                                                    {cdeDrawings.map(dw => (
-                                                        <div
-                                                            key={dw.id}
-                                                            onClick={() => {
-                                                                setSelected2dDrawing(dw);
-                                                                setViewDimension('2d');
-                                                                showToast(`Planta 2D "${dw.code} - ${dw.title}" ativada no visualizador.`);
-                                                            }}
-                                                            className={cn(
-                                                                "p-1.5 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1",
-                                                                selected2dDrawing?.id === dw.id
-                                                                    ? "bg-blue-50 border-blue-400 text-blue-900 font-bold dark:bg-blue-950/60 dark:border-blue-700 dark:text-blue-200 shadow-2xs"
-                                                                    : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300"
-                                                            )}
-                                                        >
-                                                            <div className="truncate">
-                                                                <div className="font-semibold truncate">
-                                                                    <span className="text-blue-600 dark:text-blue-400">{dw.code}</span> - {dw.title}
+                                                    {cdeDrawings.map(dw => {
+                                                        const isSelected = selected2dDrawing?.id === dw.id && viewDimension === '2d';
+                                                        return (
+                                                            <div
+                                                                key={dw.id}
+                                                                onClick={() => {
+                                                                    setSelected2dDrawing(dw);
+                                                                    setViewDimension('2d');
+                                                                    showToast(`Planta 2D "${dw.code} - ${dw.title}" ativada no visualizador.`);
+                                                                }}
+                                                                className={cn(
+                                                                    "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1.5",
+                                                                    isSelected
+                                                                        ? "bg-blue-50/90 border-blue-500 text-blue-950 font-bold dark:bg-blue-950/70 dark:border-blue-600 dark:text-blue-100 shadow-2xs ring-1 ring-blue-500/20"
+                                                                        : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300 dark:hover:border-neutral-600"
+                                                                )}
+                                                            >
+                                                                <div className="truncate flex-1 min-w-0">
+                                                                    <div className="font-semibold truncate flex items-center gap-1.5">
+                                                                        <FileText size={12} className={isSelected ? "text-blue-600 dark:text-blue-400 shrink-0" : "text-slate-400 shrink-0"} />
+                                                                        <span className="text-blue-600 dark:text-blue-400 font-bold">{dw.code}</span>
+                                                                        <span className="truncate">{dw.title}</span>
+                                                                    </div>
+                                                                    <div className="text-[9px] text-slate-400 truncate pl-4.5">{dw.storey} • {dw.format}</div>
                                                                 </div>
-                                                                <div className="text-[9px] text-slate-400 truncate">{dw.storey} • {dw.format}</div>
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    <span className="text-[9px] text-slate-400 font-mono bg-slate-100 dark:bg-neutral-700 px-1 py-0.5 rounded">{dw.revision}</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelected2dDrawing(dw);
+                                                                            setViewDimension('2d');
+                                                                            setDrawingViewMode('pdf');
+                                                                            showToast(`A visualizar PDF de "${dw.code}" no ecrã central.`);
+                                                                        }}
+                                                                        className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900 rounded text-blue-600 dark:text-blue-400 cursor-pointer"
+                                                                        title="Ver Documento PDF"
+                                                                    >
+                                                                        <Eye size={12} />
+                                                                    </button>
+                                                                </div>
                                                             </div>
-                                                            <span className="text-[9px] text-slate-400 shrink-0 font-mono">{dw.revision}</span>
-                                                        </div>
-                                                    ))}
+                                                        );
+                                                    })}
                                                 </div>
                                             )}
                                         </div>
@@ -2827,7 +2927,7 @@ export default function BimViewerPage() {
                     )}
 
                     {/* DUAL-MODE VIEWPORT: 2D TECHNICAL DRAWING SHEET (PRANCHA TÉCNICA) VS 3D WEBGL MODEL */}
-                    {viewDimension === '2d' && selected2dDrawing ? (
+                    {viewDimension === '2d' && selected2dDrawing && (
                         <div className="absolute inset-0 z-20 flex flex-col bg-slate-200/90 dark:bg-[#121316] select-none overflow-hidden">
                             {/* Sheet Toolbar */}
                             <div className="h-10 px-3 bg-white/95 dark:bg-neutral-900/95 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between shrink-0 shadow-2xs z-20">
@@ -2844,40 +2944,74 @@ export default function BimViewerPage() {
                                 </div>
 
                                 <div className="flex items-center gap-1.5 shrink-0">
+                                    {/* Segmented Mode: Interactive Vector vs Real Native PDF */}
+                                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDrawingViewMode('interactive')}
+                                            className={cn(
+                                                "px-2 py-0.5 text-[11px] font-semibold rounded-md transition-all flex items-center gap-1 cursor-pointer",
+                                                drawingViewMode === 'interactive'
+                                                    ? "bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-2xs font-bold"
+                                                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                            )}
+                                            title="Planta Técnica Vetorial com Pins e Equipamento Interativo"
+                                        >
+                                            <Layers size={12} />
+                                            <span className="hidden md:inline">Planta Interativa</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDrawingViewMode('pdf')}
+                                            className={cn(
+                                                "px-2 py-0.5 text-[11px] font-semibold rounded-md transition-all flex items-center gap-1 cursor-pointer",
+                                                drawingViewMode === 'pdf'
+                                                    ? "bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-2xs font-bold"
+                                                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                            )}
+                                            title="Visualizador direto do Documento PDF Oficial"
+                                        >
+                                            <FileText size={12} />
+                                            <span className="hidden md:inline">Documento PDF</span>
+                                        </button>
+                                    </div>
+
                                     <button
                                         onClick={() => handleOpenAuthenticPdf(selected2dDrawing)}
                                         disabled={isGeneratingPdf}
                                         className="h-7 px-2.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-md text-[11px] font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                                        title="Abrir o Documento PDF Oficial em alta resolução"
+                                        title="Abrir o Documento PDF Oficial em novo separador"
                                     >
                                         <Download size={12} strokeWidth={2} />
-                                        <span>Abrir PDF Original</span>
+                                        <span className="hidden sm:inline">Descarregar PDF</span>
                                     </button>
 
-                                    <div className="flex items-center border border-slate-200 dark:border-neutral-700 rounded-md p-0.5 bg-slate-50 dark:bg-neutral-800">
-                                        <button
-                                            onClick={() => setSheetZoom(z => Math.max(0.6, z - 0.15))}
-                                            className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
-                                            title="Diminuir Zoom"
-                                        >
-                                            <ZoomOut size={12} />
-                                        </button>
-                                        <span className="text-[10px] font-mono px-1 font-semibold">{Math.round(sheetZoom * 100)}%</span>
-                                        <button
-                                            onClick={() => setSheetZoom(z => Math.min(2.2, z + 0.15))}
-                                            className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
-                                            title="Aumentar Zoom"
-                                        >
-                                            <ZoomIn size={12} />
-                                        </button>
-                                        <button
-                                            onClick={() => setSheetZoom(1)}
-                                            className="px-1 text-[10px] text-slate-500 hover:text-slate-800 cursor-pointer font-bold"
-                                            title="Repor Zoom Original"
-                                        >
-                                            100%
-                                        </button>
-                                    </div>
+                                    {drawingViewMode === 'interactive' && (
+                                        <div className="flex items-center border border-slate-200 dark:border-neutral-700 rounded-md p-0.5 bg-slate-50 dark:bg-neutral-800">
+                                            <button
+                                                onClick={() => setSheetZoom(z => Math.max(0.6, z - 0.15))}
+                                                className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
+                                                title="Diminuir Zoom"
+                                            >
+                                                <ZoomOut size={12} />
+                                            </button>
+                                            <span className="text-[10px] font-mono px-1 font-semibold">{Math.round(sheetZoom * 100)}%</span>
+                                            <button
+                                                onClick={() => setSheetZoom(z => Math.min(2.2, z + 0.15))}
+                                                className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
+                                                title="Aumentar Zoom"
+                                            >
+                                                <ZoomIn size={12} />
+                                            </button>
+                                            <button
+                                                onClick={() => setSheetZoom(1)}
+                                                className="px-1 text-[10px] text-slate-500 hover:text-slate-800 cursor-pointer font-bold"
+                                                title="Repor Zoom Original"
+                                            >
+                                                100%
+                                            </button>
+                                        </div>
+                                    )}
 
                                     <button
                                         onClick={() => handleToggleViewDimension('3d')}
@@ -2890,8 +3024,27 @@ export default function BimViewerPage() {
                                 </div>
                             </div>
 
-                            {/* 2D Vector Drawing Sheet Surface */}
-                            <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+                            {/* Viewport Content: Either Native PDF Iframe or Interactive Vector Sheet */}
+                            {drawingViewMode === 'pdf' ? (
+                                <div className="flex-1 w-full h-full p-3 bg-slate-300/80 dark:bg-neutral-950 flex flex-col items-center justify-center overflow-hidden">
+                                    {currentPdfUrl ? (
+                                        <div className="w-full h-full flex flex-col bg-white dark:bg-neutral-900 rounded-lg shadow-xl border border-slate-300 dark:border-neutral-800 overflow-hidden">
+                                            <iframe
+                                                src={currentPdfUrl}
+                                                title={selected2dDrawing.title}
+                                                className="w-full h-full border-none"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center text-slate-600 dark:text-slate-300 py-12">
+                                            <Loader2 size={24} className="animate-spin text-blue-600 mb-2" />
+                                            <span className="text-xs font-semibold">A carregar prancha técnica PDF de {selected2dDrawing.code}...</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                /* 2D Vector Drawing Sheet Surface */
+                                <div className="flex-1 overflow-auto flex items-center justify-center p-4">
                                 <div
                                     onClick={(e) => {
                                         const rect = e.currentTarget.getBoundingClientRect();
@@ -3143,17 +3296,20 @@ export default function BimViewerPage() {
                                     })}
                                 </div>
                             </div>
+                            )}
                         </div>
-                    ) : (
-                        /* 3D WebGL Canvas */
-                        <div
-                            ref={mountRef}
-                            onClick={handleCanvasClick}
-                            className={`w-full h-full cursor-grab active:cursor-grabbing ${
-                                activeMode !== 'navigate' ? 'cursor-crosshair' : ''
-                            }`}
-                        />
                     )}
+
+                    {/* 3D WebGL Canvas - Permanent mount to prevent WebGL context loss */}
+                    <div
+                        ref={mountRef}
+                        onClick={handleCanvasClick}
+                        className={cn(
+                            "w-full h-full cursor-grab active:cursor-grabbing",
+                            activeMode !== 'navigate' ? 'cursor-crosshair' : '',
+                            viewDimension === '2d' && selected2dDrawing ? 'invisible pointer-events-none' : ''
+                        )}
+                    />
                 </div>
 
                 {/* ZONE C: Right OpenProject BIM BCF Issues Panel (Mesma largura do painel esquerdo: w-80) */}

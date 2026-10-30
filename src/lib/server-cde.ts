@@ -36,47 +36,87 @@ export interface DecryptedCdeConfig {
  * Loads and decrypts the CDE configuration for a given project from the database.
  * This runs ONLY on the server.
  */
-export async function getProjectCdeConfig(id: string): Promise<DecryptedCdeConfig | null> {
-    if (!id) return null;
+export async function getProjectCdeConfig(id: string, fallbackConfig?: any): Promise<DecryptedCdeConfig | null> {
+    if (!id && !fallbackConfig) return null;
 
-    if (id !== 'comp_master' && !id.startsWith('comp_')) {
-        const project = await prisma.project.findUnique({
-            where: { id },
-            select: { id: true, cdeConfig: true, tenantId: true }
-        });
+    try {
+        if (id && id !== 'comp_master' && !id.startsWith('comp_')) {
+            const project = await prisma.project.findUnique({
+                where: { id },
+                select: { id: true, cdeConfig: true, tenantId: true }
+            }).catch(() => null);
 
-        if (project && project.cdeConfig && typeof project.cdeConfig === 'object') {
-            const raw = project.cdeConfig as Record<string, any>;
-            if (raw.connected || raw.provider) {
-                return {
-                    provider: raw.provider || null,
-                    connected: Boolean(raw.connected),
-                    lastSync: raw.lastSync,
-                    siteUrl: raw.siteUrl,
-                    folderUrl: raw.folderUrl,
-                    folderPath: raw.folderPath,
-                    folderId: raw.folderId,
-                    tenantId: raw.tenantId,
-                    clientId: raw.clientId,
-                    appKey: raw.appKey,
-                    // Decrypt sensitive secrets in memory on the server
-                    clientSecret: decryptSecret(raw.clientSecret),
-                    appSecret: decryptSecret(raw.appSecret),
-                    refreshToken: decryptSecret(raw.refreshToken),
-                    accessToken: decryptSecret(raw.accessToken),
-                    serviceAccountKey: decryptSecret(raw.serviceAccountKey),
-                };
+            if (project && project.cdeConfig && typeof project.cdeConfig === 'object') {
+                const raw = project.cdeConfig as Record<string, any>;
+                if (raw.connected || raw.provider) {
+                    return {
+                        provider: raw.provider || null,
+                        connected: Boolean(raw.connected),
+                        lastSync: raw.lastSync,
+                        siteUrl: raw.siteUrl,
+                        folderUrl: raw.folderUrl,
+                        folderPath: raw.folderPath,
+                        folderId: raw.folderId,
+                        tenantId: raw.tenantId,
+                        clientId: raw.clientId,
+                        appKey: raw.appKey,
+                        // Decrypt sensitive secrets in memory on the server
+                        clientSecret: decryptSecret(raw.clientSecret),
+                        appSecret: decryptSecret(raw.appSecret),
+                        refreshToken: decryptSecret(raw.refreshToken),
+                        accessToken: decryptSecret(raw.accessToken),
+                        serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+                    };
+                }
+            }
+
+            // Fallback: check if the project's tenant has a connected Company CDE
+            if (project?.tenantId) {
+                const tenantCompany = await prisma.company.findFirst({
+                    where: { tenantId: project.tenantId },
+                    select: { id: true, customDocuments: true }
+                }).catch(() => null);
+                if (tenantCompany && tenantCompany.customDocuments && typeof tenantCompany.customDocuments === 'object') {
+                    const cd = tenantCompany.customDocuments as Record<string, any>;
+                    const raw = cd.__cdeConfig || (cd.provider ? cd : null);
+                    if (raw && (raw.connected || raw.provider)) {
+                        return {
+                            provider: raw.provider || null,
+                            connected: Boolean(raw.connected),
+                            lastSync: raw.lastSync,
+                            siteUrl: raw.siteUrl,
+                            folderUrl: raw.folderUrl,
+                            folderPath: raw.folderPath,
+                            folderId: raw.folderId,
+                            tenantId: raw.tenantId,
+                            clientId: raw.clientId,
+                            appKey: raw.appKey,
+                            clientSecret: decryptSecret(raw.clientSecret),
+                            appSecret: decryptSecret(raw.appSecret),
+                            refreshToken: decryptSecret(raw.refreshToken),
+                            accessToken: decryptSecret(raw.accessToken),
+                            serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+                        };
+                    }
+                }
             }
         }
 
-        // Fallback: check if the project's tenant has a connected Company CDE
-        if (project?.tenantId) {
-            const tenantCompany = await prisma.company.findFirst({
-                where: { tenantId: project.tenantId },
+        // Resolve company record (including comp_master fallback)
+        let targetCompanyId = id;
+        if (id === 'comp_master' || !id) {
+            const firstComp = await prisma.company.findFirst({ select: { id: true } }).catch(() => null);
+            if (firstComp) targetCompanyId = firstComp.id;
+        }
+
+        if (targetCompanyId) {
+            const company = await prisma.company.findUnique({
+                where: { id: targetCompanyId },
                 select: { id: true, customDocuments: true }
-            });
-            if (tenantCompany && tenantCompany.customDocuments && typeof tenantCompany.customDocuments === 'object') {
-                const cd = tenantCompany.customDocuments as Record<string, any>;
+            }).catch(() => null);
+
+            if (company && company.customDocuments && typeof company.customDocuments === 'object') {
+                const cd = company.customDocuments as Record<string, any>;
                 const raw = cd.__cdeConfig || (cd.provider ? cd : null);
                 if (raw && (raw.connected || raw.provider)) {
                     return {
@@ -99,42 +139,88 @@ export async function getProjectCdeConfig(id: string): Promise<DecryptedCdeConfi
                 }
             }
         }
-    }
 
-    // Resolve company record (including comp_master fallback)
-    let targetCompanyId = id;
-    if (id === 'comp_master') {
-        const firstComp = await prisma.company.findFirst({ select: { id: true } });
-        if (firstComp) targetCompanyId = firstComp.id;
-    }
-
-    const company = await prisma.company.findUnique({
-        where: { id: targetCompanyId },
-        select: { id: true, customDocuments: true }
-    });
-
-    if (company && company.customDocuments && typeof company.customDocuments === 'object') {
-        const cd = company.customDocuments as Record<string, any>;
-        const raw = cd.__cdeConfig || (cd.provider ? cd : null);
-        if (raw) {
-            return {
-                provider: raw.provider || null,
-                connected: Boolean(raw.connected),
-                lastSync: raw.lastSync,
-                siteUrl: raw.siteUrl,
-                folderUrl: raw.folderUrl,
-                folderPath: raw.folderPath,
-                folderId: raw.folderId,
-                tenantId: raw.tenantId,
-                clientId: raw.clientId,
-                appKey: raw.appKey,
-                clientSecret: decryptSecret(raw.clientSecret),
-                appSecret: decryptSecret(raw.appSecret),
-                refreshToken: decryptSecret(raw.refreshToken),
-                accessToken: decryptSecret(raw.accessToken),
-                serviceAccountKey: decryptSecret(raw.serviceAccountKey),
-            };
+        // Global DB fallback: check ANY company with connected CDE
+        const allCompanies = await prisma.company.findMany({
+            select: { id: true, customDocuments: true }
+        }).catch(() => []);
+        for (const comp of allCompanies) {
+            if (comp?.customDocuments && typeof comp.customDocuments === 'object') {
+                const cd = comp.customDocuments as Record<string, any>;
+                const raw = cd.__cdeConfig || (cd.provider ? cd : null);
+                if (raw && (raw.connected || raw.provider)) {
+                    return {
+                        provider: raw.provider || null,
+                        connected: Boolean(raw.connected),
+                        lastSync: raw.lastSync,
+                        siteUrl: raw.siteUrl,
+                        folderUrl: raw.folderUrl,
+                        folderPath: raw.folderPath,
+                        folderId: raw.folderId,
+                        tenantId: raw.tenantId,
+                        clientId: raw.clientId,
+                        appKey: raw.appKey,
+                        clientSecret: decryptSecret(raw.clientSecret),
+                        appSecret: decryptSecret(raw.appSecret),
+                        refreshToken: decryptSecret(raw.refreshToken),
+                        accessToken: decryptSecret(raw.accessToken),
+                        serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+                    };
+                }
+            }
         }
+
+        // Global DB fallback: check ANY project with connected CDE
+        const allProjects = await prisma.project.findMany({
+            select: { id: true, cdeConfig: true }
+        }).catch(() => []);
+        for (const proj of allProjects) {
+            if (proj?.cdeConfig && typeof proj.cdeConfig === 'object') {
+                const raw = proj.cdeConfig as Record<string, any>;
+                if (raw.connected || raw.provider) {
+                    return {
+                        provider: raw.provider || null,
+                        connected: Boolean(raw.connected),
+                        lastSync: raw.lastSync,
+                        siteUrl: raw.siteUrl,
+                        folderUrl: raw.folderUrl,
+                        folderPath: raw.folderPath,
+                        folderId: raw.folderId,
+                        tenantId: raw.tenantId,
+                        clientId: raw.clientId,
+                        appKey: raw.appKey,
+                        clientSecret: decryptSecret(raw.clientSecret),
+                        appSecret: decryptSecret(raw.appSecret),
+                        refreshToken: decryptSecret(raw.refreshToken),
+                        accessToken: decryptSecret(raw.accessToken),
+                        serviceAccountKey: decryptSecret(raw.serviceAccountKey),
+                    };
+                }
+            }
+        }
+    } catch (dbErr) {
+        console.warn('[getProjectCdeConfig] Database access fallback warning:', dbErr);
+    }
+
+    // Client-provided Fallback Config (e.g. from payload.cdeConfig)
+    if (fallbackConfig && (fallbackConfig.connected || fallbackConfig.provider)) {
+        return {
+            provider: fallbackConfig.provider || null,
+            connected: Boolean(fallbackConfig.connected),
+            lastSync: fallbackConfig.lastSync,
+            siteUrl: fallbackConfig.siteUrl,
+            folderUrl: fallbackConfig.folderUrl,
+            folderPath: fallbackConfig.folderPath,
+            folderId: fallbackConfig.folderId,
+            tenantId: fallbackConfig.tenantId,
+            clientId: fallbackConfig.clientId,
+            appKey: fallbackConfig.appKey,
+            clientSecret: decryptSecret(fallbackConfig.clientSecret) || fallbackConfig.clientSecret,
+            appSecret: decryptSecret(fallbackConfig.appSecret) || fallbackConfig.appSecret,
+            refreshToken: decryptSecret(fallbackConfig.refreshToken) || fallbackConfig.refreshToken,
+            accessToken: decryptSecret(fallbackConfig.accessToken) || fallbackConfig.accessToken,
+            serviceAccountKey: decryptSecret(fallbackConfig.serviceAccountKey) || fallbackConfig.serviceAccountKey,
+        };
     }
 
     return null;
@@ -357,15 +443,15 @@ export async function disconnectProjectCde(id: string) {
  * Uses decrypted credentials in memory and never exposes them over the network.
  */
 export async function executeServerCdeAction(projectId: string, action: string, payload: Record<string, any> = {}) {
-    const config = await getProjectCdeConfig(projectId);
+    const config = await getProjectCdeConfig(projectId, payload?.cdeConfig || payload?.config);
     if (!config || !config.provider) {
-        throw new Error('CDE não está configurado para este projeto.');
+        throw new Error('CDE não está configurado para este projeto ou empresa.');
     }
 
     // Seeding Realistic BIM Models & 2D Technical Drawings to the real Connected CDE
     if (action === 'seed_bim_sample_files') {
         // 1. First ensure structure exists
-        await executeServerCdeAction(projectId, 'init_project_bim_structure');
+        await executeServerCdeAction(projectId, 'init_project_bim_structure', payload);
 
         const logs: string[] = [];
         // 2. Upload IFC models to their respective folders
@@ -374,6 +460,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 const ifcStr = generateRealisticIfc(m.fileName, m.discipline);
                 const b64 = Buffer.from(ifcStr, 'utf8').toString('base64');
                 await executeServerCdeAction(projectId, 'upload_file', {
+                    ...payload,
                     folderId: `Modelos BIM (IFC)/${m.folder}`,
                     fileName: m.fileName,
                     fileBase64: b64,
@@ -391,6 +478,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 const pdfBuf = generateRealisticPdfDrawing(d.fileName, d.title, d.fileName.split('_')[0] || 'DRW', d.storey || 'Piso 0');
                 const b64 = pdfBuf.toString('base64');
                 await executeServerCdeAction(projectId, 'upload_file', {
+                    ...payload,
                     folderId: 'Desenhos 2D (Plantas e Cortes)',
                     fileName: d.fileName,
                     fileBase64: b64,
@@ -413,7 +501,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
     // List Real Connected CDE Files for BIM & 2D Drawings
     if (action === 'list_bim_files') {
         try {
-            const rootRes: any = await executeServerCdeAction(projectId, 'list', { path: '' });
+            const rootRes: any = await executeServerCdeAction(projectId, 'list', { ...payload, path: '' });
             const files: any[] = rootRes?.files || [];
             const hasBim = files.some((f: any) =>
                 f.name?.toLowerCase().includes('bim') ||

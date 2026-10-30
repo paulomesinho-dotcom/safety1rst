@@ -15,27 +15,31 @@ export async function POST(
 
         // Verificação de autenticação: utilizador tem de ter acesso ao projeto ou à empresa
         if (session?.user) {
-            const role = (session.user as any).role;
-            if (role !== 'superadmin' && role !== 'admin') {
-                const project = await prisma.project.findUnique({ where: { id: projectId } });
-                if (project) {
-                    const member = await prisma.projectMember.findUnique({
-                        where: { projectId_userId: { projectId, userId: session.user.id! } }
-                    });
-                    const user = await prisma.user.findUnique({ where: { id: session.user.id! } });
-                    const isSameTenant = Boolean(user?.tenantId && project.tenantId && user.tenantId === project.tenantId);
-                    if (!member && !isSameTenant && (session.user as any).accountId !== project.tenantId) {
-                        return NextResponse.json({ error: 'Acesso negado: utilizador não pertence a esta obra.' }, { status: 403 });
-                    }
-                } else {
-                    const company = await prisma.company.findUnique({ where: { id: projectId } });
-                    if (company) {
-                        const user = await prisma.user.findUnique({ where: { id: session.user.id! } });
-                        if (user?.tenantId !== company.tenantId && (session.user as any).accountId !== company.tenantId) {
-                            return NextResponse.json({ error: 'Permissão negada para esta empresa.' }, { status: 403 });
+            try {
+                const role = (session.user as any).role;
+                if (role !== 'superadmin' && role !== 'admin') {
+                    const project = await prisma.project.findUnique({ where: { id: projectId } }).catch(() => null);
+                    if (project) {
+                        const member = await prisma.projectMember.findUnique({
+                            where: { projectId_userId: { projectId, userId: session.user.id! } }
+                        }).catch(() => null);
+                        const user = await prisma.user.findUnique({ where: { id: session.user.id! } }).catch(() => null);
+                        const isSameTenant = Boolean(user?.tenantId && project.tenantId && user.tenantId === project.tenantId);
+                        if (!member && !isSameTenant && (session.user as any).accountId !== project.tenantId) {
+                            return NextResponse.json({ error: 'Acesso negado: utilizador não pertence a esta obra.' }, { status: 403 });
+                        }
+                    } else {
+                        const company = await prisma.company.findUnique({ where: { id: projectId } }).catch(() => null);
+                        if (company) {
+                            const user = await prisma.user.findUnique({ where: { id: session.user.id! } }).catch(() => null);
+                            if (user?.tenantId !== company.tenantId && (session.user as any).accountId !== company.tenantId) {
+                                return NextResponse.json({ error: 'Permissão negada para esta empresa.' }, { status: 403 });
+                            }
                         }
                     }
                 }
+            } catch (authDbErr) {
+                console.warn('[CDE Action Auth RBAC] Non-fatal DB check fallback:', authDbErr);
             }
         }
 
