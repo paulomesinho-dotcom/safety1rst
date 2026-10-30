@@ -206,6 +206,25 @@ interface CdeDrawing2D {
     date: string;
 }
 
+export interface CdeModelItem {
+    id: string;
+    folder: string;
+    name: string;
+    size: string;
+    rev: string;
+    active: boolean;
+    discipline: 'architecture' | 'structure' | 'mep' | 'safety';
+}
+
+const DEFAULT_CDE_MODELS: CdeModelItem[] = [
+    { id: 'm1', folder: '01-Arquitetura', name: 'ARQ_Skyline_Edificio.ifc', size: '24.5 MB', rev: 'Rev 04', active: true, discipline: 'architecture' },
+    { id: 'm2', folder: '01-Arquitetura', name: 'ARQ_Arranjos_Exteriores.ifc', size: '8.2 MB', rev: 'Rev 02', active: false, discipline: 'architecture' },
+    { id: 'm3', folder: '02-Estruturas', name: 'EST_Estrutura_Betao.ifc', size: '31.8 MB', rev: 'Rev 03', active: true, discipline: 'structure' },
+    { id: 'm4', folder: '02-Estruturas', name: 'EST_Fundacoes_Contencoes.ifc', size: '14.1 MB', rev: 'Rev 01', active: false, discipline: 'structure' },
+    { id: 'm5', folder: '03-Especialidades (MEP)', name: 'MEP_Redes_AVAC.ifc', size: '12.4 MB', rev: 'Rev 02', active: true, discipline: 'mep' },
+    { id: 'm6', folder: '03-Especialidades (MEP)', name: 'MEP_Rede_Incendio.ifc', size: '6.7 MB', rev: 'Rev 01', active: true, discipline: 'mep' },
+];
+
 const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [
     {
         id: 'drw-1',
@@ -323,6 +342,28 @@ export default function BimViewerPage() {
     const [loadedIfcName, setLoadedIfcName] = useState<string | null>(null);
     const [isCreatingCdeFolders, setIsCreatingCdeFolders] = useState(false);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+    // CDE Loaded Models & Explorer Folders
+    const [cdeModels, setCdeModels] = useState<CdeModelItem[]>(DEFAULT_CDE_MODELS);
+    const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
+        'bim_root': true,
+        '01-Arquitetura': true,
+        '02-Estruturas': true,
+        '03-Especialidades (MEP)': false,
+        '04-Segurança (PSS)': false,
+        'drawings_root': false
+    });
+
+    const handleToggleModelActive = (modelId: string) => {
+        setCdeModels(prev => prev.map(m => {
+            if (m.id === modelId) {
+                const nextActive = !m.active;
+                showToast(nextActive ? `Modelo "${m.name}" ativado.` : `Modelo "${m.name}" desativado.`);
+                return { ...m, active: nextActive };
+            }
+            return m;
+        }));
+    };
 
     // Modals
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -657,7 +698,10 @@ export default function BimViewerPage() {
         cameraRef.current = camera;
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-        renderer.setSize(width, height);
+        renderer.setSize(width || 800, height || 600, false);
+        renderer.domElement.style.width = '100%';
+        renderer.domElement.style.height = '100%';
+        renderer.domElement.style.display = 'block';
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -755,13 +799,28 @@ export default function BimViewerPage() {
             if (!container || !rendererRef.current || !cameraRef.current) return;
             const w = container.clientWidth;
             const h = container.clientHeight;
-            cameraRef.current.aspect = w / h;
-            cameraRef.current.updateProjectionMatrix();
-            rendererRef.current.setSize(w, h);
+            if (w > 0 && h > 0) {
+                cameraRef.current.aspect = w / h;
+                cameraRef.current.updateProjectionMatrix();
+                rendererRef.current.setSize(w, h, false);
+            }
         };
+
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const { width: w, height: h } = entry.contentRect;
+                if (w > 0 && h > 0 && rendererRef.current && cameraRef.current) {
+                    cameraRef.current.aspect = w / h;
+                    cameraRef.current.updateProjectionMatrix();
+                    rendererRef.current.setSize(w, h, false);
+                }
+            }
+        });
+        resizeObserver.observe(container);
         window.addEventListener('resize', handleResize);
 
         return () => {
+            resizeObserver.disconnect();
             window.removeEventListener('resize', handleResize);
             cancelAnimationFrame(animationFrameId);
             renderer.dispose();
@@ -1301,6 +1360,22 @@ export default function BimViewerPage() {
             }
 
             setLoadedIfcName(file.name);
+            setCdeModels(prev => {
+                const exists = prev.find(m => m.name === file.name);
+                if (exists) return prev.map(m => m.name === file.name ? { ...m, active: true } : m);
+                return [
+                    {
+                        id: `m_${Date.now()}`,
+                        folder: '01-Arquitetura',
+                        name: file.name,
+                        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+                        rev: 'Upload Local',
+                        active: true,
+                        discipline: 'architecture'
+                    },
+                    ...prev
+                ];
+            });
             showToast(`Modelo IFC "${file.name}" carregado com sucesso (${loadedMeshesCount} elementos 3D).`);
         } catch (err: any) {
             console.error('Error loading IFC file:', err);
@@ -1495,208 +1570,223 @@ export default function BimViewerPage() {
             "relative w-full overflow-hidden bg-slate-100 dark:bg-neutral-950 flex flex-col select-none transition-all duration-200",
             isFullscreen
                 ? "fixed inset-0 z-50 h-screen max-h-none rounded-none"
-                : "h-[calc(100vh-175px)] min-h-[480px] max-h-[720px] rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-sm"
+                : "h-[calc(100vh-125px)] min-h-[580px] rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-sm"
         )}>
             {/* Top Revit/OpenProject-style Ribbon Toolbar */}
-            <div className="bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border-b border-slate-200 dark:border-neutral-800 px-3 py-1.5 flex items-center justify-between gap-2 z-20 shrink-0">
-                <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-                    {/* Toggle Left Sidebar */}
+            <div className="bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border-b border-slate-200 dark:border-neutral-800 px-3 py-1.5 h-[68px] flex items-center justify-between gap-2 z-20 shrink-0">
+                {/* Pinned Navegador BIM Button - SEMPRE À VISTA */}
+                <div className="shrink-0 flex items-center pr-2 border-r border-slate-200 dark:border-neutral-800">
                     <button
                         onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
                         className={cn(
-                            "px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors border shadow-xs shrink-0 cursor-pointer",
+                            "h-[52px] px-3 rounded-lg border text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer shadow-xs",
                             isLeftSidebarOpen
                                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent"
-                                : "bg-white text-slate-700 dark:bg-neutral-800 dark:text-slate-200 border-slate-200 dark:border-neutral-700 hover:bg-slate-50"
+                                : "bg-slate-50 hover:bg-slate-100 dark:bg-neutral-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-neutral-700"
                         )}
-                        title="Modelos, Pastas CDE e Estaleiro"
+                        title="Navegador BIM (CDE, Estaleiro e Pisos)"
                     >
-                        <FolderTree size={13} />
-                        <span>Navegador BIM</span>
+                        <FolderTree size={16} strokeWidth={1.75} />
+                        <span className="text-[10px] font-bold tracking-tight whitespace-nowrap">Navegador BIM</span>
                     </button>
+                </div>
 
-                    {/* GRUPO 1: VISTA & PROJEÇÃO */}
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Vista</span>
-                        <div className="flex items-center bg-white dark:bg-neutral-700 p-0.5 rounded-md border border-slate-200 dark:border-neutral-600 text-xs">
-                            <button
-                                onClick={() => handleToggleViewDimension('3d')}
-                                className={cn(
-                                    "px-2.5 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer",
-                                    viewDimension === '3d'
-                                        ? "bg-blue-600 text-white shadow-xs"
-                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
-                                )}
-                            >
-                                3D
-                            </button>
-                            <button
-                                onClick={() => handleToggleViewDimension('2d')}
-                                className={cn(
-                                    "px-2.5 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer",
-                                    viewDimension === '2d'
-                                        ? "bg-blue-600 text-white shadow-xs"
-                                        : "text-slate-600 dark:text-slate-300 hover:text-blue-600"
-                                )}
-                            >
-                                Planta 2D
-                            </button>
+                {/* Middle Ribbon Groups (Nome da propriedade em cima, opções em baixo, flat icons, compacto) */}
+                <div className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+                    {/* GRUPO 1: PROJEÇÃO */}
+                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Projeção</span>
+                        <div className="flex items-center gap-1">
+                            <div className="flex items-center bg-white dark:bg-neutral-700 p-0.5 rounded-md border border-slate-200 dark:border-neutral-600">
+                                <button
+                                    onClick={() => handleToggleViewDimension('3d')}
+                                    className={cn(
+                                        "px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer",
+                                        viewDimension === '3d'
+                                            ? "bg-blue-600 text-white shadow-xs"
+                                            : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
+                                    )}
+                                >
+                                    3D
+                                </button>
+                                <button
+                                    onClick={() => handleToggleViewDimension('2d')}
+                                    className={cn(
+                                        "px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer",
+                                        viewDimension === '2d'
+                                            ? "bg-blue-600 text-white shadow-xs"
+                                            : "text-slate-600 dark:text-slate-300 hover:text-blue-600"
+                                    )}
+                                >
+                                    2D
+                                </button>
+                            </div>
                         </div>
+                    </div>
 
+                    {/* GRUPO 2: PISO */}
+                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Piso Ativo</span>
                         <select
                             value={selectedStorey}
                             onChange={(e) => setSelectedStorey(e.target.value)}
-                            className="bg-white dark:bg-neutral-700 border border-slate-200 dark:border-neutral-600 text-[11px] rounded-md px-2 py-1 font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer"
+                            className="bg-white dark:bg-neutral-700 border border-slate-200 dark:border-neutral-600 text-[11px] rounded-md px-2 py-0.5 font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer h-6"
                         >
-                            <option value="all">🏢 Pisos: Todos</option>
-                            <option value="Piso 0">Piso 0 (R/C & Fundação)</option>
-                            <option value="Piso 1">Piso 1 (Estrutura)</option>
-                            <option value="Piso 2">Piso 2 (Frente Trabalho)</option>
-                            <option value="Cobertura">Cobertura & HVAC</option>
-                            <option value="Exterior">Exterior & Grua</option>
+                            <option value="all">🏢 Todos</option>
+                            <option value="Piso 0">P0 (R/C)</option>
+                            <option value="Piso 1">P1 (Estr.)</option>
+                            <option value="Piso 2">P2 (Frente)</option>
+                            <option value="Cobertura">Cobertura</option>
+                            <option value="Exterior">Exterior</option>
                         </select>
                     </div>
 
-                    {/* GRUPO 2: CAMADAS & SAFETY LAYERS */}
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Camadas</span>
+                    {/* GRUPO 3: CAMADAS */}
+                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Camadas</span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => setShowObservationsLayer(!showObservationsLayer)}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 h-6",
+                                    showObservationsLayer
+                                        ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-800 dark:text-red-300"
+                                        : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 text-slate-400 opacity-60"
+                                )}
+                                title="Camada de Inspeções"
+                            >
+                                <MapPin size={11} strokeWidth={1.75} />
+                                <span>Insp.</span>
+                            </button>
 
-                        <button
-                            onClick={() => setShowObservationsLayer(!showObservationsLayer)}
-                            className={cn(
-                                "px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1",
-                                showObservationsLayer
-                                    ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-800 dark:text-red-300"
-                                    : "bg-white border-slate-200 text-slate-400 opacity-60"
-                            )}
-                            title="Ligar/Desligar Camada de Pontos de Inspeção"
-                        >
-                            <MapPin size={11} />
-                            <span>Inspeções</span>
-                        </button>
+                            <button
+                                onClick={() => setShowLogisticsLayer(!showLogisticsLayer)}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 h-6",
+                                    showLogisticsLayer
+                                        ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300"
+                                        : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 text-slate-400 opacity-60"
+                                )}
+                                title="Camada de Estaleiro"
+                            >
+                                <HardHat size={11} strokeWidth={1.75} />
+                                <span>Estal.</span>
+                            </button>
 
-                        <button
-                            onClick={() => setShowLogisticsLayer(!showLogisticsLayer)}
-                            className={cn(
-                                "px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1",
-                                showLogisticsLayer
-                                    ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300"
-                                    : "bg-white border-slate-200 text-slate-400 opacity-60"
-                            )}
-                            title="Ligar/Desligar Camada de Estaleiro"
-                        >
-                            <HardHat size={11} />
-                            <span>Estaleiro</span>
-                        </button>
-
-                        <button
-                            onClick={() => setShowEmergencyLayer(!showEmergencyLayer)}
-                            className={cn(
-                                "px-2 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1",
-                                showEmergencyLayer
-                                    ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300"
-                                    : "bg-white border-slate-200 text-slate-400 opacity-60"
-                            )}
-                            title="Ligar/Desligar Camada de Emergência e Evacuação"
-                        >
-                            <Flame size={11} />
-                            <span>Emergência</span>
-                        </button>
+                            <button
+                                onClick={() => setShowEmergencyLayer(!showEmergencyLayer)}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 h-6",
+                                    showEmergencyLayer
+                                        ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300"
+                                        : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 text-slate-400 opacity-60"
+                                )}
+                                title="Camada de Emergência e Evacuação"
+                            >
+                                <Flame size={11} strokeWidth={1.75} />
+                                <span>Emerg.</span>
+                            </button>
+                        </div>
                     </div>
 
-                    {/* GRUPO 3: AÇÕES DE REGISTO */}
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Ações</span>
+                    {/* GRUPO 4: REGISTO SST */}
+                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Registo SST</span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => setActiveMode(activeMode === 'add_point' ? 'navigate' : 'add_point')}
+                                className={cn(
+                                    "px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer h-6",
+                                    activeMode === 'add_point'
+                                        ? "bg-red-600 text-white animate-pulse"
+                                        : "bg-white dark:bg-neutral-700 hover:bg-red-50 text-slate-700 dark:text-slate-200 hover:text-red-600 border border-slate-200 dark:border-neutral-600"
+                                )}
+                                title="Registar ponto de inspeção 3D"
+                            >
+                                <MapPin size={11} strokeWidth={1.75} className={activeMode === 'add_point' ? 'animate-bounce' : ''} />
+                                <span>{activeMode === 'add_point' ? 'Marcar...' : '+ Inspeção'}</span>
+                            </button>
 
-                        <button
-                            onClick={() => setActiveMode(activeMode === 'add_point' ? 'navigate' : 'add_point')}
-                            className={cn(
-                                "px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-xs shrink-0 cursor-pointer",
-                                activeMode === 'add_point'
-                                    ? "bg-red-600 text-white animate-pulse"
-                                    : "bg-white dark:bg-neutral-700 hover:bg-red-50 text-slate-700 dark:text-slate-200 hover:text-red-600 border border-slate-200 dark:border-neutral-600"
-                            )}
-                            title="Clique no modelo para adicionar um ponto de inspeção 3D"
-                        >
-                            <MapPin size={12} className={activeMode === 'add_point' ? 'animate-bounce' : ''} />
-                            <span>{activeMode === 'add_point' ? 'Clique no Modelo...' : 'Nova Inspeção'}</span>
-                        </button>
-
-                        <button
-                            onClick={() => {
-                                setLeftPanelTab('logistics');
-                                setIsLeftSidebarOpen(true);
-                                setActiveMode('add_logistics');
-                            }}
-                            className={cn(
-                                "px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-xs shrink-0 cursor-pointer",
-                                activeMode === 'add_logistics'
-                                    ? "bg-amber-600 text-white animate-pulse"
-                                    : "bg-white dark:bg-neutral-700 hover:bg-amber-50 text-slate-700 dark:text-slate-200 hover:text-amber-600 border border-slate-200 dark:border-neutral-600"
-                            )}
-                            title="Posicionar equipamentos de estaleiro ou emergência"
-                        >
-                            <HardHat size={12} />
-                            <span>Planta Estaleiro</span>
-                        </button>
-                    </div>
-
-                    {/* GRUPO 4: FICHEIROS & CDE */}
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-50/90 dark:bg-blue-950/40 rounded-lg border border-blue-200 dark:border-blue-800/70 shadow-xs shrink-0">
-                        <label
-                            className="cursor-pointer px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[11px] font-bold flex items-center gap-1.5 shadow-sm transition-all hover:scale-[1.02] active:scale-95 shrink-0"
-                            title="Carregar ficheiro IFC (.ifc) do seu computador"
-                        >
-                            <Upload size={13} className="stroke-[2.5]" />
-                            <span>{loadedIfcName ? `IFC: ${loadedIfcName.slice(0, 10)}...` : 'Carregar IFC'}</span>
-                            <input
-                                type="file"
-                                accept=".ifc"
-                                className="hidden"
-                                onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) {
-                                        handleProcessIfcFile(file);
-                                    }
+                            <button
+                                onClick={() => {
+                                    setLeftPanelTab('logistics');
+                                    setIsLeftSidebarOpen(true);
+                                    setActiveMode('add_logistics');
                                 }}
-                            />
-                        </label>
-
-                        <button
-                            onClick={handleCreateCdeFolders}
-                            disabled={isCreatingCdeFolders}
-                            className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all cursor-pointer shrink-0"
-                            title="Criar estrutura de pastas BIM e Desenhos 2D na raiz do CDE"
-                        >
-                            {isCreatingCdeFolders ? <Loader2 size={12} className="animate-spin" /> : <FolderPlus size={12} />}
-                            <span>Pastas CDE</span>
-                        </button>
+                                className={cn(
+                                    "px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer h-6",
+                                    activeMode === 'add_logistics'
+                                        ? "bg-amber-600 text-white animate-pulse"
+                                        : "bg-white dark:bg-neutral-700 hover:bg-amber-50 text-slate-700 dark:text-slate-200 hover:text-amber-600 border border-slate-200 dark:border-neutral-600"
+                                )}
+                                title="Implantar equipamento de estaleiro ou emergência"
+                            >
+                                <HardHat size={11} strokeWidth={1.75} />
+                                <span>+ Estaleiro</span>
+                            </button>
+                        </div>
                     </div>
 
-                    {/* EXPORTAÇÕES OFICIAIS */}
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-100/80 dark:bg-neutral-800/80 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <button
-                            onClick={handleExportPDF}
-                            className="px-2 py-1 bg-white dark:bg-neutral-700 hover:bg-slate-50 border border-slate-200 dark:border-neutral-600 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-xs transition-colors shrink-0 cursor-pointer"
-                            title="Exportar Relatório Oficial de Visita e Inspeções"
-                        >
-                            <Download size={12} />
-                            <span>Relatório Visita</span>
-                        </button>
+                    {/* GRUPO 5: CDE / MODELO */}
+                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg border border-blue-200/80 dark:border-blue-900/50 shrink-0">
+                        <span className="text-[9px] font-extrabold text-blue-500 uppercase tracking-wider leading-none">CDE / Modelo</span>
+                        <div className="flex items-center gap-1">
+                            <label
+                                className="cursor-pointer px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all h-6"
+                                title="Carregar ficheiro IFC local"
+                            >
+                                <Upload size={11} strokeWidth={1.75} />
+                                <span>{loadedIfcName ? loadedIfcName.slice(0, 8) + '...' : 'Upload'}</span>
+                                <input
+                                    type="file"
+                                    accept=".ifc"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleProcessIfcFile(file);
+                                    }}
+                                />
+                            </label>
 
-                        <button
-                            onClick={handleExportSitePlanPDF}
-                            className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-md text-[11px] font-bold flex items-center gap-1 shadow-xs transition-colors shrink-0 cursor-pointer"
-                            title="Exportar Planta Oficial de Estaleiro e Emergência (PSS)"
-                        >
-                            <FileText size={12} className="text-emerald-600" />
-                            <span>Planta PSS (PDF)</span>
-                        </button>
+                            <button
+                                onClick={handleCreateCdeFolders}
+                                disabled={isCreatingCdeFolders}
+                                className="px-2 py-0.5 bg-white dark:bg-neutral-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 rounded text-[11px] font-bold flex items-center gap-1 border border-slate-200 dark:border-neutral-700 shadow-xs transition-all cursor-pointer h-6"
+                                title="Criar pastas BIM e Desenhos 2D na raiz do CDE"
+                            >
+                                {isCreatingCdeFolders ? <Loader2 size={11} className="animate-spin" /> : <FolderPlus size={11} strokeWidth={1.75} />}
+                                <span>Pastas</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* GRUPO 6: RELATÓRIOS OFICIAIS */}
+                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
+                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Exportar</span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={handleExportPDF}
+                                className="px-2 py-0.5 bg-white dark:bg-neutral-700 hover:bg-slate-50 border border-slate-200 dark:border-neutral-600 text-slate-700 dark:text-slate-200 rounded text-[11px] font-semibold flex items-center gap-1 shadow-xs transition-colors cursor-pointer h-6"
+                                title="Exportar Relatório Oficial de Visita e Inspeções"
+                            >
+                                <Download size={11} strokeWidth={1.75} />
+                                <span>Visita</span>
+                            </button>
+
+                            <button
+                                onClick={handleExportSitePlanPDF}
+                                className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded text-[11px] font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer h-6"
+                                title="Exportar Planta Oficial de Estaleiro e Emergência (PSS)"
+                            >
+                                <FileText size={11} strokeWidth={1.75} className="text-emerald-600" />
+                                <span>Planta PSS</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                {/* Right Actions */}
-                <div className="flex items-center gap-1.5 shrink-0 pl-1 border-l border-slate-200 dark:border-neutral-700">
+                {/* Right Actions (Pinned) */}
+                <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200 dark:border-neutral-800 h-[52px]">
                     <button
                         onClick={() => {
                             if (cameraRef.current && controlsRef.current) {
@@ -1705,32 +1795,32 @@ export default function BimViewerPage() {
                                 controlsRef.current.update();
                             }
                         }}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
                         title="Repor câmara inicial"
                     >
-                        <RotateCcw size={13} />
+                        <RotateCcw size={13} strokeWidth={1.75} />
                     </button>
 
                     <button
                         onClick={() => setIsFullscreen(!isFullscreen)}
-                        className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
+                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
                         title={isFullscreen ? 'Sair de Ecrã Completo' : 'Ecrã Completo'}
                     >
-                        {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                        {isFullscreen ? <Minimize2 size={13} strokeWidth={1.75} /> : <Maximize2 size={13} strokeWidth={1.75} />}
                     </button>
 
                     <button
                         onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
                         className={cn(
-                            "px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer",
+                            "h-8 px-2.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer",
                             isRightSidebarOpen
                                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent"
                                 : "bg-white text-slate-700 dark:bg-neutral-800 dark:text-slate-200 border-slate-200 dark:border-neutral-700 hover:bg-slate-50"
                         )}
                         title="Abrir/Fechar Painel de Inspeções"
                     >
-                        <MapPin size={13} />
-                        <span>Inspeções ({filteredObservations.length})</span>
+                        <MapPin size={12} strokeWidth={1.75} />
+                        <span className="text-[11px] font-bold">Inspeções ({filteredObservations.length})</span>
                         <ChevronRight className={cn("w-3.5 h-3.5 transition-transform", isRightSidebarOpen ? "" : "rotate-180")} />
                     </button>
                 </div>
@@ -1740,355 +1830,583 @@ export default function BimViewerPage() {
             <div className="relative flex-1 w-full h-full flex overflow-hidden">
                 {/* ZONE A: Left OpenProject BIM Panel (Collapsible) */}
                 <div className={cn(
-                    "h-full bg-white dark:bg-[#1a1b1e] border-r border-slate-200 dark:border-neutral-800 z-10 flex flex-col transition-all duration-300 ease-in-out shrink-0 shadow-lg",
+                    "h-full bg-white dark:bg-[#1a1b1e] border-r border-slate-200 dark:border-neutral-800 z-10 flex flex-col transition-all duration-300 ease-in-out shrink-0 shadow-lg select-none",
                     isLeftSidebarOpen ? "w-80" : "w-0 overflow-hidden border-none"
                 )}>
-                    {/* Left Panel Tabs */}
-                    <div className="flex border-b border-slate-200 dark:border-neutral-800 text-xs font-semibold bg-slate-50 dark:bg-neutral-900 shrink-0">
+                    {/* Left Panel Tabs: 3 Separadores (Icon em cima, nome em baixo: CDE, Estaleiro, Piso) */}
+                    <div className="grid grid-cols-3 border-b border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 shrink-0">
                         <button
                             onClick={() => setLeftPanelTab('models')}
                             className={cn(
-                                "flex-1 py-2.5 px-2 text-center border-b-2 transition-colors flex items-center justify-center gap-1",
+                                "py-2 px-1 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer",
                                 leftPanelTab === 'models'
-                                    ? "border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#1a1b1e]"
-                                    : "border-transparent text-slate-500 hover:text-slate-800"
+                                    ? "border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#1a1b1e] font-bold"
+                                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
                             )}
                         >
-                            <Box size={13} />
-                            <span>Modelos CDE</span>
+                            <FolderTree size={16} strokeWidth={1.75} />
+                            <span className="text-[11px] tracking-tight">CDE</span>
                         </button>
                         <button
                             onClick={() => setLeftPanelTab('logistics')}
                             className={cn(
-                                "flex-1 py-2.5 px-2 text-center border-b-2 transition-colors flex items-center justify-center gap-1",
+                                "py-2 px-1 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer",
                                 leftPanelTab === 'logistics'
-                                    ? "border-amber-600 text-amber-600 dark:text-amber-400 bg-white dark:bg-[#1a1b1e]"
-                                    : "border-transparent text-slate-500 hover:text-slate-800"
+                                    ? "border-amber-600 text-amber-600 dark:text-amber-400 bg-white dark:bg-[#1a1b1e] font-bold"
+                                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
                             )}
                         >
-                            <HardHat size={13} />
-                            <span>Estaleiro & PSS</span>
+                            <HardHat size={16} strokeWidth={1.75} />
+                            <span className="text-[11px] tracking-tight">Estaleiro</span>
                         </button>
                         <button
                             onClick={() => setLeftPanelTab('hierarchy')}
                             className={cn(
-                                "flex-1 py-2.5 px-2 text-center border-b-2 transition-colors flex items-center justify-center gap-1",
+                                "py-2 px-1 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer",
                                 leftPanelTab === 'hierarchy'
-                                    ? "border-emerald-600 text-emerald-600 dark:text-emerald-400 bg-white dark:bg-[#1a1b1e]"
-                                    : "border-transparent text-slate-500 hover:text-slate-800"
+                                    ? "border-emerald-600 text-emerald-600 dark:text-emerald-400 bg-white dark:bg-[#1a1b1e] font-bold"
+                                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
                             )}
                         >
-                            <Layers size={13} />
-                            <span>Pisos</span>
+                            <Layers size={16} strokeWidth={1.75} />
+                            <span className="text-[11px] tracking-tight">Piso</span>
                         </button>
                     </div>
 
-                    {/* Tab 1 Content: Modelos & Pastas CDE */}
-                    {leftPanelTab === 'models' && (
-                        <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
-                            {/* CDE Root Folders Explorer */}
-                            <div>
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
-                                        <FolderTree size={14} className="text-blue-600" />
-                                        Estrutura Cloud CDE (Raiz)
-                                    </span>
-                                    <button
-                                        onClick={handleCreateCdeFolders}
-                                        className="text-[10px] text-blue-600 hover:underline font-bold"
-                                        title="Sincronizar pastas na raiz da Cloud"
-                                    >
-                                        + Criar Pastas
-                                    </button>
+                    {/* TOP HALF OF LEFT PANEL: Separator Content */}
+                    <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4 text-xs">
+                        {/* Tab 1 Content: CDE & Modelos Carregados */}
+                        {leftPanelTab === 'models' && (
+                            <div className="space-y-4">
+                                {/* CDE Root Folders Explorer with selectable models */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                                            <FolderTree size={14} className="text-blue-600" strokeWidth={1.75} />
+                                            Estrutura CDE (Modelos na Raiz)
+                                        </span>
+                                        <button
+                                            onClick={handleCreateCdeFolders}
+                                            disabled={isCreatingCdeFolders}
+                                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold flex items-center gap-1"
+                                            title="Sincronizar pastas na raiz da Cloud"
+                                        >
+                                            {isCreatingCdeFolders ? <Loader2 size={10} className="animate-spin" /> : <FolderPlus size={10} strokeWidth={1.75} />}
+                                            <span>+ Pastas</span>
+                                        </button>
+                                    </div>
+
+                                    <div className="p-2 bg-slate-50 dark:bg-neutral-900 rounded-xl border border-slate-200 dark:border-neutral-800 space-y-2">
+                                        {/* BIM Root Folder */}
+                                        <div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setExpandedFolders(p => ({ ...p, bim_root: !p.bim_root }))}
+                                                className="w-full flex items-center justify-between font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 py-1 cursor-pointer"
+                                            >
+                                                <div className="flex items-center gap-1.5 truncate">
+                                                    <ChevronRight size={13} className={cn("transition-transform text-slate-400", expandedFolders.bim_root ? "rotate-90" : "")} />
+                                                    <FolderOpen size={14} className="text-amber-500" strokeWidth={1.75} />
+                                                    <span className="text-[11px] truncate">Modelos BIM (IFC)</span>
+                                                </div>
+                                                <span className="text-[9px] bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full font-bold">
+                                                    {cdeModels.length}
+                                                </span>
+                                            </button>
+
+                                            {expandedFolders.bim_root && (
+                                                <div className="pl-3.5 space-y-2 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
+                                                    {(['01-Arquitetura', '02-Estruturas', '03-Especialidades (MEP)', '04-Segurança (PSS)'] as const).map(folderName => {
+                                                        const folderModels = cdeModels.filter(m => m.folder === folderName);
+                                                        const isExp = expandedFolders[folderName] ?? true;
+                                                        return (
+                                                            <div key={folderName} className="space-y-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [folderName]: !p[folderName] }))}
+                                                                    className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 py-0.5 cursor-pointer"
+                                                                >
+                                                                    <div className="flex items-center gap-1.5 truncate">
+                                                                        <ChevronRight size={11} className={cn("transition-transform text-slate-400", isExp ? "rotate-90" : "")} />
+                                                                        <FolderOpen size={12} className="text-amber-600" />
+                                                                        <span className="truncate">{folderName}</span>
+                                                                    </div>
+                                                                    <span className="text-[9px] text-slate-400">({folderModels.length})</span>
+                                                                </button>
+
+                                                                {isExp && (
+                                                                    <div className="pl-3 space-y-1 mt-0.5">
+                                                                        {folderModels.length === 0 ? (
+                                                                            <div className="text-[10px] text-slate-400 italic py-0.5">Sem modelos nesta pasta</div>
+                                                                        ) : (
+                                                                            folderModels.map(model => (
+                                                                                <div
+                                                                                    key={model.id}
+                                                                                    onClick={() => handleToggleModelActive(model.id)}
+                                                                                    className={cn(
+                                                                                        "p-1.5 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1.5",
+                                                                                        model.active
+                                                                                            ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-950 dark:text-blue-200 shadow-2xs"
+                                                                                            : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
+                                                                                    )}
+                                                                                >
+                                                                                    <div className="flex items-center gap-1.5 truncate">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={model.active}
+                                                                                            onChange={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                handleToggleModelActive(model.id);
+                                                                                            }}
+                                                                                            className="rounded text-blue-600 cursor-pointer w-3.5 h-3.5"
+                                                                                        />
+                                                                                        <div className="truncate">
+                                                                                            <div className="font-semibold truncate text-[11px]">{model.name}</div>
+                                                                                            <div className="text-[9px] text-slate-400">{model.size} • {model.rev}</div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <span className={cn(
+                                                                                        "text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0",
+                                                                                        model.active
+                                                                                            ? "bg-blue-600 text-white"
+                                                                                            : "bg-slate-200 dark:bg-neutral-700 text-slate-600"
+                                                                                    )}>
+                                                                                        {model.active ? 'Ativo' : 'Off'}
+                                                                                    </span>
+                                                                                </div>
+                                                                            ))
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* 2D Drawings Folder */}
+                                        <div className="pt-1 border-t border-slate-200 dark:border-neutral-800">
+                                            <button
+                                                type="button"
+                                                onClick={() => setExpandedFolders(p => ({ ...p, drawings_root: !p.drawings_root }))}
+                                                className="w-full flex items-center justify-between font-bold text-slate-900 dark:text-slate-100 hover:text-blue-600 py-1 cursor-pointer"
+                                            >
+                                                <div className="flex items-center gap-1.5 truncate">
+                                                    <ChevronRight size={13} className={cn("transition-transform text-slate-400", expandedFolders.drawings_root ? "rotate-90" : "")} />
+                                                    <FolderOpen size={14} className="text-blue-500" strokeWidth={1.75} />
+                                                    <span className="text-[11px] truncate">Desenhos 2D (Plantas)</span>
+                                                </div>
+                                                <span className="text-[9px] text-blue-600 font-bold hover:underline" onClick={(e) => { e.stopPropagation(); setIs2dDrawingsModalOpen(true); }}>
+                                                    Ver Folhas &rarr;
+                                                </span>
+                                            </button>
+
+                                            {expandedFolders.drawings_root && (
+                                                <div className="pl-3.5 space-y-1 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
+                                                    {DEFAULT_2D_DRAWINGS.map(dw => (
+                                                        <div
+                                                            key={dw.id}
+                                                            onClick={() => {
+                                                                setSelected2dDrawing(dw);
+                                                                setViewDimension('2d');
+                                                                showToast(`Desenho 2D "${dw.code} - ${dw.title}" selecionado.`);
+                                                            }}
+                                                            className={cn(
+                                                                "p-1.5 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1",
+                                                                selected2dDrawing?.id === dw.id
+                                                                    ? "bg-blue-50 border-blue-400 text-blue-900 font-bold"
+                                                                    : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300"
+                                                            )}
+                                                        >
+                                                            <div className="truncate">
+                                                                <span className="font-semibold">{dw.code}</span> - {dw.title}
+                                                            </div>
+                                                            <span className="text-[9px] text-slate-400 shrink-0">{dw.format}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div className="p-2.5 bg-slate-50 dark:bg-neutral-900 rounded-xl border border-slate-200 dark:border-neutral-800 space-y-2">
-                                    <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
-                                        <FolderOpen size={14} className="text-amber-500" />
-                                        <span>Modelos BIM (IFC)</span>
+                                {/* Disciplinas Ativas (Filtro Federado) */}
+                                <div>
+                                    <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1.5 text-xs">
+                                        Filtro de Disciplinas Federadas
+                                    </span>
+                                    <div className="space-y-1 bg-slate-50 dark:bg-neutral-900 p-2 rounded-xl border border-slate-200 dark:border-neutral-800">
+                                        <label className="flex items-center gap-2 cursor-pointer text-[11px]">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDiscipline === 'all' || selectedDiscipline === 'structure'}
+                                                onChange={() => setSelectedDiscipline(selectedDiscipline === 'structure' ? 'all' : 'structure')}
+                                                className="rounded text-blue-600"
+                                            />
+                                            <span className="font-medium text-slate-700 dark:text-slate-200">🏗️ Estruturas (Betão Armado)</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer text-[11px]">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDiscipline === 'all' || selectedDiscipline === 'architecture'}
+                                                onChange={() => setSelectedDiscipline(selectedDiscipline === 'architecture' ? 'all' : 'architecture')}
+                                                className="rounded text-blue-600"
+                                            />
+                                            <span className="font-medium text-slate-700 dark:text-slate-200">📐 Arquitetura (Paredes, Vãos)</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer text-[11px]">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDiscipline === 'all' || selectedDiscipline === 'mep'}
+                                                onChange={() => setSelectedDiscipline(selectedDiscipline === 'mep' ? 'all' : 'mep')}
+                                                className="rounded text-blue-600"
+                                            />
+                                            <span className="font-medium text-slate-700 dark:text-slate-200">⚙️ MEP (Redes & Condutas)</span>
+                                        </label>
                                     </div>
-                                    <div className="pl-4 space-y-1.5 text-[11px] text-slate-600 dark:text-slate-400 border-l border-slate-200 dark:border-neutral-700 ml-1.5">
-                                        <div className="flex items-center justify-between">
-                                            <span>📁 01-Arquitetura</span>
-                                            <span className="text-[10px] bg-slate-200 dark:bg-neutral-800 px-1 rounded">ARQ.ifc</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span>📁 02-Estruturas</span>
-                                            <span className="text-[10px] bg-slate-200 dark:bg-neutral-800 px-1 rounded">EST.ifc</span>
-                                        </div>
-                                        <div className="flex items-center justify-between">
-                                            <span>📁 03-Especialidades (MEP)</span>
-                                            <span className="text-[10px] bg-slate-200 dark:bg-neutral-800 px-1 rounded">AVAC.ifc</span>
-                                        </div>
-                                    </div>
+                                </div>
 
-                                    <div className="flex items-center justify-between pt-1 font-bold text-slate-900 dark:text-slate-100 border-t border-slate-200 dark:border-neutral-800">
-                                        <div className="flex items-center gap-1.5">
-                                            <FolderOpen size={14} className="text-blue-500" />
-                                            <span>Desenhos 2D (Plantas)</span>
-                                        </div>
+                                {/* Upload Direto Local */}
+                                <div>
+                                    <label className="p-3 rounded-xl border border-dashed border-blue-300 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors">
+                                        <Upload size={18} className="text-blue-600 mb-1" strokeWidth={1.75} />
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">
+                                            {loadedIfcName ? `Ativo: ${loadedIfcName.slice(0, 16)}...` : 'Carregar Modelo IFC (.ifc)'}
+                                        </span>
+                                        <input
+                                            type="file"
+                                            accept=".ifc"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) handleProcessIfcFile(file);
+                                            }}
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tab 2 Content: Planta de Estaleiro & Emergência */}
+                        {leftPanelTab === 'logistics' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <span className="font-bold text-slate-900 dark:text-white block mb-1 text-xs">
+                                        Equipamentos de Estaleiro (Logística)
+                                    </span>
+                                    <p className="text-[11px] text-slate-500 mb-2">
+                                        Clique para posicionar no modelo ou planta:
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-2">
                                         <button
-                                            onClick={() => setIs2dDrawingsModalOpen(true)}
-                                            className="text-[10px] text-blue-600 hover:underline"
+                                            onClick={() => {
+                                                setPendingPlacementType('crane');
+                                                setActiveMode('add_logistics');
+                                                showToast('Clique no chão para posicionar a Grua Torre.');
+                                            }}
+                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-amber-500 text-left transition-all cursor-pointer"
                                         >
-                                            Ver Folhas &rarr;
+                                            <div className="font-bold text-amber-700 dark:text-amber-400">🏗️ Grua Torre</div>
+                                            <div className="text-[10px] text-slate-500">Lança 26m / Raio</div>
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('office_container');
+                                                setActiveMode('add_logistics');
+                                                showToast('Clique para posicionar o Contentor.');
+                                            }}
+                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-blue-500 text-left transition-all cursor-pointer"
+                                        >
+                                            <div className="font-bold text-blue-700 dark:text-blue-400">🏢 Contentores</div>
+                                            <div className="text-[10px] text-slate-500">Escritório/Balneário</div>
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('gate');
+                                                setActiveMode('add_logistics');
+                                                showToast('Clique para posicionar a Portaria.');
+                                            }}
+                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-sky-500 text-left transition-all cursor-pointer"
+                                        >
+                                            <div className="font-bold text-sky-700 dark:text-sky-400">🚪 Portaria</div>
+                                            <div className="text-[10px] text-slate-500">Controlo Acessos</div>
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('waste_bay');
+                                                setActiveMode('add_logistics');
+                                                showToast('Clique para posicionar o Parque RCD.');
+                                            }}
+                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-emerald-500 text-left transition-all cursor-pointer"
+                                        >
+                                            <div className="font-bold text-emerald-700 dark:text-emerald-400">♻️ Baia RCDs</div>
+                                            <div className="text-[10px] text-slate-500">Triagem Resíduos</div>
                                         </button>
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Federated Disciplines Checklist */}
-                            <div>
-                                <span className="font-bold text-slate-800 dark:text-slate-200 block mb-2 text-xs">
-                                    Modelo Federado (Disciplinas Ativas)
-                                </span>
-                                <div className="space-y-1.5 bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800">
-                                    <label className="flex items-center gap-2 cursor-pointer text-[11px]">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedDiscipline === 'all' || selectedDiscipline === 'structure'}
-                                            onChange={() => setSelectedDiscipline(selectedDiscipline === 'structure' ? 'all' : 'structure')}
-                                            className="rounded text-blue-600"
-                                        />
-                                        <span className="font-semibold text-slate-700 dark:text-slate-200">🏗️ Estruturas (Betão Armado & Fundações)</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer text-[11px]">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedDiscipline === 'all' || selectedDiscipline === 'architecture'}
-                                            onChange={() => setSelectedDiscipline(selectedDiscipline === 'architecture' ? 'all' : 'architecture')}
-                                            className="rounded text-blue-600"
-                                        />
-                                        <span className="font-semibold text-slate-700 dark:text-slate-200">📐 Arquitetura (Paredes, Vãos & Cobertura)</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer text-[11px]">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedDiscipline === 'all' || selectedDiscipline === 'mep'}
-                                            onChange={() => setSelectedDiscipline(selectedDiscipline === 'mep' ? 'all' : 'mep')}
-                                            className="rounded text-blue-600"
-                                        />
-                                        <span className="font-semibold text-slate-700 dark:text-slate-200">⚙️ MEP / Instalações (Condutas & Redes)</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer text-[11px]">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedDiscipline === 'all' || selectedDiscipline === 'safety'}
-                                            onChange={() => setSelectedDiscipline(selectedDiscipline === 'safety' ? 'all' : 'safety')}
-                                            className="rounded text-blue-600"
-                                        />
-                                        <span className="font-semibold text-slate-700 dark:text-slate-200">🦺 Segurança (Guarda-corpos & Andaimes)</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            {/* Direct Model Upload Dropzone */}
-                            <div>
-                                <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1.5 text-xs">
-                                    Carregar Modelo Local (.ifc)
-                                </span>
-                                <label className="p-4 rounded-xl border-2 border-dashed border-blue-300 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50 transition-colors">
-                                    <Upload size={22} className="text-blue-600 mb-1 animate-pulse" />
-                                    <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                        {loadedIfcName || 'Selecionar Ficheiro IFC'}
+                                {/* Plano de Emergência & Evacuação (ISO 7010) */}
+                                <div>
+                                    <span className="font-bold text-slate-900 dark:text-white block mb-1 text-xs">
+                                        Dispositivos de Emergência (PSS / ISO 7010)
                                     </span>
-                                    <span className="text-[10px] text-slate-500 mt-0.5">
-                                        ou arraste o ficheiro para o visualizador 3D
-                                    </span>
-                                    <input
-                                        type="file"
-                                        accept=".ifc"
-                                        className="hidden"
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) handleProcessIfcFile(file);
-                                        }}
-                                    />
-                                </label>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Tab 2 Content: Planta de Estaleiro & Emergência */}
-                    {leftPanelTab === 'logistics' && (
-                        <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
-                            <div>
-                                <span className="font-bold text-slate-900 dark:text-white block mb-1 text-xs">
-                                    Equipamentos de Estaleiro (Logística)
-                                </span>
-                                <p className="text-[11px] text-slate-500 mb-2">
-                                    Clique para posicionar no modelo ou planta:
-                                </p>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('crane');
-                                            setActiveMode('add_logistics');
-                                            showToast('Clique no chão para posicionar a Grua Torre.');
-                                        }}
-                                        className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-amber-500 text-left transition-all cursor-pointer"
-                                    >
-                                        <div className="font-bold text-amber-700 dark:text-amber-400">🏗️ Grua Torre</div>
-                                        <div className="text-[10px] text-slate-500">Lança 26m / Raio</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('office_container');
-                                            setActiveMode('add_logistics');
-                                            showToast('Clique para posicionar o Contentor.');
-                                        }}
-                                        className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-blue-500 text-left transition-all cursor-pointer"
-                                    >
-                                        <div className="font-bold text-blue-700 dark:text-blue-400">🏢 Contentores</div>
-                                        <div className="text-[10px] text-slate-500">Escritório/Balneário</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('gate');
-                                            setActiveMode('add_logistics');
-                                            showToast('Clique para posicionar a Portaria.');
-                                        }}
-                                        className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-sky-500 text-left transition-all cursor-pointer"
-                                    >
-                                        <div className="font-bold text-sky-700 dark:text-sky-400">🚪 Portaria</div>
-                                        <div className="text-[10px] text-slate-500">Controlo Acessos</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('waste_bay');
-                                            setActiveMode('add_logistics');
-                                            showToast('Clique para posicionar o Parque RCD.');
-                                        }}
-                                        className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-emerald-500 text-left transition-all cursor-pointer"
-                                    >
-                                        <div className="font-bold text-emerald-700 dark:text-emerald-400">♻️ Baia RCDs</div>
-                                        <div className="text-[10px] text-slate-500">Triagem Resíduos</div>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Plano de Emergência & Evacuação (ISO 7010) */}
-                            <div>
-                                <span className="font-bold text-slate-900 dark:text-white block mb-1 text-xs">
-                                    Dispositivos de Emergência (PSS / ISO 7010)
-                                </span>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('meeting_point');
-                                            setActiveMode('add_emergency');
-                                            showToast('Clique para posicionar o Ponto de Encontro.');
-                                        }}
-                                        className="p-2 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 text-left transition-all cursor-pointer hover:border-emerald-500"
-                                    >
-                                        <div className="font-bold text-emerald-700 dark:text-emerald-400">🚨 Ponto Encontro</div>
-                                        <div className="text-[10px] text-slate-500">Sinal ISO 7010</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('fire_extinguisher');
-                                            setActiveMode('add_emergency');
-                                            showToast('Clique para posicionar o Extintor.');
-                                        }}
-                                        className="p-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/60 dark:bg-red-950/20 text-left transition-all cursor-pointer hover:border-red-500"
-                                    >
-                                        <div className="font-bold text-red-700 dark:text-red-400">🧯 Extintor</div>
-                                        <div className="text-[10px] text-slate-500">Pó / CO2 6kg</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('first_aid');
-                                            setActiveMode('add_emergency');
-                                            showToast('Clique para posicionar o Posto Socorros.');
-                                        }}
-                                        className="p-2 rounded-lg border border-teal-200 dark:border-teal-900 bg-teal-50/60 dark:bg-teal-950/20 text-left transition-all cursor-pointer hover:border-teal-500"
-                                    >
-                                        <div className="font-bold text-teal-700 dark:text-teal-400">🩹 Posto Socorros</div>
-                                        <div className="text-[10px] text-slate-500">Maca & DAE</div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            setPendingPlacementType('evacuation_route');
-                                            setActiveMode('add_emergency');
-                                            showToast('Clique para posicionar o Trajeto de Fuga.');
-                                        }}
-                                        className="p-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/60 dark:bg-green-950/20 text-left transition-all cursor-pointer hover:border-green-500"
-                                    >
-                                        <div className="font-bold text-green-700 dark:text-green-400">➡️ Via Evacuação</div>
-                                        <div className="text-[10px] text-slate-500">Saída Emergência</div>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Inventory of Placed Elements */}
-                            <div>
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                        Inventário no Estaleiro ({projectLogistics.length})
-                                    </span>
-                                    <button
-                                        onClick={handleExportSitePlanPDF}
-                                        className="text-[10px] text-emerald-600 font-bold hover:underline"
-                                    >
-                                        Exportar PSS &rarr;
-                                    </button>
-                                </div>
-
-                                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                                    {projectLogistics.map(item => (
-                                        <div
-                                            key={item.id}
-                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 flex items-center justify-between gap-2 text-[11px]"
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('meeting_point');
+                                                setActiveMode('add_emergency');
+                                                showToast('Clique para posicionar o Ponto de Encontro.');
+                                            }}
+                                            className="p-2 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 text-left transition-all cursor-pointer hover:border-emerald-500"
                                         >
-                                            <div className="truncate">
-                                                <span className="font-bold text-slate-800 dark:text-slate-100">{item.name}</span>
-                                                <div className="text-[10px] text-slate-400">[{item.position.join(', ')}]</div>
-                                            </div>
-                                            <button
-                                                onClick={() => deleteSiteLogisticsItem(item.id)}
-                                                className="text-red-400 hover:text-red-600 p-1"
-                                                title="Remover do estaleiro"
+                                            <div className="font-bold text-emerald-700 dark:text-emerald-400">🚨 Ponto Encontro</div>
+                                            <div className="text-[10px] text-slate-500">Sinal ISO 7010</div>
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('fire_extinguisher');
+                                                setActiveMode('add_emergency');
+                                                showToast('Clique para posicionar o Extintor.');
+                                            }}
+                                            className="p-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/60 dark:bg-red-950/20 text-left transition-all cursor-pointer hover:border-red-500"
+                                        >
+                                            <div className="font-bold text-red-700 dark:text-red-400">🧯 Extintor</div>
+                                            <div className="text-[10px] text-slate-500">Pó / CO2 6kg</div>
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('first_aid');
+                                                setActiveMode('add_emergency');
+                                                showToast('Clique para posicionar o Posto Socorros.');
+                                            }}
+                                            className="p-2 rounded-lg border border-teal-200 dark:border-teal-900 bg-teal-50/60 dark:bg-teal-950/20 text-left transition-all cursor-pointer hover:border-teal-500"
+                                        >
+                                            <div className="font-bold text-teal-700 dark:text-teal-400">🩹 Posto Socorros</div>
+                                            <div className="text-[10px] text-slate-500">Maca & DAE</div>
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                setPendingPlacementType('evacuation_route');
+                                                setActiveMode('add_emergency');
+                                                showToast('Clique para posicionar o Trajeto de Fuga.');
+                                            }}
+                                            className="p-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/60 dark:bg-green-950/20 text-left transition-all cursor-pointer hover:border-green-500"
+                                        >
+                                            <div className="font-bold text-green-700 dark:text-green-400">➡️ Via Evacuação</div>
+                                            <div className="text-[10px] text-slate-500">Saída Emergência</div>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Inventory of Placed Elements */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                                            Inventário no Estaleiro ({projectLogistics.length})
+                                        </span>
+                                        <button
+                                            onClick={handleExportSitePlanPDF}
+                                            className="text-[10px] text-emerald-600 font-bold hover:underline cursor-pointer"
+                                        >
+                                            Exportar PSS &rarr;
+                                        </button>
+                                    </div>
+
+                                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                                        {projectLogistics.map(item => (
+                                            <div
+                                                key={item.id}
+                                                className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 flex items-center justify-between gap-2 text-[11px]"
                                             >
-                                                <Trash2 size={12} />
-                                            </button>
-                                        </div>
+                                                <div className="truncate">
+                                                    <span className="font-bold text-slate-800 dark:text-slate-100">{item.name}</span>
+                                                    <div className="text-[10px] text-slate-400">[{item.position.join(', ')}]</div>
+                                                </div>
+                                                <button
+                                                    onClick={() => deleteSiteLogisticsItem(item.id)}
+                                                    className="text-red-400 hover:text-red-600 p-1 cursor-pointer"
+                                                    title="Remover do estaleiro"
+                                                >
+                                                    <Trash2 size={12} strokeWidth={1.75} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tab 3 Content: Pisos & Espaços */}
+                        {leftPanelTab === 'hierarchy' && (
+                            <div className="space-y-3">
+                                <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                                    Isolar Nível / Piso
+                                </span>
+                                <div className="space-y-1">
+                                    {['all', 'Piso 0', 'Piso 1', 'Piso 2', 'Cobertura', 'Exterior'].map(st => (
+                                        <button
+                                            key={st}
+                                            onClick={() => setSelectedStorey(st)}
+                                            className={cn(
+                                                "w-full text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer",
+                                                selectedStorey === st
+                                                    ? "bg-blue-600 text-white shadow-xs"
+                                                    : "bg-slate-50 dark:bg-neutral-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100"
+                                            )}
+                                        >
+                                            <span>{st === 'all' ? '🏢 Todos os Pisos' : st}</span>
+                                            {selectedStorey === st && <Check size={14} />}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
 
-                    {/* Tab 3 Content: Pisos & Espaços */}
-                    {leftPanelTab === 'hierarchy' && (
-                        <div className="flex-1 overflow-y-auto p-3 space-y-3 text-xs">
-                            <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
-                                Isolar Nível / Piso
+                    {/* BOTTOM HALF OF LEFT PANEL: PROPRIEDADES DO ELEMENTO SELECIONADO (SEMPRE VISÍVEL) */}
+                    <div className="h-60 min-h-[220px] max-h-[260px] border-t border-slate-200 dark:border-neutral-800 bg-slate-50/90 dark:bg-neutral-900/90 flex flex-col shrink-0 p-2.5 overflow-hidden">
+                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-neutral-800 shrink-0">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-neutral-400 flex items-center gap-1.5">
+                                <Sliders size={12} strokeWidth={1.75} className="text-blue-600" />
+                                Propriedades da Seleção
                             </span>
-                            <div className="space-y-1">
-                                {['all', 'Piso 0', 'Piso 1', 'Piso 2', 'Cobertura', 'Exterior'].map(st => (
-                                    <button
-                                        key={st}
-                                        onClick={() => setSelectedStorey(st)}
-                                        className={cn(
-                                            "w-full text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-between transition-colors",
-                                            selectedStorey === st
-                                                ? "bg-blue-600 text-white shadow-xs"
-                                                : "bg-slate-50 dark:bg-neutral-900 text-slate-700 dark:text-slate-300 hover:bg-slate-100"
-                                        )}
-                                    >
-                                        <span>{st === 'all' ? '🏢 Todos os Pisos' : st}</span>
-                                        {selectedStorey === st && <Check size={14} />}
-                                    </button>
-                                ))}
-                            </div>
+                            {(selectedElement || activePin || activeLogisticsItem) && (
+                                <button
+                                    onClick={() => {
+                                        setSelectedElement(null);
+                                        setActivePin(null);
+                                        setActiveLogisticsItem(null);
+                                    }}
+                                    className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 cursor-pointer"
+                                >
+                                    <X size={11} strokeWidth={1.75} />
+                                    <span>Limpar</span>
+                                </button>
+                            )}
                         </div>
-                    )}
+
+                        <div className="flex-1 overflow-y-auto py-2 text-xs">
+                            {selectedElement ? (
+                                <div className="space-y-2">
+                                    <div className="flex items-start justify-between gap-1.5">
+                                        <span className="font-bold text-slate-900 dark:text-white text-[11px] leading-tight line-clamp-2">
+                                            {selectedElement.elementName}
+                                        </span>
+                                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 shrink-0">
+                                            {selectedElement.category || 'IFC'}
+                                        </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-white dark:bg-neutral-800/80 p-2 rounded-lg border border-slate-200/80 dark:border-neutral-700/80 text-slate-600 dark:text-slate-300">
+                                        <div><span className="text-slate-400">Piso:</span> <strong className="text-slate-800 dark:text-slate-100">{selectedElement.storey}</strong></div>
+                                        <div><span className="text-slate-400">Disciplina:</span> <strong className="uppercase text-blue-600">{selectedElement.discipline || 'Geral'}</strong></div>
+                                        <div className="col-span-2 truncate">
+                                            <span className="text-slate-400">GUID:</span> <span className="font-mono text-[9px]">{selectedElement.ifcGlobalId}</span>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={() => {
+                                            setActiveMode('add_point');
+                                            setPendingPinData({
+                                                position: [0, 2, 0],
+                                                cameraPosition: [10, 10, 10],
+                                                cameraTarget: [0, 2, 0],
+                                                ifcGlobalId: selectedElement.ifcGlobalId,
+                                                elementName: selectedElement.elementName,
+                                                storeyName: selectedElement.storey,
+                                                discipline: selectedElement.discipline
+                                            });
+                                            setFormTitle(`Inspeção: ${selectedElement.elementName}`);
+                                            setFormDesc('');
+                                            setFormCategory('safety_non_compliance');
+                                            setFormSeverity('high');
+                                            setFormCompanyId(companies[0]?.id || '');
+                                            setFormPhoto('');
+                                            setIsCreateModalOpen(true);
+                                        }}
+                                        className="w-full py-1.5 px-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                                    >
+                                        <MapPin size={12} strokeWidth={1.75} />
+                                        <span>+ Registar Não Conformidade</span>
+                                    </button>
+                                </div>
+                            ) : activePin ? (
+                                <div className="space-y-2">
+                                    <div className="flex items-start justify-between gap-1">
+                                        <span className="font-bold text-slate-900 dark:text-white text-[11px] line-clamp-2">
+                                            {activePin.title}
+                                        </span>
+                                        <span className={cn(
+                                            "text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0",
+                                            activePin.severity === 'critical' ? "bg-red-100 text-red-700" :
+                                            activePin.severity === 'high' ? "bg-orange-100 text-orange-700" :
+                                            "bg-slate-100 text-slate-600"
+                                        )}>
+                                            {activePin.severity}
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                                        {activePin.description}
+                                    </p>
+                                    <div className="text-[9px] text-slate-400">
+                                        📍 {activePin.storeyName} • {activePin.elementName}
+                                    </div>
+                                    <button
+                                        onClick={() => flyToObservation(activePin)}
+                                        className="w-full py-1 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                    >
+                                        <Eye size={11} strokeWidth={1.75} />
+                                        <span>Focar no Modelo 3D</span>
+                                    </button>
+                                </div>
+                            ) : activeLogisticsItem ? (
+                                <div className="space-y-2">
+                                    <div className="flex items-start justify-between gap-1">
+                                        <span className="font-bold text-slate-900 dark:text-white text-[11px]">
+                                            {activeLogisticsItem.name}
+                                        </span>
+                                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                                            {activeLogisticsItem.category}
+                                        </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-600 dark:text-slate-300 space-y-0.5">
+                                        <div>Tipo: <strong>{activeLogisticsItem.type}</strong></div>
+                                        <div>Posição: <strong className="font-mono">[{activeLogisticsItem.position.join(', ')}]</strong></div>
+                                        {activeLogisticsItem.radius && <div>Raio de Lança: <strong>{activeLogisticsItem.radius}m</strong></div>}
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            deleteSiteLogisticsItem(activeLogisticsItem.id);
+                                            setActiveLogisticsItem(null);
+                                            showToast('Elemento removido do estaleiro.');
+                                        }}
+                                        className="w-full py-1 px-2 border border-red-300 text-red-600 hover:bg-red-50 rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                    >
+                                        <Trash2 size={11} strokeWidth={1.75} />
+                                        <span>Remover do Estaleiro</span>
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 dark:text-neutral-500 py-3">
+                                    <Box size={22} className="stroke-[1.5] mb-1.5 opacity-60 text-slate-400" />
+                                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                                        Nenhum elemento selecionado
+                                    </span>
+                                    <p className="text-[10px] text-slate-400 dark:text-neutral-500 max-w-[200px] mt-0.5 leading-normal">
+                                        Clique num elemento 3D, ponto ou equipamento no modelo para ver aqui as propriedades.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 {/* ZONE B: Center 3D/2D Viewport */}
@@ -2158,48 +2476,12 @@ export default function BimViewerPage() {
                             activeMode !== 'navigate' ? 'cursor-crosshair' : ''
                         }`}
                     />
-
-                    {/* Bottom Left: Selected Element HUD */}
-                    {selectedElement && (
-                        <div className="absolute bottom-4 left-4 z-10 bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border border-slate-200 dark:border-[#333] p-3.5 rounded-xl shadow-xl max-w-sm text-xs space-y-2 animate-in fade-in slide-in-from-bottom-2">
-                            <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-neutral-800 pb-1.5">
-                                <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                                    <Box size={14} className="text-blue-600" />
-                                    Elemento IFC Selecionado
-                                </span>
-                                <button
-                                    onClick={() => setSelectedElement(null)}
-                                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
-                                >
-                                    <X size={14} />
-                                </button>
-                            </div>
-                            <div className="space-y-1 text-slate-600 dark:text-slate-300">
-                                <div><strong>Nome:</strong> {selectedElement.elementName}</div>
-                                <div><strong>Piso:</strong> {selectedElement.storey}</div>
-                                <div><strong>Disciplina:</strong> <span className="uppercase font-semibold text-blue-600">{selectedElement.discipline || 'Geral'}</span></div>
-                                <div className="font-mono text-[10px] text-slate-500 truncate">
-                                    <strong>GlobalId:</strong> {selectedElement.ifcGlobalId}
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    setActiveMode('add_point');
-                                    setSelectedElement(null);
-                                }}
-                                className="w-full mt-2 py-1.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                            >
-                                <MapPin size={13} />
-                                Registar Inspeção / Não Conformidade Neste Elemento
-                            </button>
-                        </div>
-                    )}
                 </div>
 
-                {/* ZONE C: Right OpenProject BIM BCF Issues Panel */}
+                {/* ZONE C: Right OpenProject BIM BCF Issues Panel (Mesma largura do painel esquerdo: w-80) */}
                 <div className={cn(
                     "h-full bg-white dark:bg-[#1a1b1e] border-l border-slate-200 dark:border-neutral-800 z-10 flex flex-col transition-all duration-300 ease-in-out shrink-0 shadow-lg",
-                    isRightSidebarOpen ? "w-88" : "w-0 overflow-hidden border-none"
+                    isRightSidebarOpen ? "w-80" : "w-0 overflow-hidden border-none"
                 )}>
                     {/* BCF Header */}
                     <div className="p-3.5 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between bg-slate-50/50 dark:bg-neutral-900/50 shrink-0">
