@@ -32,6 +32,7 @@ export interface ServerOperationalData {
     workerTrainingRecords: any[];
     accidents: any[];
     riskAssessments: any[];
+    siteObservations?: any[];
 }
 
 const SESSION_TIMEOUT_MS = 45000; // 45 seconds timeout for inactive heartbeats
@@ -255,6 +256,7 @@ export function applyServerMutation(mutation: {
         'workerTrainingRecords',
         'accidents',
         'riskAssessments',
+        'siteObservations',
     ];
 
     const matchedKey = validTables.find(

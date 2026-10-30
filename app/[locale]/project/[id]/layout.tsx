@@ -16,6 +16,7 @@ import {
     FileInput,
     AlertTriangle,
     GraduationCap,
+    Box,
     ChevronLeft,
     ChevronRight,
     LogOut,
@@ -48,6 +49,7 @@ const iconMap: Record<string, React.FC<any>> = {
     'training': FlatTrainingIcon,
     'forms': FlatFormsIcon,
     'documents': FlatDocumentsIcon,
+    'bim': Box,
     'settings': FlatSettingsIcon,
 };
 
@@ -60,6 +62,7 @@ const nameMap: Record<string, string> = {
     'training': 'Formação',
     'forms': 'Formulários',
     'documents': 'Documentos',
+    'bim': 'Modelo 3D & Visitas',
 };
 
 function getInitials(name?: string) {

@@ -1269,3 +1269,29 @@ export interface RiskAssessment {
     createdAt: string;
     updatedAt: string;
 }
+
+// IFC 3D & Site Visits / Inspection Observations
+export interface SiteObservation {
+    id: string;
+    projectId: string;
+    title: string;
+    description: string;
+    category: 'visit_observation' | 'safety_non_compliance' | 'risk_point' | 'quality_check' | 'progress_note';
+    status: 'open' | 'in_progress' | 'resolved';
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    ifcGlobalId?: string;
+    elementName?: string;
+    storeyName?: string;
+    position: [number, number, number];
+    cameraPosition?: [number, number, number];
+    cameraTarget?: [number, number, number];
+    photos: string[];
+    assignedToCompanyId?: string;
+    assignedToUserId?: string;
+    resolvedAt?: string;
+    resolvedBy?: string;
+    resolutionNotes?: string;
+    createdAt: string;
+    createdBy?: string;
+    createdByName?: string;
+}

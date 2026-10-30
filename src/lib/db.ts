@@ -351,6 +351,30 @@ const createSchema = async () => {
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         )`,
+        `CREATE TABLE IF NOT EXISTS site_observations (
+            id TEXT PRIMARY KEY,
+            project_id TEXT REFERENCES projects(id),
+            title TEXT NOT NULL,
+            description TEXT,
+            category TEXT DEFAULT 'visit_observation',
+            status TEXT DEFAULT 'open',
+            severity TEXT DEFAULT 'medium',
+            ifc_global_id TEXT,
+            element_name TEXT,
+            storey_name TEXT,
+            position TEXT DEFAULT '[0,0,0]',
+            camera_position TEXT,
+            camera_target TEXT,
+            photos TEXT DEFAULT '[]',
+            assigned_to_company_id TEXT,
+            assigned_to_user_id TEXT,
+            resolved_at TEXT,
+            resolved_by TEXT,
+            resolution_notes TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            created_by TEXT,
+            created_by_name TEXT
+        )`,
         // ── Course Module ─────────────────────────────────────────────────────
         `CREATE TABLE IF NOT EXISTS courses (
             id TEXT PRIMARY KEY,

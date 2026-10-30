@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation, SiteObservation } from '../types';
 import { DEFAULT_PLATFORM_PLANS } from '../types';
 
 export interface ProjectRequest {
@@ -70,6 +70,10 @@ export interface AppState {
     accidents: Accident[];
     riskAssessments: RiskAssessment[];
     workflowLogs: WorkflowLog[];
+    siteObservations: SiteObservation[];
+    addSiteObservation: (obs: Omit<SiteObservation, 'id' | 'createdAt'> & { id?: string }) => void;
+    updateSiteObservation: (id: string, updates: Partial<SiteObservation>) => void;
+    deleteSiteObservation: (id: string) => void;
 
     // Course Module
     courses: Course[];
@@ -303,6 +307,7 @@ const MOCK_MODULES: Module[] = [
     { id: 'training', name: 'Training', icon: 'GraduationCap', path: 'training', description: 'Worker certifications', isBase: false },
     { id: 'forms', name: 'Forms', icon: 'FileInput', path: 'form-builder', description: 'Form Builder', isBase: false },
     { id: 'documents', name: 'Documents', icon: 'FileText', path: 'documents', description: 'Document management', isBase: true },
+    { id: 'bim', name: 'Modelo 3D & Visitas', icon: 'Box', path: 'bim', description: 'Visualizador IFC 3D e geolocalização de visitas', isBase: true },
 ];
 
 const MOCK_ACCOUNTS: Account[] = [
@@ -567,6 +572,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     courses: [],
     trainingSessions: [],
     workerTrainingRecords: [],
+    siteObservations: [],
 
     isInitialized: false,
 
@@ -1185,6 +1191,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
                 if (Array.isArray(srv.workerTrainingRecords)) newState.workerTrainingRecords = srv.workerTrainingRecords;
                 if (Array.isArray(srv.accidents)) newState.accidents = srv.accidents;
                 if (Array.isArray(srv.riskAssessments)) newState.riskAssessments = srv.riskAssessments;
+                if (Array.isArray(srv.siteObservations)) newState.siteObservations = srv.siteObservations;
 
                 return newState;
             });
@@ -3525,6 +3532,28 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         return { riskAssessments: state.riskAssessments.filter(r => r.id !== id) };
     }),
 
+    // IFC Site Observations & Geolocated Visits
+    addSiteObservation: (obs) => set((state) => {
+        const id = obs.id || `obs_${nanoid()}`;
+        const newObs: SiteObservation = {
+            ...obs,
+            id,
+            createdAt: new Date().toISOString(),
+            createdBy: obs.createdBy || state.currentUser?.id || 'user',
+            createdByName: obs.createdByName || state.currentUser?.name || 'Fiscal / Utilizador',
+        };
+        dbInsert('site_observations', newObs).catch(console.error);
+        return { siteObservations: [newObs, ...(state.siteObservations || [])] };
+    }),
+    updateSiteObservation: (id, updates) => set((state) => {
+        dbUpdate('site_observations', id, updates).catch(console.error);
+        return { siteObservations: (state.siteObservations || []).map(o => o.id === id ? { ...o, ...updates } : o) };
+    }),
+    deleteSiteObservation: (id) => set((state) => {
+        dbRemove('site_observations', id).catch(console.error);
+        return { siteObservations: (state.siteObservations || []).filter(o => o.id !== id) };
+    }),
+
     // Documents
     addDocument: (doc) => set((state) => {
         const id = nanoid();
@@ -4694,6 +4723,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const access = user.projectAccess?.find(pa => pa.projectId === projectId);
         if (!access) return false;
 
+        if (moduleId === 'bim') return true;
         return access.allowedModules.includes(moduleId);
     },
 
