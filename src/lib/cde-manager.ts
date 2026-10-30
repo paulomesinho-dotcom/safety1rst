@@ -1491,3 +1491,37 @@ export async function uploadToEntityFolder(
         onTokenRefresh
     );
 }
+
+/**
+ * Cria a estrutura de pastas BIM e 2D diretamente na raiz do CDE do Projeto.
+ */
+export async function createProjectBimRootFolders(
+    config: CDEConfig,
+    projectId: string
+): Promise<string[]> {
+    if (!config || !config.connected) {
+        throw new Error('O CDE não está conectado a este projeto. Por favor configure a ligação Cloud nas Definições.');
+    }
+
+    try {
+        const res = await fetch(`/api/projects/${projectId}/cde/action`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'init_project_bim_structure',
+                payload: {}
+            })
+        });
+
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({ error: 'Falha ao criar pastas BIM no servidor.' }));
+            throw new Error(errData.error || 'Erro ao comunicar com o servidor CDE');
+        }
+
+        const data = await res.json();
+        return data.result?.logs || ['Pastas BIM e 2D criadas com sucesso na raiz do projeto.'];
+    } catch (err: any) {
+        console.error('[CDE] createProjectBimRootFolders error:', err);
+        throw err;
+    }
+}

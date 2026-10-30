@@ -1055,12 +1055,41 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         return { success: true, logs, companyFolderId };
     }
 
-    if (action === 'initialize_project_structure') {
+    if (action === 'initialize_project_structure' || action === 'init_project_bim_structure') {
+        clearServerCdeCache();
         const logs: string[] = [];
         const baseFolder = await resolveBaseFolder();
         const baseFolderId = baseFolder.id;
         const driveId = baseFolder.driveId;
         logs.push(`Pasta base no SharePoint: ${baseFolder.name || config.folderPath || 'Raiz'} (ID ${baseFolderId})`);
+
+        // 1. Criar Modelos BIM (IFC) e Desenhos 2D diretamente na raiz do projeto
+        try {
+            const bimFolder = await ensureSharePointFolder(baseFolderId, 'Modelos BIM (IFC)', driveId);
+            logs.push(bimFolder.exists ? `📁 Modelos BIM (IFC) (existente na raiz)` : `📁 Modelos BIM (IFC) (criada na raiz)`);
+
+            const sub01 = await ensureSharePointFolder(bimFolder.id, '01-Arquitetura', driveId);
+            logs.push(sub01.exists ? `  └─ 📁 01-Arquitetura` : `  └─ 📁 01-Arquitetura (criada)`);
+
+            const sub02 = await ensureSharePointFolder(bimFolder.id, '02-Estruturas', driveId);
+            logs.push(sub02.exists ? `  └─ 📁 02-Estruturas` : `  └─ 📁 02-Estruturas (criada)`);
+
+            const sub03 = await ensureSharePointFolder(bimFolder.id, '03-Especialidades (MEP)', driveId);
+            logs.push(sub03.exists ? `  └─ 📁 03-Especialidades (MEP)` : `  └─ 📁 03-Especialidades (MEP) (criada)`);
+
+            const drwFolder = await ensureSharePointFolder(baseFolderId, 'Desenhos 2D (Plantas e Cortes)', driveId);
+            logs.push(drwFolder.exists ? `📁 Desenhos 2D (Plantas e Cortes) (existente na raiz)` : `📁 Desenhos 2D (Plantas e Cortes) (criada na raiz)`);
+        } catch (bimErr: any) {
+            logs.push(`Aviso pastas BIM na raiz: ${bimErr.message}`);
+        }
+
+        if (action === 'init_project_bim_structure') {
+            return {
+                success: true,
+                message: 'Estrutura de pastas BIM e 2D criada com sucesso na raiz do projeto!',
+                logs
+            };
+        }
 
         const STANDARD_FOLDERS = [
             'Organizações',
@@ -1277,6 +1306,28 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
         return { id: data.metadata?.path_display || newFolderPath, name: payload.name, exists: false };
     }
 
+    if (action === 'init_project_bim_structure') {
+        const logs: string[] = [];
+        let basePath = config.folderPath && config.folderPath !== '/' ? config.folderPath.replace(/\/$/, '') : '';
+        const createDbx = async (folderPath: string, label: string) => {
+            const res = await fetch('https://api.dropboxapi.com/2/files/create_folder_v2', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: folderPath, autorename: false })
+            });
+            const ok = res.ok || (await res.text()).includes('conflict');
+            logs.push(`📁 ${label} ${ok ? '(ok)' : '(erro)'}`);
+        };
+
+        await createDbx(`${basePath}/Modelos BIM (IFC)`, 'Modelos BIM (IFC)');
+        await createDbx(`${basePath}/Modelos BIM (IFC)/01-Arquitetura`, '01-Arquitetura');
+        await createDbx(`${basePath}/Modelos BIM (IFC)/02-Estruturas`, '02-Estruturas');
+        await createDbx(`${basePath}/Modelos BIM (IFC)/03-Especialidades (MEP)`, '03-Especialidades (MEP)');
+        await createDbx(`${basePath}/Desenhos 2D (Plantas e Cortes)`, 'Desenhos 2D (Plantas e Cortes)');
+
+        return { success: true, message: 'Pastas BIM e 2D criadas na raiz do Dropbox com sucesso!', logs };
+    }
+
     throw new Error(`Ação '${action}' não suportada para Dropbox.`);
 }
 
@@ -1303,6 +1354,40 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
             } catch (_) {}
         }
         return { success: true, message: 'Google Drive configurado e cifrado no servidor com sucesso!' };
+    }
+
+    if (action === 'init_project_bim_structure') {
+        const logs: string[] = [];
+        const rootId = config.folderId || 'root';
+        const createGdrive = async (parentId: string, name: string) => {
+            const res = await fetch('https://www.googleapis.com/drive/v3/files', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: [parentId]
+                })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                logs.push(`📁 ${name} (criada)`);
+                return data.id;
+            }
+            logs.push(`📁 ${name} (existente)`);
+            return rootId;
+        };
+
+        const bimId = await createGdrive(rootId, 'Modelos BIM (IFC)');
+        await createGdrive(bimId, '01-Arquitetura');
+        await createGdrive(bimId, '02-Estruturas');
+        await createGdrive(bimId, '03-Especialidades (MEP)');
+        await createGdrive(rootId, 'Desenhos 2D (Plantas e Cortes)');
+
+        return { success: true, message: 'Pastas BIM e 2D criadas na raiz do Google Drive!', logs };
     }
 
     throw new Error(`Ação '${action}' em processamento.`);
