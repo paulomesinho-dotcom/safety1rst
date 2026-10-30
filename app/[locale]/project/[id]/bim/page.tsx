@@ -26,6 +26,7 @@ import {
     Building2,
     Calendar,
     User,
+    Users,
     Check,
     Search,
     ChevronRight,
@@ -50,7 +51,20 @@ import {
     ShieldCheck,
     CheckSquare,
     Ruler,
-    Edit3
+    Edit3,
+    Move,
+    RefreshCw,
+    ZoomIn,
+    ZoomOut,
+    HeartPulse,
+    Bath,
+    Utensils,
+    BellRing,
+    Recycle,
+    Fuel,
+    Droplets,
+    Grid,
+    Footprints
 } from 'lucide-react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -58,6 +72,13 @@ import type { SiteObservation, SiteLogisticsItem } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { uploadToCDEFolder } from '@/lib/cde-manager';
+import {
+    SITE_LOGISTICS_CATALOG,
+    SAMPLE_BIM_MODELS,
+    SAMPLE_2D_DRAWINGS,
+    LogisticsCatalogItem,
+    generateRealisticPdfDrawing
+} from '@/lib/bim-samples';
 
 // Seed observations for realistic site demonstration
 const SEED_OBSERVATIONS: Omit<SiteObservation, 'id' | 'createdAt'>[] = [
@@ -308,15 +329,28 @@ export default function BimViewerPage() {
 
     // Navigation and Visualization States
     const [viewDimension, setViewDimension] = useState<'3d' | '2d'>('3d');
-    const [activeMode, setActiveMode] = useState<'navigate' | 'add_point' | 'add_logistics' | 'add_emergency'>('navigate');
+    const [activeMode, setActiveMode] = useState<'navigate' | 'add_point' | 'add_logistics' | 'add_emergency' | 'moving_logistics'>('navigate');
     const [selectedDiscipline, setSelectedDiscipline] = useState<'all' | 'structure' | 'architecture' | 'mep' | 'safety'>('all');
     const [selectedStorey, setSelectedStorey] = useState<string>('all');
     const [ghostMode, setGhostMode] = useState<boolean>(true);
 
-    // Layer Visibility
+    // Layer Visibility & Preset Dropdown
     const [showObservationsLayer, setShowObservationsLayer] = useState(true);
     const [showLogisticsLayer, setShowLogisticsLayer] = useState(true);
     const [showEmergencyLayer, setShowEmergencyLayer] = useState(true);
+    const [activeLayerPreset, setActiveLayerPreset] = useState<'all' | 'inspections' | 'logistics' | 'emergency' | 'clean'>('all');
+
+    // Real CDE Cloud Connection State
+    const [cdeStatus, setCdeStatus] = useState<{ connected: boolean; provider?: string | null; hasFiles?: boolean }>({ connected: false });
+    const [isSyncingCde, setIsSyncingCde] = useState(false);
+    const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(DEFAULT_2D_DRAWINGS);
+    const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(DEFAULT_2D_DRAWINGS[0] || null);
+    const [sheetZoom, setSheetZoom] = useState<number>(1);
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+    // Logistics Search & Filter
+    const [logisticsCategoryFilter, setLogisticsCategoryFilter] = useState<string>('all');
+    const [logisticsSearchQuery, setLogisticsSearchQuery] = useState<string>('');
 
     // Left Panel Tabs: 'models' | 'logistics' | 'hierarchy'
     const [leftPanelTab, setLeftPanelTab] = useState<'models' | 'logistics' | 'hierarchy'>('models');
@@ -352,7 +386,7 @@ export default function BimViewerPage() {
         '02-Estruturas': true,
         '03-Especialidades (MEP)': false,
         '04-Segurança (PSS)': false,
-        'drawings_root': false
+        'drawings_root': true
     });
 
     const handleToggleModelActive = (modelId: string) => {
@@ -370,7 +404,6 @@ export default function BimViewerPage() {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isCdeHelpOpen, setIsCdeHelpOpen] = useState(false);
     const [is2dDrawingsModalOpen, setIs2dDrawingsModalOpen] = useState(false);
-    const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(null);
 
     // Form data for new point
     const [pendingPinData, setPendingPinData] = useState<{
@@ -395,6 +428,136 @@ export default function BimViewerPage() {
         setToastMessage(msg);
         setTimeout(() => setToastMessage(null), 4000);
     }, []);
+
+    // Load Real CDE Cloud Files
+    const loadRealCdeFiles = useCallback(async () => {
+        setIsSyncingCde(true);
+        try {
+            const res = await fetch(`/api/projects/${projectId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'list_bim_files' })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.connected) {
+                    setCdeStatus({ connected: true, provider: data.provider, hasFiles: data.hasFiles });
+                    if (data.models && data.models.length > 0) {
+                        setCdeModels(data.models);
+                    }
+                    if (data.drawings && data.drawings.length > 0) {
+                        setCdeDrawings(data.drawings);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('Erro ao carregar ficheiros CDE:', e);
+        } finally {
+            setIsSyncingCde(false);
+        }
+    }, [projectId]);
+
+    useEffect(() => {
+        loadRealCdeFiles();
+    }, [loadRealCdeFiles]);
+
+    // Seed Sample Realistic BIM Models & 2D Drawings into the real Connected CDE
+    const handleSeedCdeSampleFiles = async () => {
+        setIsCreatingCdeFolders(true);
+        showToast('A enviar modelos IFC e pranchas 2D fidedignas para o seu CDE conectado...');
+        try {
+            const res = await fetch(`/api/projects/${projectId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'seed_bim_sample_files' })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Erro ao carregar no CDE');
+            showToast('Modelos BIM e Desenhos 2D carregados com sucesso no seu CDE!');
+            await loadRealCdeFiles();
+        } catch (err: any) {
+            showToast(`Aviso: ${err.message || 'Verifique a ligação ao CDE'}`);
+        } finally {
+            setIsCreatingCdeFolders(false);
+        }
+    };
+
+    // Layer Preset Handler
+    const handleLayerPresetChange = (preset: 'all' | 'inspections' | 'logistics' | 'emergency' | 'clean') => {
+        setActiveLayerPreset(preset);
+        if (preset === 'all') {
+            setShowObservationsLayer(true);
+            setShowLogisticsLayer(true);
+            setShowEmergencyLayer(true);
+            showToast('Todas as camadas visíveis.');
+        } else if (preset === 'inspections') {
+            setShowObservationsLayer(true);
+            setShowLogisticsLayer(false);
+            setShowEmergencyLayer(false);
+            showToast('Apenas anotações de inspeção visíveis.');
+        } else if (preset === 'logistics') {
+            setShowObservationsLayer(false);
+            setShowLogisticsLayer(true);
+            setShowEmergencyLayer(false);
+            showToast('Apenas elementos de estaleiro visíveis.');
+        } else if (preset === 'emergency') {
+            setShowObservationsLayer(false);
+            setShowLogisticsLayer(false);
+            setShowEmergencyLayer(true);
+            showToast('Apenas rotas e meios de emergência visíveis.');
+        } else if (preset === 'clean') {
+            setShowObservationsLayer(false);
+            setShowLogisticsLayer(false);
+            setShowEmergencyLayer(false);
+            showToast('Anotações ocultadas (Modelo limpo).');
+        }
+    };
+
+    // Interactive Move & Nudge for Placed Logistics Elements
+    const handleNudgeLogisticsItem = (dx: number, dz: number) => {
+        if (!activeLogisticsItem) return;
+        const newPos: [number, number, number] = [
+            Number((activeLogisticsItem.position[0] + dx).toFixed(2)),
+            activeLogisticsItem.position[1],
+            Number((activeLogisticsItem.position[2] + dz).toFixed(2))
+        ];
+        updateSiteLogisticsItem(activeLogisticsItem.id, { position: newPos });
+        setActiveLogisticsItem(prev => prev ? { ...prev, position: newPos } : null);
+        showToast(`Elemento deslocado para [${newPos[0]}, ${newPos[2]}].`);
+    };
+
+    const handleRotateLogisticsItem = () => {
+        if (!activeLogisticsItem) return;
+        const newRot = ((activeLogisticsItem.rotation || 0) + Math.PI / 4) % (Math.PI * 2);
+        updateSiteLogisticsItem(activeLogisticsItem.id, { rotation: newRot });
+        setActiveLogisticsItem(prev => prev ? { ...prev, rotation: newRot } : null);
+        showToast(`Elemento rodado para ${Math.round((newRot * 180) / Math.PI)}°.`);
+    };
+
+    // Open Authentic PDF Drawing
+    const handleOpenAuthenticPdf = (drawing?: CdeDrawing2D | null) => {
+        const target = drawing || selected2dDrawing;
+        if (!target) return;
+        setIsGeneratingPdf(true);
+        showToast(`A gerar documento PDF oficial "${target.fileName}"...`);
+        try {
+            const buf = generateRealisticPdfDrawing(
+                target.fileName,
+                target.title,
+                target.code,
+                target.storey || 'Piso 0'
+            );
+            const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+            const blob = new Blob([uint8 as any], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            showToast('Documento PDF aberto em novo separador!');
+        } catch (err: any) {
+            showToast(`Erro ao gerar PDF: ${err.message}`);
+        } finally {
+            setIsGeneratingPdf(false);
+        }
+    };
 
     // Filter project observations and logistics items
     const projectObservations = useMemo(() => {
@@ -587,67 +750,189 @@ export default function BimViewerPage() {
         });
     }, []);
 
-    // Render 3D and 2D Meshes for Estaleiro & Emergência Items
+    // Render 3D and 2D High-Detail Meshes for Estaleiro & Emergência Items
     const renderLogisticsAndEmergencyItems = useCallback((group: THREE.Group, items: SiteLogisticsItem[]) => {
         group.clear();
 
         items.forEach((item) => {
             const itemGroup = new THREE.Group();
             itemGroup.position.set(item.position[0], item.position[1], item.position[2]);
+            itemGroup.rotation.y = item.rotation || 0;
             itemGroup.userData = { logisticsItem: item };
 
+            const isSelected = activeLogisticsItem?.id === item.id;
+
+            // Highlight ring if selected
+            if (isSelected) {
+                const selGeo = new THREE.RingGeometry(1.2, 1.4, 32);
+                const selMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide });
+                const selMesh = new THREE.Mesh(selGeo, selMat);
+                selMesh.rotation.x = -Math.PI / 2;
+                selMesh.position.y = 0.08;
+                itemGroup.add(selMesh);
+            }
+
             if (item.type === 'crane') {
-                // Tower Crane
-                const craneMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.35, metalness: 0.4 });
-                const mast = new THREE.Mesh(new THREE.BoxGeometry(1.0, 18, 1.0), craneMat);
-                mast.position.y = 9;
+                // High-Fidelity Tower Crane (Grua Torre)
+                const yellowMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.35, metalness: 0.4 });
+                const darkMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6 });
+
+                // Lattice Mast Tower
+                const mast = new THREE.Mesh(new THREE.BoxGeometry(1.2, 19, 1.2), yellowMat);
+                mast.position.y = 9.5;
                 mast.castShadow = true;
                 itemGroup.add(mast);
 
-                const jib = new THREE.Mesh(new THREE.BoxGeometry(item.radius || 26, 0.6, 0.6), craneMat);
-                jib.position.set(6, 18.2, 0);
+                // Operator Cabin
+                const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.2 }));
+                cabin.position.set(0.9, 17.5, 0);
+                itemGroup.add(cabin);
+
+                // Horizontal Jib & Counter-Jib
+                const jibLen = item.radius || 26;
+                const jib = new THREE.Mesh(new THREE.BoxGeometry(jibLen, 0.7, 0.7), yellowMat);
+                jib.position.set((jibLen / 2) - 3, 19.4, 0);
                 itemGroup.add(jib);
 
-                // Crane radius coverage area on ground
-                const radiusGeo = new THREE.RingGeometry((item.radius || 26) - 0.2, item.radius || 26, 64);
-                const radiusMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide, transparent: true, opacity: 0.45 });
+                // Counterweight Blocks
+                const cw = new THREE.Mesh(new THREE.BoxGeometry(4.0, 1.4, 1.2), darkMat);
+                cw.position.set(-6, 19.4, 0);
+                itemGroup.add(cw);
+
+                // Hoist Cable & Hook
+                const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 10), darkMat);
+                cable.position.set(jibLen * 0.45, 14, 0);
+                const hook = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.05, 0.6), darkMat);
+                hook.position.set(jibLen * 0.45, 8.8, 0);
+                itemGroup.add(cable, hook);
+
+                // Crane radius coverage ring on ground
+                const radiusGeo = new THREE.RingGeometry(jibLen - 0.25, jibLen, 64);
+                const radiusMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
                 const ring = new THREE.Mesh(radiusGeo, radiusMat);
                 ring.rotation.x = -Math.PI / 2;
-                ring.position.y = 0.08;
+                ring.position.y = 0.06;
                 itemGroup.add(ring);
-            } else if (item.type === 'office_container' || item.type === 'dining_container') {
-                // Site Office / Rest Container (6 x 2.4 x 2.6m)
-                const containerMat = new THREE.MeshStandardMaterial({
-                    color: item.type === 'office_container' ? 0x1e3a8a : 0x475569,
-                    roughness: 0.4
-                });
+            } else if (item.type === 'mobile_crane') {
+                // Mobile Crane (Grua Móvel Telescópica)
+                const orangeMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.4 });
+                const darkMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+
+                // Truck Chassis
+                const chassis = new THREE.Mesh(new THREE.BoxGeometry(7, 1.2, 2.6), orangeMat);
+                chassis.position.y = 0.9;
+                chassis.castShadow = true;
+                itemGroup.add(chassis);
+
+                // Telescopic Boom
+                const boom = new THREE.Mesh(new THREE.BoxGeometry(0.8, 14, 0.8), orangeMat);
+                boom.position.set(0, 7.5, 0);
+                boom.rotation.z = -0.4;
+                itemGroup.add(boom);
+
+                // Wheels
+                for (let x = -2.5; x <= 2.5; x += 1.8) {
+                    const wheelL = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.4, 16), darkMat);
+                    wheelL.rotation.x = Math.PI / 2;
+                    wheelL.position.set(x, 0.5, 1.4);
+                    const wheelR = wheelL.clone();
+                    wheelR.position.set(x, 0.5, -1.4);
+                    itemGroup.add(wheelL, wheelR);
+                }
+            } else if (item.type === 'hoist') {
+                // Material Hoist (Monta-Cargas Exterior)
+                const hoistMat = new THREE.MeshStandardMaterial({ color: 0xb45309, roughness: 0.5 });
+                const mast = new THREE.Mesh(new THREE.BoxGeometry(0.8, 14, 0.8), hoistMat);
+                mast.position.y = 7;
+                const cage = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.2, 1.8), new THREE.MeshStandardMaterial({ color: 0xfacc15, wireframe: true }));
+                cage.position.set(1.4, 4, 0);
+                itemGroup.add(mast, cage);
+            } else if (item.type === 'office_container' || item.type === 'dining_container' || item.type === 'sanitary_container') {
+                // Prefab Containers (6 x 2.4 x 2.6m)
+                const bodyColor = item.type === 'office_container' ? 0x1e3a8a : item.type === 'dining_container' ? 0x2563eb : 0x0f766e;
+                const containerMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.4 });
+                const cornerMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 });
+
                 const container = new THREE.Mesh(new THREE.BoxGeometry(6, 2.6, 2.4), containerMat);
                 container.position.y = 1.3;
                 container.castShadow = true;
-                itemGroup.add(container);
+
+                // Corner Posts & Door detail
+                const door = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 0.9), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                door.position.set(3.01, 1.1, 0);
+                const windowMesh = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 0.05), new THREE.MeshPhysicalMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.8 }));
+                windowMesh.position.set(0, 1.4, 1.21);
+
+                itemGroup.add(container, door, windowMesh);
             } else if (item.type === 'gate') {
-                // Gate & Turnstile Barrier
+                // Portaria & Torniquete Biométrico
                 const gateMat = new THREE.MeshStandardMaterial({ color: 0x0284c7 });
-                const post1 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.4), gateMat);
-                post1.position.set(-1.8, 1.2, 0);
-                const post2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.4), gateMat);
-                post2.position.set(1.8, 1.2, 0);
-                const bar = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.1, 0.1), gateMat);
-                bar.position.set(0, 1.1, 0);
-                itemGroup.add(post1, post2, bar);
+                const kiosk = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.4, 2.0), gateMat);
+                kiosk.position.set(-1.8, 1.2, 0);
+                const turnstile = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.1, 16), new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8 }));
+                turnstile.position.set(0.8, 0.55, 0);
+                const bar = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.1, 0.1), gateMat);
+                bar.position.set(1.5, 1.0, 0);
+                itemGroup.add(kiosk, turnstile, bar);
             } else if (item.type === 'waste_bay') {
-                // RCD Waste Bays (3 separated bays)
-                const bayMat = new THREE.MeshStandardMaterial({ color: 0x15803d });
-                const bay = new THREE.Mesh(new THREE.BoxGeometry(5, 1.5, 3), bayMat);
-                bay.position.y = 0.75;
-                itemGroup.add(bay);
+                // RCD Waste Bays (3 partitioned bays)
+                const wallMat = new THREE.MeshStandardMaterial({ color: 0x64748b });
+                const backWall = new THREE.Mesh(new THREE.BoxGeometry(6.4, 1.6, 0.2), wallMat);
+                backWall.position.set(0, 0.8, -1.5);
+                itemGroup.add(backWall);
+
+                // 3 Bays with color markers (Blue: Paper/Cardboard, Yellow: Plastic/Metal, Grey: Rubble)
+                const bayColors = [0x3b82f6, 0xeab308, 0x475569];
+                for (let i = 0; i < 3; i++) {
+                    const floorMat = new THREE.MeshStandardMaterial({ color: bayColors[i], roughness: 0.7 });
+                    const bayFloor = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.2, 3.0), floorMat);
+                    bayFloor.position.set(-2.0 + i * 2.0, 0.1, 0);
+                    itemGroup.add(bayFloor);
+                }
+            } else if (item.type === 'fuel_depot') {
+                // Bacia de Retenção de Combustível
+                const bundMat = new THREE.MeshStandardMaterial({ color: 0xca8a04 });
+                const bund = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.6, 2.5), bundMat);
+                bund.position.y = 0.3;
+                const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 2.4, 16), new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.6 }));
+                tank.rotation.z = Math.PI / 2;
+                tank.position.y = 1.1;
+                itemGroup.add(bund, tank);
+            } else if (item.type === 'wheel_wash') {
+                // Lava-Rodados para Camiões
+                const washMat = new THREE.MeshStandardMaterial({ color: 0x0891b2 });
+                const ramp = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.3, 3.2), washMat);
+                ramp.position.y = 0.15;
+                itemGroup.add(ramp);
+            } else if (item.type === 'scaffolding') {
+                // Andaime Multidirecional
+                const scMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.7 });
+                const frame = new THREE.Mesh(new THREE.BoxGeometry(3.0, 6.0, 1.2), new THREE.MeshStandardMaterial({ color: 0x64748b, wireframe: true }));
+                frame.position.y = 3.0;
+                const plank = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.08, 1.1), new THREE.MeshStandardMaterial({ color: 0xeab308 }));
+                plank.position.y = 3.0;
+                itemGroup.add(frame, plank);
+            } else if (item.type === 'pedestrian_path') {
+                // Passadiço Pedonal Protegido
+                const walkwayMat = new THREE.MeshStandardMaterial({ color: 0x8b5cf6, transparent: true, opacity: 0.85 });
+                const walk = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.1, 1.8), walkwayMat);
+                walk.position.y = 0.08;
+                const rail = new THREE.Mesh(new THREE.BoxGeometry(6.0, 1.0, 0.06), new THREE.MeshStandardMaterial({ color: 0xfacc15 }));
+                rail.position.set(0, 0.55, 0.85);
+                itemGroup.add(walk, rail);
+            } else if (item.type === 'vehicle_route') {
+                // Corredor de Tráfego Pesado
+                const roadMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.9 });
+                const road = new THREE.Mesh(new THREE.BoxGeometry(10.0, 0.04, 3.6), roadMat);
+                road.position.y = 0.04;
+                itemGroup.add(road);
             } else if (item.type === 'meeting_point') {
                 // Emergency Muster Point (Green ISO 7010)
                 const greenMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.3 });
-                const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.2), greenMat);
-                pole.position.y = 1.6;
-                const sign = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.08), greenMat);
-                sign.position.y = 3.2;
+                const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.4), greenMat);
+                pole.position.y = 1.7;
+                const sign = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 0.08), greenMat);
+                sign.position.y = 3.4;
                 itemGroup.add(pole, sign);
 
                 // Safe assembly circle on floor
@@ -658,19 +943,31 @@ export default function BimViewerPage() {
                 assemblyRing.position.y = 0.06;
                 itemGroup.add(assemblyRing);
             } else if (item.type === 'fire_extinguisher') {
-                // Fire Extinguisher (Red cylinder + sign)
+                // Central de Extintores (ISO 7010 Red)
                 const redMat = new THREE.MeshStandardMaterial({ color: 0xdc2626 });
-                const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.7), redMat);
-                cyl.position.y = 0.5;
-                const sign = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.04), redMat);
-                sign.position.y = 1.2;
-                itemGroup.add(cyl, sign);
+                const shelter = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.6, 0.5), redMat);
+                shelter.position.y = 1.0;
+                const cyl1 = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.65), redMat);
+                cyl1.position.set(-0.3, 0.6, 0);
+                const cyl2 = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.10, 0.70), new THREE.MeshStandardMaterial({ color: 0x1e293b }));
+                cyl2.position.set(0.3, 0.6, 0);
+                itemGroup.add(shelter, cyl1, cyl2);
             } else if (item.type === 'first_aid') {
-                // First Aid Post (White container with green cross)
+                // Posto de Primeiros Socorros & DAE
                 const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.2 });
-                const box = new THREE.Mesh(new THREE.BoxGeometry(3, 2.4, 2.4), whiteMat);
+                const box = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.4, 2.4), whiteMat);
                 box.position.y = 1.2;
-                itemGroup.add(box);
+                const cross = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.04), new THREE.MeshStandardMaterial({ color: 0x16a34a }));
+                cross.position.set(0, 1.3, 1.21);
+                itemGroup.add(box, cross);
+            } else if (item.type === 'alarm_siren') {
+                // Sirene de Emergência & Corneta
+                const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.6), new THREE.MeshStandardMaterial({ color: 0xe11d48 }));
+                pole.position.y = 1.8;
+                const horn = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.6, 16), new THREE.MeshStandardMaterial({ color: 0xbe123c }));
+                horn.rotation.x = Math.PI / 2;
+                horn.position.set(0, 3.5, 0.3);
+                itemGroup.add(pole, horn);
             } else if (item.type === 'evacuation_route') {
                 // Evacuation Route Chevron on Floor
                 const greenMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.8 });
@@ -681,7 +978,7 @@ export default function BimViewerPage() {
 
             group.add(itemGroup);
         });
-    }, []);
+    }, [activeLogisticsItem]);
 
     // Initialize Three.js Scene
     useEffect(() => {
@@ -968,6 +1265,20 @@ export default function BimViewerPage() {
 
         raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
 
+        // 0. Moving Logistics Item mode
+        if (activeMode === 'moving_logistics' && activeLogisticsItem) {
+            const groundIntersects = raycasterRef.current.intersectObjects(sceneRef.current.children, true);
+            if (groundIntersects.length > 0) {
+                const pt = groundIntersects[0].point;
+                const newPos: [number, number, number] = [Number(pt.x.toFixed(2)), 0, Number(pt.z.toFixed(2))];
+                updateSiteLogisticsItem(activeLogisticsItem.id, { position: newPos });
+                setActiveLogisticsItem(prev => prev ? { ...prev, position: newPos } : null);
+                setActiveMode('navigate');
+                showToast(`Elemento "${activeLogisticsItem.name}" deslocado para [${newPos[0]}, ${newPos[2]}].`);
+                return;
+            }
+        }
+
         // 1. Raycast on existing observations
         if (pinsGroupRef.current) {
             const pinIntersects = raycasterRef.current.intersectObjects(pinsGroupRef.current.children, true);
@@ -1008,25 +1319,26 @@ export default function BimViewerPage() {
             if (groundIntersects.length > 0) {
                 const point = groundIntersects[0].point;
                 const type = pendingPlacementType || (activeMode === 'add_emergency' ? 'meeting_point' : 'office_container');
+                const catalogMatch = SITE_LOGISTICS_CATALOG.find(c => c.type === type);
+                const itemName = catalogMatch ? catalogMatch.name : (type === 'crane' ? 'Grua Torre' : 'Equipamento de Estaleiro');
+                const itemCategory = catalogMatch ? catalogMatch.category : (activeMode === 'add_emergency' ? 'emergency' : 'logistics');
+                const itemRadius = catalogMatch?.defaultRadius;
 
                 addSiteLogisticsItem({
                     projectId,
                     type,
-                    name: type === 'meeting_point' ? 'Ponto de Encontro de Emergência' :
-                          type === 'fire_extinguisher' ? 'Extintor de Incêndio' :
-                          type === 'first_aid' ? 'Posto de Primeiros Socorros' :
-                          type === 'crane' ? 'Grua Torre de Estaleiro' :
-                          type === 'gate' ? 'Portaria e Controlo de Acesso' :
-                          type === 'waste_bay' ? 'Baia de Triagem RCDs' : 'Módulo de Contentor',
-                    category: activeMode === 'add_emergency' ? 'emergency' : 'logistics',
+                    name: itemName,
+                    category: itemCategory,
                     position: [Number(point.x.toFixed(2)), 0, Number(point.z.toFixed(2))],
+                    radius: itemRadius,
+                    rotation: 0,
                     status: 'active',
-                    notes: `Posicionado na planta em ${new Date().toLocaleDateString('pt-PT')}`
+                    notes: `Implantado no estaleiro em ${new Date().toLocaleDateString('pt-PT')}`
                 });
 
                 setActiveMode('navigate');
                 setPendingPlacementType(null);
-                showToast('Equipamento posicionado na planta de estaleiro/emergência com sucesso!');
+                showToast(`"${itemName}" posicionado no estaleiro com sucesso!`);
                 return;
             }
         }
@@ -1567,6 +1879,43 @@ export default function BimViewerPage() {
         showToast('Planta de Estaleiro & Emergência exportada com sucesso em PDF!');
     };
 
+    // Filtered Site Logistics Catalog
+    const filteredCatalog = useMemo(() => {
+        return SITE_LOGISTICS_CATALOG.filter(item => {
+            if (logisticsCategoryFilter !== 'all' && item.group !== logisticsCategoryFilter) return false;
+            if (logisticsSearchQuery.trim()) {
+                const q = logisticsSearchQuery.toLowerCase();
+                return item.name.toLowerCase().includes(q) ||
+                       item.subtitle.toLowerCase().includes(q) ||
+                       item.description.toLowerCase().includes(q);
+            }
+            return true;
+        });
+    }, [logisticsCategoryFilter, logisticsSearchQuery]);
+
+    // Icon helper for catalog
+    const renderCatalogIcon = (iconName: string) => {
+        switch (iconName) {
+            case 'Crane': return <Building2 size={14} />;
+            case 'Truck': return <Truck size={14} />;
+            case 'ArrowUpFromLine': return <Layers size={14} />;
+            case 'Building2': return <Building2 size={14} />;
+            case 'Utensils': return <Utensils size={14} />;
+            case 'Bath': return <Bath size={14} />;
+            case 'ShieldCheck': return <ShieldCheck size={14} />;
+            case 'Users': return <Users size={14} />;
+            case 'HeartPulse': return <HeartPulse size={14} />;
+            case 'Flame': return <Flame size={14} />;
+            case 'BellRing': return <BellRing size={14} />;
+            case 'Recycle': return <Recycle size={14} />;
+            case 'Fuel': return <Fuel size={14} />;
+            case 'Droplets': return <Droplets size={14} />;
+            case 'Grid': return <Grid size={14} />;
+            case 'Footprints': return <Footprints size={14} />;
+            default: return <Navigation size={14} />;
+        }
+    };
+
     // Filter observations for sidebar
     const filteredObservations = useMemo(() => {
         return projectObservations.filter(obs => {
@@ -1590,221 +1939,115 @@ export default function BimViewerPage() {
                 ? "fixed inset-0 z-50 h-screen max-h-none rounded-none"
                 : "h-[calc(100vh-125px)] min-h-[580px] rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-sm"
         )}>
-            {/* Top Revit/OpenProject-style Ribbon Toolbar */}
-            <div className="bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border-b border-slate-200 dark:border-neutral-800 px-3 py-1.5 h-[68px] flex items-center justify-between gap-2 z-20 shrink-0">
+            {/* Top Sleek Revit/OpenProject-style Ribbon Toolbar */}
+            <div className="bg-white/95 dark:bg-[#1e2023]/95 backdrop-blur-md border-b border-slate-200 dark:border-neutral-800 px-3 py-1.5 h-11 flex items-center justify-between gap-2 z-20 shrink-0">
                 {/* Pinned Navegador BIM Button - SEMPRE À VISTA */}
                 <div className="shrink-0 flex items-center pr-2 border-r border-slate-200 dark:border-neutral-800">
                     <button
                         onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
                         className={cn(
-                            "h-[52px] px-3 rounded-lg border text-xs font-semibold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer shadow-xs",
+                            "h-7 px-2.5 rounded-md border text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs",
                             isLeftSidebarOpen
                                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent"
                                 : "bg-slate-50 hover:bg-slate-100 dark:bg-neutral-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-neutral-700"
                         )}
                         title="Navegador BIM (CDE, Estaleiro e Pisos)"
                     >
-                        <FolderTree size={16} strokeWidth={1.75} />
-                        <span className="text-[10px] font-bold tracking-tight whitespace-nowrap">Navegador BIM</span>
+                        <FolderTree size={14} strokeWidth={1.75} />
+                        <span className="text-[11px] font-bold tracking-tight whitespace-nowrap">Navegador BIM</span>
                     </button>
                 </div>
 
-                {/* Middle Ribbon Groups (Nome da propriedade em cima, opções em baixo, flat icons, compacto) */}
+                {/* Middle Ribbon Groups (Compactos, Flat, Sem Scroll) */}
                 <div className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-                    {/* GRUPO 1: PROJEÇÃO */}
-                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Projeção</span>
-                        <div className="flex items-center gap-1">
-                            <div className="flex items-center bg-white dark:bg-neutral-700 p-0.5 rounded-md border border-slate-200 dark:border-neutral-600">
-                                <button
-                                    onClick={() => handleToggleViewDimension('3d')}
-                                    className={cn(
-                                        "px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer",
-                                        viewDimension === '3d'
-                                            ? "bg-blue-600 text-white shadow-xs"
-                                            : "text-slate-600 dark:text-slate-300 hover:text-slate-900"
-                                    )}
-                                >
-                                    3D
-                                </button>
-                                <button
-                                    onClick={() => handleToggleViewDimension('2d')}
-                                    className={cn(
-                                        "px-2 py-0.5 rounded text-[11px] font-bold transition-all cursor-pointer",
-                                        viewDimension === '2d'
-                                            ? "bg-blue-600 text-white shadow-xs"
-                                            : "text-slate-600 dark:text-slate-300 hover:text-blue-600"
-                                    )}
-                                >
-                                    2D
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                    {/* PROJEÇÃO 3D/2D: Botão Único Ligado/Desligado */}
+                    <button
+                        onClick={() => handleToggleViewDimension(viewDimension === '3d' ? '2d' : '3d')}
+                        className={cn(
+                            "h-7 px-2.5 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer border",
+                            viewDimension === '3d'
+                                ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                                : "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700"
+                        )}
+                        title={viewDimension === '3d' ? 'Alternar para Projeção 2D (Plantas Técnicas)' : 'Alternar para Perspetiva 3D'}
+                    >
+                        {viewDimension === '3d' ? <Box size={13} strokeWidth={2} /> : <Layers size={13} strokeWidth={2} />}
+                        <span>{viewDimension.toUpperCase()}</span>
+                    </button>
 
-                    {/* GRUPO 2: PISO */}
-                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Piso Ativo</span>
+                    {/* CAMADAS: Droplist de Escolha */}
+                    <div className="flex items-center">
                         <select
-                            value={selectedStorey}
-                            onChange={(e) => setSelectedStorey(e.target.value)}
-                            className="bg-white dark:bg-neutral-700 border border-slate-200 dark:border-neutral-600 text-[11px] rounded-md px-2 py-0.5 font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer h-6"
+                            value={activeLayerPreset}
+                            onChange={(e) => handleLayerPresetChange(e.target.value as any)}
+                            className="bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[11px] rounded-md px-2 py-0.5 font-semibold text-slate-700 dark:text-slate-200 outline-none cursor-pointer h-7 shadow-xs"
+                            title="Filtrar visibilidade de camadas"
                         >
-                            <option value="all">🏢 Todos</option>
-                            <option value="Piso 0">P0 (R/C)</option>
-                            <option value="Piso 1">P1 (Estr.)</option>
-                            <option value="Piso 2">P2 (Frente)</option>
-                            <option value="Cobertura">Cobertura</option>
-                            <option value="Exterior">Exterior</option>
+                            <option value="all">👁️ Todas as Camadas</option>
+                            <option value="inspections">📍 Apenas Inspeções</option>
+                            <option value="logistics">🏗️ Apenas Estaleiro</option>
+                            <option value="emergency">🚨 Apenas Emergência</option>
+                            <option value="clean">⚪ Ocultar Anotações</option>
                         </select>
                     </div>
 
-                    {/* GRUPO 3: CAMADAS */}
-                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Camadas</span>
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={() => setShowObservationsLayer(!showObservationsLayer)}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 h-6",
-                                    showObservationsLayer
-                                        ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-950/40 dark:border-red-800 dark:text-red-300"
-                                        : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 text-slate-400 opacity-60"
-                                )}
-                                title="Camada de Inspeções"
-                            >
-                                <MapPin size={11} strokeWidth={1.75} />
-                                <span>Insp.</span>
-                            </button>
+                    {/* REGISTOS SST: Apenas Icons Flat */}
+                    <div className="flex items-center gap-1 pl-1 border-l border-slate-200 dark:border-neutral-800">
+                        <button
+                            onClick={() => setActiveMode(activeMode === 'add_point' ? 'navigate' : 'add_point')}
+                            className={cn(
+                                "h-7 w-7 rounded-md flex items-center justify-center transition-all cursor-pointer border shadow-xs",
+                                activeMode === 'add_point'
+                                    ? "bg-red-600 text-white border-red-600 animate-pulse"
+                                    : "bg-white dark:bg-neutral-800 text-red-600 border-slate-200 dark:border-neutral-700 hover:bg-red-50"
+                            )}
+                            title="Registar Ponto de Inspeção / Não Conformidade (+ Inspeção)"
+                        >
+                            <MapPin size={13} strokeWidth={2} />
+                        </button>
 
-                            <button
-                                onClick={() => setShowLogisticsLayer(!showLogisticsLayer)}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 h-6",
-                                    showLogisticsLayer
-                                        ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-300"
-                                        : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 text-slate-400 opacity-60"
-                                )}
-                                title="Camada de Estaleiro"
-                            >
-                                <HardHat size={11} strokeWidth={1.75} />
-                                <span>Estal.</span>
-                            </button>
-
-                            <button
-                                onClick={() => setShowEmergencyLayer(!showEmergencyLayer)}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[11px] font-bold border transition-all cursor-pointer flex items-center gap-1 h-6",
-                                    showEmergencyLayer
-                                        ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300"
-                                        : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 text-slate-400 opacity-60"
-                                )}
-                                title="Camada de Emergência e Evacuação"
-                            >
-                                <Flame size={11} strokeWidth={1.75} />
-                                <span>Emerg.</span>
-                            </button>
-                        </div>
+                        <button
+                            onClick={() => {
+                                setLeftPanelTab('logistics');
+                                setIsLeftSidebarOpen(true);
+                                setActiveMode(activeMode === 'add_logistics' ? 'navigate' : 'add_logistics');
+                            }}
+                            className={cn(
+                                "h-7 w-7 rounded-md flex items-center justify-center transition-all cursor-pointer border shadow-xs",
+                                activeMode === 'add_logistics'
+                                    ? "bg-amber-600 text-white border-amber-600 animate-pulse"
+                                    : "bg-white dark:bg-neutral-800 text-amber-600 border-slate-200 dark:border-neutral-700 hover:bg-amber-50"
+                            )}
+                            title="Implantar Equipamento de Estaleiro / Emergência (+ Estaleiro)"
+                        >
+                            <HardHat size={13} strokeWidth={2} />
+                        </button>
                     </div>
 
-                    {/* GRUPO 4: REGISTO SST */}
-                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Registo SST</span>
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={() => setActiveMode(activeMode === 'add_point' ? 'navigate' : 'add_point')}
-                                className={cn(
-                                    "px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer h-6",
-                                    activeMode === 'add_point'
-                                        ? "bg-red-600 text-white animate-pulse"
-                                        : "bg-white dark:bg-neutral-700 hover:bg-red-50 text-slate-700 dark:text-slate-200 hover:text-red-600 border border-slate-200 dark:border-neutral-600"
-                                )}
-                                title="Registar ponto de inspeção 3D"
-                            >
-                                <MapPin size={11} strokeWidth={1.75} className={activeMode === 'add_point' ? 'animate-bounce' : ''} />
-                                <span>{activeMode === 'add_point' ? 'Marcar...' : '+ Inspeção'}</span>
-                            </button>
+                    {/* EXPORTAR: Apenas os Botões Compactos */}
+                    <div className="flex items-center gap-1 pl-1 border-l border-slate-200 dark:border-neutral-800">
+                        <button
+                            onClick={handleExportPDF}
+                            className="h-7 px-2.5 bg-white dark:bg-neutral-800 hover:bg-slate-50 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                            title="Exportar Relatório Oficial de Visita e Inspeções (PDF)"
+                        >
+                            <Download size={12} strokeWidth={1.75} />
+                            <span>PDF Visita</span>
+                        </button>
 
-                            <button
-                                onClick={() => {
-                                    setLeftPanelTab('logistics');
-                                    setIsLeftSidebarOpen(true);
-                                    setActiveMode('add_logistics');
-                                }}
-                                className={cn(
-                                    "px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer h-6",
-                                    activeMode === 'add_logistics'
-                                        ? "bg-amber-600 text-white animate-pulse"
-                                        : "bg-white dark:bg-neutral-700 hover:bg-amber-50 text-slate-700 dark:text-slate-200 hover:text-amber-600 border border-slate-200 dark:border-neutral-600"
-                                )}
-                                title="Implantar equipamento de estaleiro ou emergência"
-                            >
-                                <HardHat size={11} strokeWidth={1.75} />
-                                <span>+ Estaleiro</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* GRUPO 5: CDE / MODELO */}
-                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-blue-50/70 dark:bg-blue-950/30 rounded-lg border border-blue-200/80 dark:border-blue-900/50 shrink-0">
-                        <span className="text-[9px] font-extrabold text-blue-500 uppercase tracking-wider leading-none">CDE / Modelo</span>
-                        <div className="flex items-center gap-1">
-                            <label
-                                className="cursor-pointer px-2 py-0.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all h-6"
-                                title="Carregar ficheiro IFC local"
-                            >
-                                <Upload size={11} strokeWidth={1.75} />
-                                <span>{loadedIfcName ? loadedIfcName.slice(0, 8) + '...' : 'Upload'}</span>
-                                <input
-                                    type="file"
-                                    accept=".ifc"
-                                    className="hidden"
-                                    onChange={(e) => {
-                                        const file = e.target.files?.[0];
-                                        if (file) handleProcessIfcFile(file);
-                                    }}
-                                />
-                            </label>
-
-                            <button
-                                onClick={handleCreateCdeFolders}
-                                disabled={isCreatingCdeFolders}
-                                className="px-2 py-0.5 bg-white dark:bg-neutral-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 rounded text-[11px] font-bold flex items-center gap-1 border border-slate-200 dark:border-neutral-700 shadow-xs transition-all cursor-pointer h-6"
-                                title="Criar pastas BIM e Desenhos 2D na raiz do CDE"
-                            >
-                                {isCreatingCdeFolders ? <Loader2 size={11} className="animate-spin" /> : <FolderPlus size={11} strokeWidth={1.75} />}
-                                <span>Pastas</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* GRUPO 6: RELATÓRIOS OFICIAIS */}
-                    <div className="flex flex-col items-start justify-between h-[52px] px-2 py-1 bg-slate-50/80 dark:bg-neutral-800/60 rounded-lg border border-slate-200 dark:border-neutral-700/60 shrink-0">
-                        <span className="text-[9px] font-extrabold text-slate-400 dark:text-neutral-500 uppercase tracking-wider leading-none">Exportar</span>
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={handleExportPDF}
-                                className="px-2 py-0.5 bg-white dark:bg-neutral-700 hover:bg-slate-50 border border-slate-200 dark:border-neutral-600 text-slate-700 dark:text-slate-200 rounded text-[11px] font-semibold flex items-center gap-1 shadow-xs transition-colors cursor-pointer h-6"
-                                title="Exportar Relatório Oficial de Visita e Inspeções"
-                            >
-                                <Download size={11} strokeWidth={1.75} />
-                                <span>Visita</span>
-                            </button>
-
-                            <button
-                                onClick={handleExportSitePlanPDF}
-                                className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded text-[11px] font-bold flex items-center gap-1 shadow-xs transition-colors cursor-pointer h-6"
-                                title="Exportar Planta Oficial de Estaleiro e Emergência (PSS)"
-                            >
-                                <FileText size={11} strokeWidth={1.75} className="text-emerald-600" />
-                                <span>Planta PSS</span>
-                            </button>
-                        </div>
+                        <button
+                            onClick={handleExportSitePlanPDF}
+                            className="h-7 px-2.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-md text-[11px] font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                            title="Exportar Planta Oficial de Estaleiro e Emergência (PSS)"
+                        >
+                            <FileText size={12} strokeWidth={1.75} className="text-emerald-600" />
+                            <span>Planta PSS</span>
+                        </button>
                     </div>
                 </div>
 
                 {/* Right Actions (Pinned) */}
-                <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200 dark:border-neutral-800 h-[52px]">
+                <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200 dark:border-neutral-800 h-7">
                     <button
                         onClick={() => {
                             if (cameraRef.current && controlsRef.current) {
@@ -1813,7 +2056,7 @@ export default function BimViewerPage() {
                                 controlsRef.current.update();
                             }
                         }}
-                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
+                        className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
                         title="Repor câmara inicial"
                     >
                         <RotateCcw size={13} strokeWidth={1.75} />
@@ -1821,7 +2064,7 @@ export default function BimViewerPage() {
 
                     <button
                         onClick={() => setIsFullscreen(!isFullscreen)}
-                        className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
+                        className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
                         title={isFullscreen ? 'Sair de Ecrã Completo' : 'Ecrã Completo'}
                     >
                         {isFullscreen ? <Minimize2 size={13} strokeWidth={1.75} /> : <Maximize2 size={13} strokeWidth={1.75} />}
@@ -1830,7 +2073,7 @@ export default function BimViewerPage() {
                     <button
                         onClick={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
                         className={cn(
-                            "h-8 px-2.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer",
+                            "h-7 px-2 rounded-md border text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs cursor-pointer",
                             isRightSidebarOpen
                                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 border-transparent"
                                 : "bg-white text-slate-700 dark:bg-neutral-800 dark:text-slate-200 border-slate-200 dark:border-neutral-700 hover:bg-slate-50"
@@ -1895,23 +2138,58 @@ export default function BimViewerPage() {
                     <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4 text-xs">
                         {/* Tab 1 Content: CDE & Modelos Carregados */}
                         {leftPanelTab === 'models' && (
-                            <div className="space-y-4">
-                                {/* CDE Root Folders Explorer with selectable models */}
-                                <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
-                                            <FolderTree size={14} className="text-blue-600" strokeWidth={1.75} />
-                                            Estrutura CDE (Modelos na Raiz)
-                                        </span>
+                            <div className="space-y-3">
+                                {/* CDE Real Cloud Connection Status & Cloud Seeding */}
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5 truncate">
+                                            <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", cdeStatus.connected ? "bg-emerald-500 animate-pulse" : "bg-slate-400")} />
+                                            <span className="font-bold text-[11px] text-slate-800 dark:text-slate-100 truncate">
+                                                {cdeStatus.connected ? `CDE Conectado (${cdeStatus.provider?.toUpperCase()})` : 'CDE Local (Sem Cloud)'}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={loadRealCdeFiles}
+                                            disabled={isSyncingCde}
+                                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                                            title="Sincronizar ficheiros com o CDE em tempo real"
+                                        >
+                                            <RefreshCw size={11} className={cn(isSyncingCde ? "animate-spin" : "")} />
+                                            <span>Sincronizar</span>
+                                        </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5">
                                         <button
                                             onClick={handleCreateCdeFolders}
                                             disabled={isCreatingCdeFolders}
-                                            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold flex items-center gap-1"
-                                            title="Sincronizar pastas na raiz da Cloud"
+                                            className="flex-1 py-1 px-1.5 rounded-lg bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[10px] font-bold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1 cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs"
+                                            title="Criar estrutura oficial de pastas BIM e 2D no CDE"
                                         >
-                                            {isCreatingCdeFolders ? <Loader2 size={10} className="animate-spin" /> : <FolderPlus size={10} strokeWidth={1.75} />}
+                                            {isCreatingCdeFolders ? <Loader2 size={11} className="animate-spin" /> : <FolderPlus size={11} />}
                                             <span>+ Pastas</span>
                                         </button>
+
+                                        <button
+                                            onClick={handleSeedCdeSampleFiles}
+                                            disabled={isCreatingCdeFolders}
+                                            className="flex-1 py-1 px-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[10px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                            title="Carregar modelos IFC e pranchas 2D fidedignas para o seu CDE conectado"
+                                        >
+                                            <Sparkles size={11} />
+                                            <span>+ Carregar Exemplos</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* CDE Root Folders Explorer with selectable models */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                                            <FolderTree size={14} className="text-blue-600" strokeWidth={1.75} />
+                                            Modelos no CDE (Raiz do Projeto)
+                                        </span>
+                                        <span className="text-[10px] text-slate-400 font-semibold">{cdeModels.length} IFCs</span>
                                     </div>
 
                                     <div className="p-2 bg-slate-50 dark:bg-neutral-900 rounded-xl border border-slate-200 dark:border-neutral-800 space-y-2">
@@ -2003,7 +2281,7 @@ export default function BimViewerPage() {
                                             )}
                                         </div>
 
-                                        {/* 2D Drawings Folder */}
+                                        {/* 2D Drawings Folder (Plantas em PDF) */}
                                         <div className="pt-1 border-t border-slate-200 dark:border-neutral-800">
                                             <button
                                                 type="button"
@@ -2015,32 +2293,35 @@ export default function BimViewerPage() {
                                                     <FolderOpen size={14} className="text-blue-500" strokeWidth={1.75} />
                                                     <span className="text-[11px] truncate">Desenhos 2D (Plantas)</span>
                                                 </div>
-                                                <span className="text-[9px] text-blue-600 font-bold hover:underline" onClick={(e) => { e.stopPropagation(); setIs2dDrawingsModalOpen(true); }}>
-                                                    Ver Folhas &rarr;
+                                                <span className="text-[9px] bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-1.5 py-0.5 rounded-full font-bold">
+                                                    {cdeDrawings.length}
                                                 </span>
                                             </button>
 
                                             {expandedFolders.drawings_root && (
                                                 <div className="pl-3.5 space-y-1 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
-                                                    {DEFAULT_2D_DRAWINGS.map(dw => (
+                                                    {cdeDrawings.map(dw => (
                                                         <div
                                                             key={dw.id}
                                                             onClick={() => {
                                                                 setSelected2dDrawing(dw);
                                                                 setViewDimension('2d');
-                                                                showToast(`Desenho 2D "${dw.code} - ${dw.title}" selecionado.`);
+                                                                showToast(`Planta 2D "${dw.code} - ${dw.title}" ativada no visualizador.`);
                                                             }}
                                                             className={cn(
                                                                 "p-1.5 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1",
                                                                 selected2dDrawing?.id === dw.id
-                                                                    ? "bg-blue-50 border-blue-400 text-blue-900 font-bold"
+                                                                    ? "bg-blue-50 border-blue-400 text-blue-900 font-bold dark:bg-blue-950/60 dark:border-blue-700 dark:text-blue-200 shadow-2xs"
                                                                     : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300"
                                                             )}
                                                         >
                                                             <div className="truncate">
-                                                                <span className="font-semibold">{dw.code}</span> - {dw.title}
+                                                                <div className="font-semibold truncate">
+                                                                    <span className="text-blue-600 dark:text-blue-400">{dw.code}</span> - {dw.title}
+                                                                </div>
+                                                                <div className="text-[9px] text-slate-400 truncate">{dw.storey} • {dw.format}</div>
                                                             </div>
-                                                            <span className="text-[9px] text-slate-400 shrink-0">{dw.format}</span>
+                                                            <span className="text-[9px] text-slate-400 shrink-0 font-mono">{dw.revision}</span>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -2106,126 +2387,83 @@ export default function BimViewerPage() {
                             </div>
                         )}
 
-                        {/* Tab 2 Content: Planta de Estaleiro & Emergência */}
+                        {/* Tab 2 Content: Catálogo Completo de Estaleiro & Emergência (ISO 7010 / PSS) */}
                         {leftPanelTab === 'logistics' && (
-                            <div className="space-y-4">
-                                <div>
-                                    <span className="font-bold text-slate-900 dark:text-white block mb-1 text-xs">
-                                        Equipamentos de Estaleiro (Logística)
-                                    </span>
-                                    <p className="text-[11px] text-slate-500 mb-2">
-                                        Clique para posicionar no modelo ou planta:
-                                    </p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('crane');
-                                                setActiveMode('add_logistics');
-                                                showToast('Clique no chão para posicionar a Grua Torre.');
-                                            }}
-                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-amber-500 text-left transition-all cursor-pointer"
-                                        >
-                                            <div className="font-bold text-amber-700 dark:text-amber-400">🏗️ Grua Torre</div>
-                                            <div className="text-[10px] text-slate-500">Lança 26m / Raio</div>
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('office_container');
-                                                setActiveMode('add_logistics');
-                                                showToast('Clique para posicionar o Contentor.');
-                                            }}
-                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-blue-500 text-left transition-all cursor-pointer"
-                                        >
-                                            <div className="font-bold text-blue-700 dark:text-blue-400">🏢 Contentores</div>
-                                            <div className="text-[10px] text-slate-500">Escritório/Balneário</div>
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('gate');
-                                                setActiveMode('add_logistics');
-                                                showToast('Clique para posicionar a Portaria.');
-                                            }}
-                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-sky-500 text-left transition-all cursor-pointer"
-                                        >
-                                            <div className="font-bold text-sky-700 dark:text-sky-400">🚪 Portaria</div>
-                                            <div className="text-[10px] text-slate-500">Controlo Acessos</div>
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('waste_bay');
-                                                setActiveMode('add_logistics');
-                                                showToast('Clique para posicionar o Parque RCD.');
-                                            }}
-                                            className="p-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 hover:border-emerald-500 text-left transition-all cursor-pointer"
-                                        >
-                                            <div className="font-bold text-emerald-700 dark:text-emerald-400">♻️ Baia RCDs</div>
-                                            <div className="text-[10px] text-slate-500">Triagem Resíduos</div>
-                                        </button>
-                                    </div>
+                            <div className="space-y-3">
+                                {/* Search input */}
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Pesquisar equipamento (Grua, Contentor, ISO)..."
+                                        value={logisticsSearchQuery}
+                                        onChange={e => setLogisticsSearchQuery(e.target.value)}
+                                        className="w-full pl-8 pr-2.5 py-1 text-[11px] bg-slate-50 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 rounded-lg outline-none focus:border-amber-500"
+                                    />
                                 </div>
 
-                                {/* Plano de Emergência & Evacuação (ISO 7010) */}
-                                <div>
-                                    <span className="font-bold text-slate-900 dark:text-white block mb-1 text-xs">
-                                        Dispositivos de Emergência (PSS / ISO 7010)
-                                    </span>
-                                    <div className="grid grid-cols-2 gap-2">
+                                {/* Category Filters */}
+                                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+                                    {[
+                                        { id: 'all', label: 'Todos' },
+                                        { id: 'lifting', label: 'Cargas' },
+                                        { id: 'facilities', label: 'Apoio' },
+                                        { id: 'safety', label: 'Emergência' },
+                                        { id: 'environment', label: 'Ambiente' },
+                                        { id: 'collective', label: 'Proteções' }
+                                    ].map(cat => (
                                         <button
-                                            onClick={() => {
-                                                setPendingPlacementType('meeting_point');
-                                                setActiveMode('add_emergency');
-                                                showToast('Clique para posicionar o Ponto de Encontro.');
-                                            }}
-                                            className="p-2 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 text-left transition-all cursor-pointer hover:border-emerald-500"
+                                            key={cat.id}
+                                            type="button"
+                                            onClick={() => setLogisticsCategoryFilter(cat.id)}
+                                            className={cn(
+                                                "px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 cursor-pointer transition-all",
+                                                logisticsCategoryFilter === cat.id
+                                                    ? "bg-amber-600 text-white shadow-2xs"
+                                                    : "bg-slate-100 dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                                            )}
                                         >
-                                            <div className="font-bold text-emerald-700 dark:text-emerald-400">🚨 Ponto Encontro</div>
-                                            <div className="text-[10px] text-slate-500">Sinal ISO 7010</div>
+                                            {cat.label}
                                         </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('fire_extinguisher');
-                                                setActiveMode('add_emergency');
-                                                showToast('Clique para posicionar o Extintor.');
-                                            }}
-                                            className="p-2 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/60 dark:bg-red-950/20 text-left transition-all cursor-pointer hover:border-red-500"
-                                        >
-                                            <div className="font-bold text-red-700 dark:text-red-400">🧯 Extintor</div>
-                                            <div className="text-[10px] text-slate-500">Pó / CO2 6kg</div>
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('first_aid');
-                                                setActiveMode('add_emergency');
-                                                showToast('Clique para posicionar o Posto Socorros.');
-                                            }}
-                                            className="p-2 rounded-lg border border-teal-200 dark:border-teal-900 bg-teal-50/60 dark:bg-teal-950/20 text-left transition-all cursor-pointer hover:border-teal-500"
-                                        >
-                                            <div className="font-bold text-teal-700 dark:text-teal-400">🩹 Posto Socorros</div>
-                                            <div className="text-[10px] text-slate-500">Maca & DAE</div>
-                                        </button>
-
-                                        <button
-                                            onClick={() => {
-                                                setPendingPlacementType('evacuation_route');
-                                                setActiveMode('add_emergency');
-                                                showToast('Clique para posicionar o Trajeto de Fuga.');
-                                            }}
-                                            className="p-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/60 dark:bg-green-950/20 text-left transition-all cursor-pointer hover:border-green-500"
-                                        >
-                                            <div className="font-bold text-green-700 dark:text-green-400">➡️ Via Evacuação</div>
-                                            <div className="text-[10px] text-slate-500">Saída Emergência</div>
-                                        </button>
-                                    </div>
+                                    ))}
                                 </div>
 
-                                {/* Inventory of Placed Elements */}
-                                <div>
-                                    <div className="flex items-center justify-between mb-2">
+                                {/* Catalog List with Google Fonts / Flat Material Icons */}
+                                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
+                                    {filteredCatalog.map(item => (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => {
+                                                setPendingPlacementType(item.type as any);
+                                                setActiveMode(item.category === 'emergency' ? 'add_emergency' : 'add_logistics');
+                                                showToast(`Clique no modelo ou planta para posicionar "${item.name}".`);
+                                            }}
+                                            className="w-full p-2 rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900/60 hover:border-amber-500 hover:bg-amber-50/30 text-left transition-all cursor-pointer flex items-center justify-between gap-2 shadow-2xs group"
+                                        >
+                                            <div className="flex items-center gap-2 truncate">
+                                                <div
+                                                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-white shadow-xs"
+                                                    style={{ backgroundColor: item.color }}
+                                                >
+                                                    {renderCatalogIcon(item.icon)}
+                                                </div>
+                                                <div className="truncate">
+                                                    <div className="font-bold text-[11px] text-slate-800 dark:text-slate-100 truncate group-hover:text-amber-700 dark:group-hover:text-amber-400">
+                                                        {item.name}
+                                                    </div>
+                                                    <div className="text-[9px] text-slate-400 truncate">{item.subtitle}</div>
+                                                </div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                + Implantar
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Inventory of Placed Elements in Project */}
+                                <div className="pt-2 border-t border-slate-200 dark:border-neutral-800">
+                                    <div className="flex items-center justify-between mb-1.5">
                                         <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
                                             Inventário no Estaleiro ({projectLogistics.length})
                                         </span>
@@ -2237,25 +2475,58 @@ export default function BimViewerPage() {
                                         </button>
                                     </div>
 
-                                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                                        {projectLogistics.map(item => (
-                                            <div
-                                                key={item.id}
-                                                className="p-1.5 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 flex items-center justify-between gap-2 text-[11px]"
-                                            >
-                                                <div className="truncate">
-                                                    <span className="font-bold text-slate-800 dark:text-slate-100">{item.name}</span>
-                                                    <div className="text-[10px] text-slate-400">[{item.position.join(', ')}]</div>
-                                                </div>
-                                                <button
-                                                    onClick={() => deleteSiteLogisticsItem(item.id)}
-                                                    className="text-red-400 hover:text-red-600 p-1 cursor-pointer"
-                                                    title="Remover do estaleiro"
+                                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-0.5">
+                                        {projectLogistics.length === 0 ? (
+                                            <div className="text-[10px] text-slate-400 italic py-1">Nenhum elemento implantado ainda.</div>
+                                        ) : (
+                                            projectLogistics.map(item => (
+                                                <div
+                                                    key={item.id}
+                                                    onClick={() => {
+                                                        setActiveLogisticsItem(item);
+                                                        setSelectedElement(null);
+                                                        setActivePin(null);
+                                                    }}
+                                                    className={cn(
+                                                        "p-1.5 rounded-lg border text-[11px] flex items-center justify-between gap-2 cursor-pointer transition-all",
+                                                        activeLogisticsItem?.id === item.id
+                                                            ? "bg-amber-50 border-amber-400 text-amber-900 font-bold dark:bg-amber-950/40 dark:border-amber-700 dark:text-amber-300"
+                                                            : "bg-slate-50 dark:bg-neutral-900 border-slate-200 dark:border-neutral-800 hover:border-slate-300"
+                                                    )}
                                                 >
-                                                    <Trash2 size={12} strokeWidth={1.75} />
-                                                </button>
-                                            </div>
-                                        ))}
+                                                    <div className="truncate">
+                                                        <span className="font-bold text-slate-800 dark:text-slate-100">{item.name}</span>
+                                                        <div className="text-[9px] text-slate-400">[{item.position.join(', ')}]</div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveLogisticsItem(item);
+                                                                setActiveMode('moving_logistics');
+                                                                showToast(`Clique na nova posição para deslocar "${item.name}".`);
+                                                            }}
+                                                            className="text-amber-600 hover:text-amber-800 p-1 cursor-pointer"
+                                                            title="Deslocar no modelo"
+                                                        >
+                                                            <Move size={12} strokeWidth={2} />
+                                                        </button>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                deleteSiteLogisticsItem(item.id);
+                                                                if (activeLogisticsItem?.id === item.id) setActiveLogisticsItem(null);
+                                                                showToast('Elemento removido.');
+                                                            }}
+                                                            className="text-red-400 hover:text-red-600 p-1 cursor-pointer"
+                                                            title="Remover do estaleiro"
+                                                        >
+                                                            <Trash2 size={12} strokeWidth={1.75} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -2388,18 +2659,80 @@ export default function BimViewerPage() {
                             ) : activeLogisticsItem ? (
                                 <div className="space-y-2">
                                     <div className="flex items-start justify-between gap-1">
-                                        <span className="font-bold text-slate-900 dark:text-white text-[11px]">
+                                        <span className="font-bold text-slate-900 dark:text-white text-[11px] leading-tight">
                                             {activeLogisticsItem.name}
                                         </span>
-                                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 shrink-0">
+                                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
                                             {activeLogisticsItem.category}
                                         </span>
                                     </div>
-                                    <div className="text-[10px] text-slate-600 dark:text-slate-300 space-y-0.5">
+                                    <div className="text-[10px] text-slate-600 dark:text-slate-300 space-y-0.5 bg-white dark:bg-neutral-800 p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700">
                                         <div>Tipo: <strong>{activeLogisticsItem.type}</strong></div>
-                                        <div>Posição: <strong className="font-mono">[{activeLogisticsItem.position.join(', ')}]</strong></div>
+                                        <div>Posição: <strong className="font-mono text-slate-800 dark:text-slate-100">[{activeLogisticsItem.position.join(', ')}]</strong></div>
+                                        <div>Rotação: <strong className="font-mono">{Math.round(((activeLogisticsItem.rotation || 0) * 180) / Math.PI)}°</strong></div>
                                         {activeLogisticsItem.radius && <div>Raio de Lança: <strong>{activeLogisticsItem.radius}m</strong></div>}
                                     </div>
+
+                                    {/* Action: Deslocar / Mover no Modelo */}
+                                    <button
+                                        onClick={() => {
+                                            setActiveMode(activeMode === 'moving_logistics' ? 'navigate' : 'moving_logistics');
+                                            showToast('Modo Deslocação: clique na nova posição do modelo ou planta.');
+                                        }}
+                                        className={cn(
+                                            "w-full py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer",
+                                            activeMode === 'moving_logistics'
+                                                ? "bg-amber-600 text-white animate-pulse"
+                                                : "bg-amber-500 hover:bg-amber-600 text-white"
+                                        )}
+                                    >
+                                        <Move size={12} strokeWidth={2} />
+                                        <span>{activeMode === 'moving_logistics' ? 'Clique no Local Desejado...' : 'Deslocar Elemento (Mover)'}</span>
+                                    </button>
+
+                                    {/* Fine Tuning Nudge Buttons */}
+                                    <div className="bg-white dark:bg-neutral-800 p-1 rounded-lg border border-slate-200 dark:border-neutral-700 space-y-1">
+                                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Ajuste Fino de Posição</div>
+                                        <div className="grid grid-cols-4 gap-1">
+                                            <button
+                                                onClick={() => handleNudgeLogisticsItem(-1, 0)}
+                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
+                                                title="Deslocar -1m no Eixo X"
+                                            >
+                                                ← X
+                                            </button>
+                                            <button
+                                                onClick={() => handleNudgeLogisticsItem(1, 0)}
+                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
+                                                title="Deslocar +1m no Eixo X"
+                                            >
+                                                X →
+                                            </button>
+                                            <button
+                                                onClick={() => handleNudgeLogisticsItem(0, -1)}
+                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
+                                                title="Deslocar -1m no Eixo Z"
+                                            >
+                                                ↑ Z
+                                            </button>
+                                            <button
+                                                onClick={() => handleNudgeLogisticsItem(0, 1)}
+                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
+                                                title="Deslocar +1m no Eixo Z"
+                                            >
+                                                ↓ Z
+                                            </button>
+                                        </div>
+                                        <button
+                                            onClick={handleRotateLogisticsItem}
+                                            className="w-full py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-semibold flex items-center justify-center gap-1"
+                                            title="Rodar 45 graus"
+                                        >
+                                            <RotateCcw size={10} />
+                                            <span>Rodar +45°</span>
+                                        </button>
+                                    </div>
+
                                     <button
                                         onClick={() => {
                                             deleteSiteLogisticsItem(activeLogisticsItem.id);
@@ -2464,16 +2797,23 @@ export default function BimViewerPage() {
 
                     {/* Mode Notice Overlay */}
                     {activeMode === 'add_point' && (
-                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 animate-pulse pointer-events-none">
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-red-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 animate-pulse pointer-events-none">
                             <MapPin size={15} />
-                            Clique no modelo 3D para posicionar o ponto de inspeção
+                            Clique no modelo 3D ou na planta 2D para posicionar a inspeção
                         </div>
                     )}
 
                     {(activeMode === 'add_logistics' || activeMode === 'add_emergency') && (
-                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 animate-pulse pointer-events-none">
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 animate-pulse pointer-events-none">
                             <HardHat size={15} />
-                            Clique no chão para posicionar o elemento de estaleiro / emergência
+                            Clique na planta ou no chão para posicionar o equipamento
+                        </div>
+                    )}
+
+                    {activeMode === 'moving_logistics' && (
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 animate-pulse pointer-events-none">
+                            <Move size={15} />
+                            Clique na nova posição (3D ou na planta 2D) para deslocar o elemento
                         </div>
                     )}
 
@@ -2486,14 +2826,334 @@ export default function BimViewerPage() {
                         </div>
                     )}
 
-                    {/* 3D WebGL Canvas */}
-                    <div
-                        ref={mountRef}
-                        onClick={handleCanvasClick}
-                        className={`w-full h-full cursor-grab active:cursor-grabbing ${
-                            activeMode !== 'navigate' ? 'cursor-crosshair' : ''
-                        }`}
-                    />
+                    {/* DUAL-MODE VIEWPORT: 2D TECHNICAL DRAWING SHEET (PRANCHA TÉCNICA) VS 3D WEBGL MODEL */}
+                    {viewDimension === '2d' && selected2dDrawing ? (
+                        <div className="absolute inset-0 z-20 flex flex-col bg-slate-200/90 dark:bg-[#121316] select-none overflow-hidden">
+                            {/* Sheet Toolbar */}
+                            <div className="h-10 px-3 bg-white/95 dark:bg-neutral-900/95 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between shrink-0 shadow-2xs z-20">
+                                <div className="flex items-center gap-2 truncate">
+                                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                                        {selected2dDrawing.code}
+                                    </span>
+                                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                        {selected2dDrawing.title}
+                                    </span>
+                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
+                                        • {selected2dDrawing.storey} • {selected2dDrawing.format} • {selected2dDrawing.revision}
+                                    </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                        onClick={() => handleOpenAuthenticPdf(selected2dDrawing)}
+                                        disabled={isGeneratingPdf}
+                                        className="h-7 px-2.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-md text-[11px] font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                                        title="Abrir o Documento PDF Oficial em alta resolução"
+                                    >
+                                        <Download size={12} strokeWidth={2} />
+                                        <span>Abrir PDF Original</span>
+                                    </button>
+
+                                    <div className="flex items-center border border-slate-200 dark:border-neutral-700 rounded-md p-0.5 bg-slate-50 dark:bg-neutral-800">
+                                        <button
+                                            onClick={() => setSheetZoom(z => Math.max(0.6, z - 0.15))}
+                                            className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
+                                            title="Diminuir Zoom"
+                                        >
+                                            <ZoomOut size={12} />
+                                        </button>
+                                        <span className="text-[10px] font-mono px-1 font-semibold">{Math.round(sheetZoom * 100)}%</span>
+                                        <button
+                                            onClick={() => setSheetZoom(z => Math.min(2.2, z + 0.15))}
+                                            className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
+                                            title="Aumentar Zoom"
+                                        >
+                                            <ZoomIn size={12} />
+                                        </button>
+                                        <button
+                                            onClick={() => setSheetZoom(1)}
+                                            className="px-1 text-[10px] text-slate-500 hover:text-slate-800 cursor-pointer font-bold"
+                                            title="Repor Zoom Original"
+                                        >
+                                            100%
+                                        </button>
+                                    </div>
+
+                                    <button
+                                        onClick={() => handleToggleViewDimension('3d')}
+                                        className="h-7 px-2 bg-slate-100 dark:bg-neutral-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                        title="Alternar para Vista 3D em Perspetiva"
+                                    >
+                                        <Box size={12} />
+                                        <span>3D</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 2D Vector Drawing Sheet Surface */}
+                            <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+                                <div
+                                    onClick={(e) => {
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const clickX = e.clientX - rect.left;
+                                        const clickY = e.clientY - rect.top;
+                                        const normX = Number((((clickX / rect.width) - 0.5) * 40).toFixed(2));
+                                        const normZ = Number((((clickY / rect.height) - 0.5) * 32).toFixed(2));
+
+                                        if (activeMode === 'moving_logistics' && activeLogisticsItem) {
+                                            const newPos: [number, number, number] = [normX, 0, normZ];
+                                            updateSiteLogisticsItem(activeLogisticsItem.id, { position: newPos });
+                                            setActiveLogisticsItem(prev => prev ? { ...prev, position: newPos } : null);
+                                            setActiveMode('navigate');
+                                            showToast(`Elemento "${activeLogisticsItem.name}" deslocado na planta 2D para [${normX}, ${normZ}].`);
+                                            return;
+                                        }
+
+                                        if (activeMode === 'add_logistics' || activeMode === 'add_emergency') {
+                                            const type = pendingPlacementType || (activeMode === 'add_emergency' ? 'meeting_point' : 'office_container');
+                                            const catalogMatch = SITE_LOGISTICS_CATALOG.find(c => c.type === type);
+                                            const itemName = catalogMatch ? catalogMatch.name : (type === 'crane' ? 'Grua Torre' : 'Equipamento de Obra');
+                                            const itemCategory = catalogMatch ? catalogMatch.category : (activeMode === 'add_emergency' ? 'emergency' : 'logistics');
+
+                                            addSiteLogisticsItem({
+                                                projectId,
+                                                type,
+                                                name: itemName,
+                                                category: itemCategory,
+                                                position: [normX, 0, normZ],
+                                                radius: catalogMatch?.defaultRadius,
+                                                rotation: 0,
+                                                status: 'active',
+                                                notes: `Implantado na planta 2D "${selected2dDrawing?.code}" em ${new Date().toLocaleDateString('pt-PT')}`
+                                            });
+
+                                            setActiveMode('navigate');
+                                            setPendingPlacementType(null);
+                                            showToast(`"${itemName}" implantado na planta 2D com sucesso!`);
+                                            return;
+                                        }
+
+                                        if (activeMode === 'add_point') {
+                                            setPendingPinData({
+                                                position: [normX, 2, normZ],
+                                                cameraPosition: [normX, 20, normZ + 0.1],
+                                                cameraTarget: [normX, 0, normZ],
+                                                ifcGlobalId: '2D-DRAWING-' + (selected2dDrawing?.code || 'GENERIC'),
+                                                elementName: `Planta 2D: ${selected2dDrawing?.title || 'Desenho'}`,
+                                                storeyName: selected2dDrawing?.storey || 'Piso 0',
+                                                discipline: selected2dDrawing?.discipline || 'architecture'
+                                            });
+                                            setFormTitle(`Inspeção na Planta ${selected2dDrawing?.code || '2D'}`);
+                                            setFormDesc('');
+                                            setFormCategory('visit_observation');
+                                            setFormSeverity('medium');
+                                            setFormCompanyId(companies[0]?.id || '');
+                                            setFormPhoto('');
+                                            setIsCreateModalOpen(true);
+                                        }
+                                    }}
+                                    style={{
+                                        transform: `scale(${sheetZoom})`,
+                                        transformOrigin: 'center center',
+                                        transition: 'transform 0.15s ease-out'
+                                    }}
+                                    className="relative w-[860px] h-[600px] bg-white dark:bg-[#16181b] border-2 border-slate-400 dark:border-neutral-700 shadow-2xl rounded-xs cursor-crosshair overflow-hidden shrink-0"
+                                >
+                                    {/* Architectural Grid & Technical Coordinate Axes */}
+                                    <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+                                        <defs>
+                                            <pattern id="grid-cad" width="40" height="40" patternUnits="userSpaceOnUse">
+                                                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" className="text-slate-200 dark:text-neutral-800/80" strokeWidth="0.5" />
+                                            </pattern>
+                                        </defs>
+                                        <rect width="100%" height="100%" fill="url(#grid-cad)" />
+
+                                        {/* Outer Margin & Drawing Frame */}
+                                        <rect x="24" y="24" width="812" height="552" fill="none" stroke="currentColor" className="text-slate-800 dark:text-neutral-300" strokeWidth="1.5" />
+                                        <rect x="30" y="30" width="800" height="540" fill="none" stroke="currentColor" className="text-slate-400 dark:text-neutral-600" strokeWidth="0.5" />
+
+                                        {/* Grid Axes Lines (A, B, C, D / 1, 2, 3, 4) */}
+                                        <line x1="80" y1="120" x2="720" y2="120" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
+                                        <line x1="80" y1="260" x2="720" y2="260" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
+                                        <line x1="80" y1="400" x2="720" y2="400" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
+                                        <line x1="140" y1="80" x2="140" y2="460" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
+                                        <line x1="340" y1="80" x2="340" y2="460" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
+                                        <line x1="540" y1="80" x2="540" y2="460" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
+
+                                        {/* Axis Bubbles */}
+                                        <circle cx="80" cy="120" r="10" fill="#3b82f6" />
+                                        <text x="80" y="124" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">1</text>
+                                        <circle cx="80" cy="260" r="10" fill="#3b82f6" />
+                                        <text x="80" y="264" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">2</text>
+                                        <circle cx="80" cy="400" r="10" fill="#3b82f6" />
+                                        <text x="80" y="404" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">3</text>
+
+                                        <circle cx="140" cy="70" r="10" fill="#3b82f6" />
+                                        <text x="140" y="74" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">A</text>
+                                        <circle cx="340" cy="70" r="10" fill="#3b82f6" />
+                                        <text x="340" y="74" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">B</text>
+                                        <circle cx="540" cy="70" r="10" fill="#3b82f6" />
+                                        <text x="540" y="74" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">C</text>
+
+                                        {/* Architectural Floor Plan Walls */}
+                                        <rect x="140" y="120" width="400" height="280" fill="none" stroke="#1e293b" className="dark:stroke-slate-300" strokeWidth="3" />
+                                        {/* Interior Partition Walls */}
+                                        <line x1="140" y1="260" x2="340" y2="260" stroke="#475569" className="dark:stroke-slate-400" strokeWidth="2" />
+                                        <line x1="340" y1="120" x2="340" y2="400" stroke="#475569" className="dark:stroke-slate-400" strokeWidth="2" />
+                                        <line x1="340" y1="280" x2="540" y2="280" stroke="#475569" className="dark:stroke-slate-400" strokeWidth="2" />
+
+                                        {/* Reinforced Concrete Columns (40x40cm) */}
+                                        {[
+                                            [140, 120], [340, 120], [540, 120],
+                                            [140, 260], [340, 260], [540, 260],
+                                            [140, 400], [340, 400], [540, 400]
+                                        ].map(([cx, cy], i) => (
+                                            <rect key={i} x={cx - 7} y={cy - 7} width="14" height="14" fill="#0284c7" stroke="#0f172a" strokeWidth="1" />
+                                        ))}
+
+                                        {/* Staircase & Elevator Shaft Core */}
+                                        <rect x="360" y="140" width="70" height="90" fill="#f1f5f9" className="dark:fill-neutral-900" stroke="#64748b" strokeWidth="1.5" />
+                                        <line x1="360" y1="140" x2="430" y2="230" stroke="#94a3b8" strokeWidth="1" />
+                                        <line x1="360" y1="230" x2="430" y2="140" stroke="#94a3b8" strokeWidth="1" />
+                                        <text x="395" y="190" fontSize="9" fill="#64748b" textAnchor="middle" fontWeight="bold">ELEVADOR</text>
+
+                                        {/* Room Tags */}
+                                        <text x="240" y="190" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">SALA REUNIÕES PSS</text>
+                                        <text x="240" y="206" fontSize="9" fill="#94a3b8" textAnchor="middle">Área: 48.0 m²</text>
+
+                                        <text x="240" y="330" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">GABINETE DIREÇÃO</text>
+                                        <text x="240" y="346" fontSize="9" fill="#94a3b8" textAnchor="middle">Área: 42.5 m²</text>
+
+                                        <text x="460" y="340" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">ZONA DE CIRCULAÇÃO</text>
+                                        <text x="460" y="356" fontSize="9" fill="#94a3b8" textAnchor="middle">Saída de Emergência</text>
+
+                                        {/* Emergency Escape Path Arrows (Green ISO 7010) */}
+                                        <path d="M 240 230 L 240 250 L 350 250 L 350 380 L 535 380" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeDasharray="6 3" />
+                                        <polygon points="540,380 530,375 530,385" fill="#16a34a" />
+
+                                        {/* North Arrow Symbol */}
+                                        <g transform="translate(760, 80)">
+                                            <circle cx="0" cy="0" r="18" fill="none" stroke="#64748b" strokeWidth="1" />
+                                            <polygon points="0,-16 6,0 0,-4" fill="#ef4444" />
+                                            <polygon points="0,-16 -6,0 0,-4" fill="#3b82f6" />
+                                            <text x="0" y="26" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">N</text>
+                                        </g>
+
+                                        {/* Official Cartouche / Title Block */}
+                                        <g transform="translate(520, 460)">
+                                            <rect x="0" y="0" width="310" height="110" fill="#f8fafc" className="dark:fill-neutral-900" stroke="#334155" strokeWidth="1.5" />
+                                            <line x1="0" y1="28" x2="310" y2="28" stroke="#cbd5e1" strokeWidth="1" />
+                                            <line x1="0" y1="68" x2="310" y2="68" stroke="#cbd5e1" strokeWidth="1" />
+                                            <line x1="160" y1="68" x2="160" y2="110" stroke="#cbd5e1" strokeWidth="1" />
+
+                                            <text x="12" y="18" fontSize="10" fontWeight="bold" fill="#0f172a" className="dark:fill-white">SAFESITE CDE | SISTEMA OFICIAL DE PROJETO E SST</text>
+                                            <text x="12" y="44" fontSize="8" fill="#64748b">OBRA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{currentProject.name}</tspan></text>
+                                            <text x="12" y="58" fontSize="9" fontWeight="bold" fill="#2563eb">{selected2dDrawing.code} - {selected2dDrawing.title}</text>
+
+                                            <text x="12" y="84" fontSize="8" fill="#64748b">NÍVEL: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{selected2dDrawing.storey}</tspan></text>
+                                            <text x="12" y="98" fontSize="8" fill="#64748b">ESCALA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{selected2dDrawing.format}</tspan></text>
+
+                                            <text x="170" y="84" fontSize="8" fill="#64748b">REVISÃO: <tspan fontWeight="bold" fill="#16a34a">{selected2dDrawing.revision}</tspan></text>
+                                            <text x="170" y="98" fontSize="8" fill="#64748b">ESTADO: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">APROVADO PSS</tspan></text>
+                                        </g>
+                                    </svg>
+
+                                    {/* INTERACTIVE OVERLAY: GEOLOCATED OBSERVATION PINS */}
+                                    {showObservationsLayer && projectObservations.map(obs => {
+                                        const px = 50 + (obs.position[0] / 20) * 35;
+                                        const py = 50 + (obs.position[2] / 16) * 35;
+                                        const isSelected = activePin?.id === obs.id;
+                                        const color = obs.status === 'resolved' ? 'bg-emerald-500' :
+                                                      obs.severity === 'critical' ? 'bg-red-600' :
+                                                      obs.severity === 'high' ? 'bg-orange-500' : 'bg-blue-600';
+
+                                        return (
+                                            <div
+                                                key={obs.id}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setActivePin(obs);
+                                                    setSelectedElement(null);
+                                                    setActiveLogisticsItem(null);
+                                                }}
+                                                style={{ left: `${px}%`, top: `${py}%` }}
+                                                className={cn(
+                                                    "absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-pointer transition-transform group z-10",
+                                                    isSelected ? "scale-125 ring-4 ring-blue-400 rounded-full" : "hover:scale-110"
+                                                )}
+                                                title={`${obs.title} (${obs.severity})`}
+                                            >
+                                                <div className={cn("w-5 h-5 rounded-full text-white flex items-center justify-center shadow-md", color)}>
+                                                    <MapPin size={11} strokeWidth={2.5} />
+                                                </div>
+                                                <div className="absolute top-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900/90 text-white text-[9px] px-1.5 py-0.5 rounded font-bold opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md">
+                                                    {obs.title.slice(0, 24)}...
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* INTERACTIVE OVERLAY: GEOLOCATED SITE LOGISTICS & EMERGENCY ITEMS */}
+                                    {showLogisticsLayer && projectLogistics.map(item => {
+                                        const px = 50 + (item.position[0] / 20) * 35;
+                                        const py = 50 + (item.position[2] / 16) * 35;
+                                        const isSelected = activeLogisticsItem?.id === item.id;
+                                        const catalogMatch = SITE_LOGISTICS_CATALOG.find(c => c.type === item.type);
+
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setActiveLogisticsItem(item);
+                                                    setSelectedElement(null);
+                                                    setActivePin(null);
+                                                }}
+                                                style={{ left: `${px}%`, top: `${py}%` }}
+                                                className={cn(
+                                                    "absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center cursor-pointer transition-transform group z-10",
+                                                    isSelected ? "scale-125 ring-2 ring-amber-500 rounded-lg p-0.5 bg-amber-500/20" : "hover:scale-110"
+                                                )}
+                                                title={`${item.name} [${item.position.join(', ')}]`}
+                                            >
+                                                {/* Crane Radius Circle on 2D Plan */}
+                                                {item.type === 'crane' && (
+                                                    <div
+                                                        style={{ width: `${(item.radius || 26) * 12}px`, height: `${(item.radius || 26) * 12}px` }}
+                                                        className="absolute -translate-x-1/2 -translate-y-1/2 border-2 border-dashed border-amber-500/60 rounded-full pointer-events-none bg-amber-500/5 animate-pulse"
+                                                    />
+                                                )}
+
+                                                <div
+                                                    className="w-6 h-6 rounded-md flex items-center justify-center text-white shadow-md text-xs font-bold"
+                                                    style={{ backgroundColor: catalogMatch?.color || (item.category === 'emergency' ? '#10b981' : '#f59e0b') }}
+                                                >
+                                                    {item.type === 'crane' ? '🏗️' :
+                                                     item.type === 'meeting_point' ? '🚨' :
+                                                     item.type === 'first_aid' ? '🩹' :
+                                                     item.type === 'fire_extinguisher' ? '🧯' :
+                                                     item.type === 'waste_bay' ? '♻️' :
+                                                     item.type === 'office_container' ? '🏢' : '📦'}
+                                                </div>
+                                                <span className="text-[8px] font-bold text-slate-800 dark:text-slate-200 mt-0.5 whitespace-nowrap bg-white/90 dark:bg-neutral-800/90 px-1 rounded shadow-2xs">
+                                                    {item.name.split(' ')[0]}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        /* 3D WebGL Canvas */
+                        <div
+                            ref={mountRef}
+                            onClick={handleCanvasClick}
+                            className={`w-full h-full cursor-grab active:cursor-grabbing ${
+                                activeMode !== 'navigate' ? 'cursor-crosshair' : ''
+                            }`}
+                        />
+                    )}
                 </div>
 
                 {/* ZONE C: Right OpenProject BIM BCF Issues Panel (Mesma largura do painel esquerdo: w-80) */}
