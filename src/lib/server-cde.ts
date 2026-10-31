@@ -572,16 +572,31 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                         webViewLink: item.webViewLink,
                         isRealCdeFile: true
                     });
-                } else if (lower.endsWith('.pdf')) {
+                } else if (
+                    lower.endsWith('.pdf') ||
+                    lower.endsWith('.dwg') ||
+                    lower.endsWith('.dxf') ||
+                    lower.endsWith('.png') ||
+                    lower.endsWith('.jpg') ||
+                    lower.endsWith('.jpeg') ||
+                    lower.endsWith('.tiff')
+                ) {
                     const discipline = detectDiscipline(name, folderName);
-                    const base = name.replace(/\.pdf$/i, '');
+                    const ext = lower.split('.').pop() || '';
+                    const base = name.replace(/\.[^/.]+$/, '');
                     const parts = base.split('_');
                     const code = parts[0]?.length <= 8 ? parts[0] : `DRW-${discoveredDrawings.length + 1}`;
-                    const title = parts.slice(1).join(' ').replace(/[-_]/g, ' ') || base;
+                    const title = parts.length > 1 ? parts.slice(1).join(' ').replace(/[-_]/g, ' ') : base.replace(/[-_]/g, ' ');
                     const storey = lower.includes('piso 1') ? 'Piso 1' :
                                    lower.includes('piso 2') ? 'Piso 2' :
+                                   lower.includes('piso -1') || lower.includes('cave') ? 'Piso -1 (Cave)' :
                                    lower.includes('piso 0') || lower.includes('r/c') || lower.includes('rc') ? 'Piso 0' :
+                                   lower.includes('cobertura') ? 'Cobertura' :
                                    lower.includes('estaleiro') || lower.includes('implant') ? 'Exterior / Estaleiro' : 'Piso 0';
+
+                    const format = ext === 'pdf' ? 'PDF Vetorial' :
+                                   ext === 'dwg' ? 'AutoCAD DWG' :
+                                   ext === 'dxf' ? 'AutoCAD DXF' : 'Imagem Técnica';
 
                     discoveredDrawings.push({
                         id: item.id || `cde-dw-${name}`,
@@ -590,7 +605,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                         title: title || name,
                         discipline,
                         storey,
-                        format: 'A1 (1:100)',
+                        format,
                         revision: 'Cloud CDE',
                         fileName: name,
                         date: new Date().toISOString().split('T')[0],
@@ -600,16 +615,19 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 }
             };
 
-            // Recursive folder scanner (up to 2 levels deep)
-            const scanFolder = async (folderId: string, folderPath: string, depth: number = 0) => {
-                if (depth > 2) return;
+            // Recursive folder scanner (up to 3 levels deep)
+            const scanFolder = async (folderId: string, folderPath: string, depth: number = 0, driveId?: string) => {
+                if (depth > 3) return;
                 try {
                     const res: any = await executeServerCdeAction(projectId, 'list', {
                         ...payload,
                         folderId,
-                        path: folderPath
+                        path: folderPath,
+                        driveId: driveId || payload?.driveId,
+                        recursive: config.provider === 'dropbox' && depth === 0
                     });
                     const items: any[] = res?.files || [];
+                    const currentDriveId = res?.driveId || driveId;
 
                     for (const item of items) {
                         const name = item.name || '';
@@ -620,9 +638,11 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                         if (!isFolder) {
                             processFile(item, folderPath || 'Raiz');
                         } else {
-                            // Subfolder traversal
-                            const nextPath = folderPath ? `${folderPath}/${name}` : name;
-                            await scanFolder(item.id, nextPath, depth + 1);
+                            // Subfolder traversal (for providers that didn't do recursive fetch)
+                            if (!(config.provider === 'dropbox' && depth === 0 && res?.recursive)) {
+                                const nextPath = folderPath ? `${folderPath}/${name}` : name;
+                                await scanFolder(item.id, nextPath, depth + 1, currentDriveId);
+                            }
                         }
                     }
                 } catch (scanErr) {
@@ -633,7 +653,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
             // 1. Initiate deep scan from project root
             await scanFolder('root', '', 0);
 
-            // 2. Decide whether to use discovered real files or fallback to sample models if CDE folder is completely empty
+            // 2. Real files vs fallback samples
             const hasRealModels = discoveredModels.length > 0;
             const hasRealDrawings = discoveredDrawings.length > 0;
 
@@ -649,6 +669,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 isRealCdeFile: false
             }));
 
+            // Only return sample drawings if the user's CDE folder has zero drawings discovered
             const finalDrawings = hasRealDrawings ? discoveredDrawings : SAMPLE_2D_DRAWINGS.map((d, idx) => ({
                 id: `cde-d-${idx + 1}`,
                 cdeId: `sample-${d.fileName}`,
@@ -657,7 +678,7 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 discipline: d.discipline,
                 storey: d.storey || 'Piso 0',
                 format: d.format || 'A1 (1:100)',
-                revision: d.rev,
+                revision: 'Exemplo Local',
                 fileName: d.fileName,
                 date: '2026-04-25',
                 isRealCdeFile: false
@@ -1638,11 +1659,13 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
 
         const arrayBuffer = await res.arrayBuffer();
         const base64 = Buffer.from(arrayBuffer).toString('base64');
+        const fileName = payload.fileName || 'file';
+        const mimeType = fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : (res.headers.get('content-type') || 'application/x-step');
         return {
             base64,
             size: arrayBuffer.byteLength,
-            mimeType: res.headers.get('content-type') || 'application/x-step',
-            fileName: payload.fileName || 'model.ifc'
+            mimeType,
+            fileName
         };
     }
 
@@ -1700,14 +1723,18 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
     if (action === 'list') {
         let dbxPath = payload.path || '';
         if (dbxPath === '/' || dbxPath === 'root') dbxPath = '';
+        if (dbxPath && !dbxPath.startsWith('/') && !dbxPath.startsWith('id:')) {
+            dbxPath = '/' + dbxPath;
+        }
 
+        const isRecursive = payload.recursive === true;
         const response = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ path: dbxPath, recursive: false })
+            body: JSON.stringify({ path: dbxPath, recursive: isRecursive })
         });
 
         if (!response.ok) {
@@ -1717,14 +1744,16 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
 
         const data = await response.json();
         const files = (data.entries || []).map((item: any) => ({
-            id: item.path_display,
+            id: item.path_display || item.id,
             name: item.name,
             mimeType: item['.tag'] === 'folder' ? 'application/vnd.google-apps.folder' : 'file',
             webViewLink: item.path_display,
-            size: item.size
+            size: item.size,
+            path_display: item.path_display,
+            tag: item['.tag']
         }));
 
-        return { files };
+        return { files, recursive: isRecursive };
     }
 
     if (action === 'create_folder') {
@@ -1821,7 +1850,7 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
         const filePath = payload.fileId || payload.path || payload.id;
         if (!filePath) throw new Error('Caminho do ficheiro obrigatório para download do Dropbox.');
 
-        const dbxPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+        const dbxPath = (filePath.startsWith('/') || filePath.startsWith('id:')) ? filePath : `/${filePath}`;
         const res = await fetch('https://content.dropboxapi.com/2/files/download', {
             method: 'POST',
             headers: {
@@ -1837,11 +1866,17 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
 
         const arrayBuffer = await res.arrayBuffer();
         const base64 = Buffer.from(arrayBuffer).toString('base64');
+        const fileName = payload.fileName || (filePath.split('/').pop() || 'file');
+        const mimeType = fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' :
+                         fileName.toLowerCase().endsWith('.ifc') ? 'application/x-step' :
+                         fileName.toLowerCase().endsWith('.png') ? 'image/png' :
+                         (fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg')) ? 'image/jpeg' :
+                         'application/octet-stream';
         return {
             base64,
             size: arrayBuffer.byteLength,
-            mimeType: 'application/x-step',
-            fileName: payload.fileName || 'model.ifc'
+            mimeType,
+            fileName
         };
     }
 
@@ -1874,7 +1909,9 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
     }
 
     if (action === 'list') {
-        const parentId = payload.path || payload.folderId || config.folderId || 'root';
+        const parentId = (payload.folderId && payload.folderId !== 'root')
+            ? payload.folderId
+            : (config.folderId || (payload.path && payload.path !== 'root' ? payload.path : 'root'));
         const q = `'${parentId}' in parents and trashed = false`;
         const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,webViewLink)`, {
             headers: { Authorization: `Bearer ${accessToken}` }
@@ -2014,11 +2051,13 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
 
         const arrayBuffer = await res.arrayBuffer();
         const base64 = Buffer.from(arrayBuffer).toString('base64');
+        const fileName = payload.fileName || 'file';
+        const mimeType = fileName.toLowerCase().endsWith('.pdf') ? 'application/pdf' : (res.headers.get('content-type') || 'application/x-step');
         return {
             base64,
             size: arrayBuffer.byteLength,
-            mimeType: res.headers.get('content-type') || 'application/x-step',
-            fileName: payload.fileName || 'model.ifc'
+            mimeType,
+            fileName
         };
     }
 

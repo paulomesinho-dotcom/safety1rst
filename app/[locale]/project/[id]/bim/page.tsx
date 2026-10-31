@@ -261,9 +261,10 @@ const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [
         discipline: 'architecture',
         storey: 'Piso 0',
         format: 'A1 (1:100)',
-        revision: 'Rev. 03',
+        revision: 'Rev. 03 (Exemplo)',
         fileName: 'P01-ARQ-Planta-Piso0-Licenciamento.pdf',
-        date: '2026-04-12'
+        date: '2026-04-12',
+        isRealCdeFile: false
     },
     {
         id: 'drw-2',
@@ -272,9 +273,10 @@ const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [
         discipline: 'structure',
         storey: 'Piso 1',
         format: 'A0 (1:50)',
-        revision: 'Rev. 02',
+        revision: 'Rev. 02 (Exemplo)',
         fileName: 'P02-EST-Armaduras-Laje-Vigas-P1.pdf',
-        date: '2026-04-20'
+        date: '2026-04-20',
+        isRealCdeFile: false
     },
     {
         id: 'drw-3',
@@ -283,9 +285,10 @@ const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [
         discipline: 'structure',
         storey: 'Piso 2',
         format: 'A1 (1:50)',
-        revision: 'Rev. 01',
+        revision: 'Rev. 01 (Exemplo)',
         fileName: 'P03-EST-Pilares-Nucleo-Piso2.pdf',
-        date: '2026-04-28'
+        date: '2026-04-28',
+        isRealCdeFile: false
     },
     {
         id: 'drw-4',
@@ -294,9 +297,10 @@ const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [
         discipline: 'safety',
         storey: 'Exterior',
         format: 'A1 (1:200)',
-        revision: 'Rev. 04',
+        revision: 'Rev. 04 (Exemplo)',
         fileName: 'EST-01-Plano-Seguranca-Estaleiro.pdf',
-        date: '2026-05-10'
+        date: '2026-05-10',
+        isRealCdeFile: false
     }
 ];
 
@@ -437,7 +441,7 @@ export default function BimViewerPage() {
         setTimeout(() => setToastMessage(null), 4000);
     }, []);
 
-    // Synchronize Real-time PDF Blob for the selected 2D Drawing
+    // Synchronize Real-time PDF Blob for the selected 2D Drawing (Real CDE or Synthetic Fallback)
     useEffect(() => {
         if (!selected2dDrawing) {
             if (currentPdfUrl) {
@@ -447,25 +451,52 @@ export default function BimViewerPage() {
             return;
         }
 
-        try {
-            const buf = generateRealisticPdfDrawing(
-                selected2dDrawing.fileName,
-                selected2dDrawing.title,
-                selected2dDrawing.code,
-                selected2dDrawing.storey || 'Piso 0'
-            );
-            const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-            const blob = new Blob([uint8 as any], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
-            setCurrentPdfUrl(url);
+        let isMounted = true;
+        let createdBlobUrl: string | null = null;
 
-            return () => {
-                URL.revokeObjectURL(url);
-            };
-        } catch (e) {
-            console.warn('Erro ao gerar blob do PDF:', e);
-        }
-    }, [selected2dDrawing]);
+        const loadPdfContent = async () => {
+            try {
+                // If it is a real file from CDE, download real bytes
+                if (selected2dDrawing.isRealCdeFile) {
+                    const fileId = selected2dDrawing.cdeId || selected2dDrawing.id;
+                    const res = await fetch(`/api/projects/${projectId}/cde/download?fileId=${encodeURIComponent(fileId)}&fileName=${encodeURIComponent(selected2dDrawing.fileName)}`);
+                    if (res.ok) {
+                        const blob = await res.blob();
+                        if (isMounted) {
+                            createdBlobUrl = URL.createObjectURL(blob);
+                            setCurrentPdfUrl(createdBlobUrl);
+                        }
+                        return;
+                    }
+                }
+
+                // Fallback: generate high-fidelity technical drawing PDF
+                const buf = generateRealisticPdfDrawing(
+                    selected2dDrawing.fileName,
+                    selected2dDrawing.title,
+                    selected2dDrawing.code,
+                    selected2dDrawing.storey || 'Piso 0'
+                );
+                const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+                const blob = new Blob([uint8 as any], { type: 'application/pdf' });
+                if (isMounted) {
+                    createdBlobUrl = URL.createObjectURL(blob);
+                    setCurrentPdfUrl(createdBlobUrl);
+                }
+            } catch (e) {
+                console.warn('Erro ao obter conteúdo do PDF:', e);
+            }
+        };
+
+        loadPdfContent();
+
+        return () => {
+            isMounted = false;
+            if (createdBlobUrl) {
+                URL.revokeObjectURL(createdBlobUrl);
+            }
+        };
+    }, [selected2dDrawing, projectId]);
 
     // Load Real CDE Cloud Files
     const loadRealCdeFiles = useCallback(async () => {
@@ -516,7 +547,7 @@ export default function BimViewerPage() {
                     }
                     if (result.drawings && result.drawings.length > 0) {
                         setCdeDrawings(result.drawings);
-                        if (!selected2dDrawing) {
+                        if (!selected2dDrawing || !selected2dDrawing.isRealCdeFile) {
                             setSelected2dDrawing(result.drawings[0]);
                         }
                     }
@@ -612,12 +643,26 @@ export default function BimViewerPage() {
     };
 
     // Open Authentic PDF Drawing
-    const handleOpenAuthenticPdf = (drawing?: CdeDrawing2D | null) => {
+    const handleOpenAuthenticPdf = async (drawing?: CdeDrawing2D | null) => {
         const target = drawing || selected2dDrawing;
         if (!target) return;
         setIsGeneratingPdf(true);
-        showToast(`A gerar documento PDF oficial "${target.fileName}"...`);
+        showToast(`A preparar documento PDF oficial "${target.fileName}"...`);
         try {
+            if (target.isRealCdeFile) {
+                const targetId = target.cdeId || target.id;
+                const url = `/api/projects/${projectId}/cde/download?download=1&fileId=${encodeURIComponent(targetId)}&fileName=${encodeURIComponent(target.fileName)}`;
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = target.fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast(`Download de "${target.fileName}" iniciado.`);
+                return;
+            }
+
+            // Fallback para desenhos de exemplo sintéticos
             const buf = generateRealisticPdfDrawing(
                 target.fileName,
                 target.title,
@@ -630,7 +675,7 @@ export default function BimViewerPage() {
             window.open(url, '_blank');
             showToast('Documento PDF aberto em novo separador!');
         } catch (err: any) {
-            showToast(`Erro ao gerar PDF: ${err.message}`);
+            showToast(`Erro ao preparar PDF: ${err.message}`);
         } finally {
             setIsGeneratingPdf(false);
         }
@@ -2433,7 +2478,7 @@ export default function BimViewerPage() {
                                             </button>
 
                                             {expandedFolders.drawings_root && (
-                                                <div className="pl-3.5 space-y-1 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
+                                                <div className="pl-3.5 space-y-1.5 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
                                                     {cdeDrawings.map(dw => {
                                                         const isSelected = selected2dDrawing?.id === dw.id && viewDimension === '2d';
                                                         return (
@@ -2442,39 +2487,81 @@ export default function BimViewerPage() {
                                                                 onClick={() => {
                                                                     setSelected2dDrawing(dw);
                                                                     setViewDimension('2d');
-                                                                    showToast(`Planta 2D "${dw.code} - ${dw.title}" ativada no visualizador.`);
+                                                                    setDrawingViewMode('pdf');
+                                                                    showToast(`Desenho "${dw.code} - ${dw.title}" aberto em PDF.`);
                                                                 }}
                                                                 className={cn(
-                                                                    "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1.5",
+                                                                    "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex flex-col gap-1.5",
                                                                     isSelected
                                                                         ? "bg-blue-50/90 border-blue-500 text-blue-950 font-bold dark:bg-blue-950/70 dark:border-blue-600 dark:text-blue-100 shadow-2xs ring-1 ring-blue-500/20"
                                                                         : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300 dark:hover:border-neutral-600"
                                                                 )}
                                                             >
-                                                                <div className="truncate flex-1 min-w-0">
-                                                                    <div className="font-semibold truncate flex items-center gap-1.5">
-                                                                        <FileText size={12} className={isSelected ? "text-blue-600 dark:text-blue-400 shrink-0" : "text-slate-400 shrink-0"} />
-                                                                        <span className="text-blue-600 dark:text-blue-400 font-bold">{dw.code}</span>
-                                                                        <span className="truncate">{dw.title}</span>
+                                                                <div className="flex items-start justify-between gap-1.5">
+                                                                    <div className="truncate flex-1 min-w-0">
+                                                                        <div className="font-semibold truncate flex items-center gap-1.5">
+                                                                            <FileText size={12} className={isSelected ? "text-blue-600 dark:text-blue-400 shrink-0" : "text-slate-400 shrink-0"} />
+                                                                            <span className="text-blue-600 dark:text-blue-400 font-bold">{dw.code}</span>
+                                                                            <span className="truncate">{dw.title}</span>
+                                                                        </div>
+                                                                        <div className="text-[9px] text-slate-400 truncate pl-4.5">{dw.storey} • {dw.format}</div>
                                                                     </div>
-                                                                    <div className="text-[9px] text-slate-400 truncate pl-4.5">{dw.storey} • {dw.format}</div>
+                                                                    {dw.isRealCdeFile ? (
+                                                                        <span className="text-[8px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">
+                                                                            CDE Cloud
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[8px] bg-slate-100 text-slate-500 dark:bg-neutral-800 dark:text-neutral-400 px-1 py-0.5 rounded font-medium uppercase tracking-wider shrink-0">
+                                                                            Exemplo
+                                                                        </span>
+                                                                    )}
                                                                 </div>
-                                                                <div className="flex items-center gap-1 shrink-0">
-                                                                    <span className="text-[9px] text-slate-400 font-mono bg-slate-100 dark:bg-neutral-700 px-1 py-0.5 rounded">{dw.revision}</span>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            setSelected2dDrawing(dw);
-                                                                            setViewDimension('2d');
-                                                                            setDrawingViewMode('pdf');
-                                                                            showToast(`A visualizar PDF de "${dw.code}" no ecrã central.`);
-                                                                        }}
-                                                                        className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900 rounded text-blue-600 dark:text-blue-400 cursor-pointer"
-                                                                        title="Ver Documento PDF"
-                                                                    >
-                                                                        <Eye size={12} />
-                                                                    </button>
+
+                                                                {/* Quick Action Buttons: Ver PDF vs Anotar */}
+                                                                <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-neutral-750 text-[10px]">
+                                                                    <span className="text-[9px] text-slate-400 font-mono">{dw.revision}</span>
+                                                                    <div className="flex items-center gap-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelected2dDrawing(dw);
+                                                                                setViewDimension('2d');
+                                                                                setDrawingViewMode('pdf');
+                                                                                showToast(`A visualizar PDF de "${dw.code}" no ecrã central.`);
+                                                                            }}
+                                                                            className={cn(
+                                                                                "px-2 py-0.5 rounded font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
+                                                                                isSelected && drawingViewMode === 'pdf'
+                                                                                    ? "bg-blue-600 text-white"
+                                                                                    : "bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                                                                            )}
+                                                                            title="Visualizar documento PDF oficial"
+                                                                        >
+                                                                            <FileText size={10} />
+                                                                            <span>Ver PDF</span>
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelected2dDrawing(dw);
+                                                                                setViewDimension('2d');
+                                                                                setDrawingViewMode('interactive');
+                                                                                showToast(`Prancha interativa de "${dw.code}" ativada.`);
+                                                                            }}
+                                                                            className={cn(
+                                                                                "px-2 py-0.5 rounded font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
+                                                                                isSelected && drawingViewMode === 'interactive'
+                                                                                    ? "bg-amber-600 text-white"
+                                                                                    : "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-neutral-800 dark:text-slate-300"
+                                                                            )}
+                                                                            title="Abrir prancha interativa de estaleiro para anotações e equipamentos"
+                                                                        >
+                                                                            <Layers size={10} />
+                                                                            <span>Anotar</span>
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         );
@@ -2985,82 +3072,93 @@ export default function BimViewerPage() {
                     {viewDimension === '2d' && selected2dDrawing && (
                         <div className="absolute inset-0 z-20 flex flex-col bg-slate-200/90 dark:bg-[#121316] select-none overflow-hidden">
                             {/* Sheet Toolbar */}
-                            <div className="h-10 px-3 bg-white/95 dark:bg-neutral-900/95 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between shrink-0 shadow-2xs z-20">
+                            <div className="h-12 px-3 bg-white/95 dark:bg-neutral-900/95 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between shrink-0 shadow-2xs z-20 gap-2">
+                                {/* Left Section: Back to 3D and Drawing Identity */}
                                 <div className="flex items-center gap-2 truncate">
-                                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-blue-600 text-white">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleViewDimension('3d')}
+                                        className="h-8 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all shrink-0"
+                                        title="Voltar ao modelo 3D em perspetiva"
+                                    >
+                                        <Box size={14} />
+                                        <span>← Voltar ao 3D</span>
+                                    </button>
+
+                                    <div className="h-5 w-px bg-slate-200 dark:bg-neutral-700 shrink-0 mx-1" />
+
+                                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shrink-0 font-mono">
                                         {selected2dDrawing.code}
                                     </span>
-                                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px] sm:max-w-xs md:max-w-sm">
                                         {selected2dDrawing.title}
                                     </span>
-                                    <span className="text-[11px] text-slate-400 hidden sm:inline">
-                                        • {selected2dDrawing.storey} • {selected2dDrawing.format} • {selected2dDrawing.revision}
-                                    </span>
+                                    {selected2dDrawing.isRealCdeFile ? (
+                                        <span className="text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-bold uppercase shrink-0 border border-emerald-300 dark:border-emerald-800">
+                                            ☁️ CDE Real
+                                        </span>
+                                    ) : (
+                                        <span className="text-[9px] bg-slate-100 text-slate-500 dark:bg-neutral-800 dark:text-neutral-400 px-1.5 py-0.5 rounded-full font-medium uppercase shrink-0">
+                                            Exemplo
+                                        </span>
+                                    )}
                                 </div>
 
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                    {/* Segmented Mode: Interactive Vector vs Real Native PDF */}
-                                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700">
-                                        <button
-                                            type="button"
-                                            onClick={() => setDrawingViewMode('interactive')}
-                                            className={cn(
-                                                "px-2 py-0.5 text-[11px] font-semibold rounded-md transition-all flex items-center gap-1 cursor-pointer",
-                                                drawingViewMode === 'interactive'
-                                                    ? "bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-2xs font-bold"
-                                                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                                            )}
-                                            title="Planta Técnica Vetorial com Pins e Equipamento Interativo"
-                                        >
-                                            <Layers size={12} />
-                                            <span className="hidden md:inline">Planta Interativa</span>
-                                        </button>
+                                {/* Right Section: View Mode Tabs & Actions */}
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {/* Clear Segmented Switcher */}
+                                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-1 rounded-lg border border-slate-200 dark:border-neutral-700 gap-1">
                                         <button
                                             type="button"
                                             onClick={() => setDrawingViewMode('pdf')}
                                             className={cn(
-                                                "px-2 py-0.5 text-[11px] font-semibold rounded-md transition-all flex items-center gap-1 cursor-pointer",
+                                                "px-2.5 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 cursor-pointer",
                                                 drawingViewMode === 'pdf'
-                                                    ? "bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-2xs font-bold"
-                                                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                                    ? "bg-white dark:bg-neutral-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold"
+                                                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                                             )}
-                                            title="Visualizador direto do Documento PDF Oficial"
+                                            title="Visualizar o Documento PDF oficial arquivado no CDE"
                                         >
-                                            <FileText size={12} />
-                                            <span className="hidden md:inline">Documento PDF</span>
+                                            <FileText size={13} />
+                                            <span>Documento PDF</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDrawingViewMode('interactive')}
+                                            className={cn(
+                                                "px-2.5 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1.5 cursor-pointer",
+                                                drawingViewMode === 'interactive'
+                                                    ? "bg-white dark:bg-neutral-900 text-amber-600 dark:text-amber-400 shadow-xs font-bold"
+                                                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                            )}
+                                            title="Prancha vetorial para posicionar gruas, equipamentos e anotar inspeções"
+                                        >
+                                            <Layers size={13} />
+                                            <span>Folha de Estaleiro & Anotações</span>
                                         </button>
                                     </div>
 
-                                    <button
-                                        onClick={() => handleOpenAuthenticPdf(selected2dDrawing)}
-                                        disabled={isGeneratingPdf}
-                                        className="h-7 px-2.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-md text-[11px] font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-                                        title="Abrir o Documento PDF Oficial em novo separador"
-                                    >
-                                        <Download size={12} strokeWidth={2} />
-                                        <span className="hidden sm:inline">Descarregar PDF</span>
-                                    </button>
-
+                                    {/* Zoom controls (only in interactive mode) */}
                                     {drawingViewMode === 'interactive' && (
-                                        <div className="flex items-center border border-slate-200 dark:border-neutral-700 rounded-md p-0.5 bg-slate-50 dark:bg-neutral-800">
+                                        <div className="flex items-center border border-slate-200 dark:border-neutral-700 rounded-lg p-0.5 bg-slate-50 dark:bg-neutral-800">
                                             <button
                                                 onClick={() => setSheetZoom(z => Math.max(0.6, z - 0.15))}
-                                                className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
+                                                className="h-7 w-7 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
                                                 title="Diminuir Zoom"
                                             >
-                                                <ZoomOut size={12} />
+                                                <ZoomOut size={13} />
                                             </button>
                                             <span className="text-[10px] font-mono px-1 font-semibold">{Math.round(sheetZoom * 100)}%</span>
                                             <button
                                                 onClick={() => setSheetZoom(z => Math.min(2.2, z + 0.15))}
-                                                className="h-6 w-6 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
+                                                className="h-7 w-7 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:text-slate-900 cursor-pointer"
                                                 title="Aumentar Zoom"
                                             >
-                                                <ZoomIn size={12} />
+                                                <ZoomIn size={13} />
                                             </button>
                                             <button
                                                 onClick={() => setSheetZoom(1)}
-                                                className="px-1 text-[10px] text-slate-500 hover:text-slate-800 cursor-pointer font-bold"
+                                                className="px-1.5 text-[10px] text-slate-500 hover:text-slate-800 cursor-pointer font-bold"
                                                 title="Repor Zoom Original"
                                             >
                                                 100%
@@ -3069,15 +3167,51 @@ export default function BimViewerPage() {
                                     )}
 
                                     <button
-                                        onClick={() => handleToggleViewDimension('3d')}
-                                        className="h-7 px-2 bg-slate-100 dark:bg-neutral-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-md text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-                                        title="Alternar para Vista 3D em Perspetiva"
+                                        onClick={() => handleOpenAuthenticPdf(selected2dDrawing)}
+                                        disabled={isGeneratingPdf}
+                                        className="h-8 px-2.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                                        title="Descarregar o ficheiro PDF diretamente"
                                     >
-                                        <Box size={12} />
-                                        <span>3D</span>
+                                        <Download size={13} strokeWidth={2} />
+                                        <span className="hidden sm:inline">Descarregar</span>
                                     </button>
                                 </div>
                             </div>
+
+                            {/* Informational Sub-Bar explaining the current active 2D mode */}
+                            {drawingViewMode === 'pdf' ? (
+                                <div className="h-8 px-3 bg-blue-50/80 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-900/60 flex items-center justify-between text-[11px] text-blue-900 dark:text-blue-200 shrink-0">
+                                    <div className="flex items-center gap-1.5 truncate">
+                                        <FileText size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                                        <span className="truncate">
+                                            <strong>Documento PDF Oficial ({selected2dDrawing.fileName}):</strong> Visualização fiel do ficheiro do projeto.
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDrawingViewMode('interactive')}
+                                        className="text-blue-700 dark:text-blue-300 font-bold hover:underline shrink-0 ml-2 cursor-pointer flex items-center gap-1"
+                                    >
+                                        <span>Mudar para Anotações / Estaleiro &rarr;</span>
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="h-8 px-3 bg-amber-50/80 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 flex items-center justify-between text-[11px] text-amber-900 dark:text-amber-200 shrink-0">
+                                    <div className="flex items-center gap-1.5 truncate">
+                                        <Layers size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
+                                        <span className="truncate">
+                                            <strong>Folha de Estaleiro & Anotações:</strong> Clique na planta para marcar inspeções ou posicionar gruas/equipamentos.
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setDrawingViewMode('pdf')}
+                                        className="text-amber-800 dark:text-amber-300 font-bold hover:underline shrink-0 ml-2 cursor-pointer flex items-center gap-1"
+                                    >
+                                        <span>Ver Documento PDF Original &rarr;</span>
+                                    </button>
+                                </div>
+                            )}
 
                             {/* Viewport Content: Either Native PDF Iframe or Interactive Vector Sheet */}
                             {drawingViewMode === 'pdf' ? (

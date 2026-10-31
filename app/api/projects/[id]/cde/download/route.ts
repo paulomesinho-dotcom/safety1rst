@@ -27,11 +27,20 @@ export async function GET(
         }
 
         const buffer = Buffer.from(result.base64, 'base64');
+        const isAttachment = searchParams.get('download') === '1' || searchParams.get('download') === 'true';
+        const disposition = isAttachment ? 'attachment' : 'inline';
+        const lowerName = fileName.toLowerCase();
+        const contentType = lowerName.endsWith('.pdf') ? 'application/pdf' :
+                            lowerName.endsWith('.ifc') ? 'application/x-step' :
+                            lowerName.endsWith('.png') ? 'image/png' :
+                            (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) ? 'image/jpeg' :
+                            (result.mimeType || 'application/octet-stream');
+
         return new NextResponse(buffer, {
             status: 200,
             headers: {
-                'Content-Type': result.mimeType || 'application/x-step',
-                'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+                'Content-Type': contentType,
+                'Content-Disposition': `${disposition}; filename="${encodeURIComponent(fileName)}"`,
                 'Content-Length': buffer.byteLength.toString()
             }
         });
