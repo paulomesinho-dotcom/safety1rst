@@ -216,8 +216,9 @@ const SEED_LOGISTICS_ITEMS: Omit<SiteLogisticsItem, 'id'>[] = [
 ];
 
 // 2D Drawings catalog in project CDE
-interface CdeDrawing2D {
+export interface CdeDrawing2D {
     id: string;
+    cdeId?: string;
     code: string;
     title: string;
     discipline: 'architecture' | 'structure' | 'mep' | 'safety';
@@ -226,16 +227,21 @@ interface CdeDrawing2D {
     revision: string;
     fileName: string;
     date: string;
+    webViewLink?: string;
+    isRealCdeFile?: boolean;
 }
 
 export interface CdeModelItem {
     id: string;
+    cdeId?: string;
     folder: string;
     name: string;
     size: string;
     rev: string;
     active: boolean;
     discipline: 'architecture' | 'structure' | 'mep' | 'safety';
+    webViewLink?: string;
+    isRealCdeFile?: boolean;
 }
 
 const DEFAULT_CDE_MODELS: CdeModelItem[] = [
@@ -1795,6 +1801,42 @@ export default function BimViewerPage() {
         }
     };
 
+    // Load IFC Model directly from connected CDE Cloud
+    const handleLoadModelFromCde = async (model: CdeModelItem) => {
+        setIsLoadingModel(true);
+        setLoadingMessage(`A transferir "${model.name}" (${model.size}) do CDE Cloud...`);
+        showToast(`A carregar modelo "${model.name}" diretamente do CDE...`);
+
+        try {
+            const targetId = model.cdeId || model.id;
+            const res = await fetch(`/api/projects/${projectId}/cde/download?fileId=${encodeURIComponent(targetId)}&fileName=${encodeURIComponent(model.name)}`);
+            
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Erro ao comunicar com a Cloud CDE.');
+            }
+
+            const blob = await res.blob();
+            if (blob.size === 0) {
+                throw new Error('Ficheiro recebido vazio do CDE.');
+            }
+
+            const file = new File([blob], model.name, { type: 'application/x-step' });
+            await handleProcessIfcFile(file);
+
+            // Mark this model as active in CDE models list
+            setCdeModels(prev => prev.map(m => m.id === model.id ? { ...m, active: true } : m));
+            showToast(`Modelo IFC "${model.name}" aberto diretamente do CDE!`);
+        } catch (err: any) {
+            console.error('Erro ao abrir modelo do CDE:', err);
+            showToast(`Erro ao abrir do CDE: ${err.message || 'Verifique a ligação à Cloud'}`);
+            alert(`Não foi possível carregar o modelo do CDE: ${err.message}`);
+        } finally {
+            setIsLoadingModel(false);
+            setLoadingMessage('');
+        }
+    };
+
     // Save New Observation Pin
     const handleSaveObservation = (e: React.FormEvent) => {
         e.preventDefault();
@@ -2291,7 +2333,13 @@ export default function BimViewerPage() {
 
                                             {expandedFolders.bim_root && (
                                                 <div className="pl-3.5 space-y-2 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
-                                                    {(['01-Arquitetura', '02-Estruturas', '03-Especialidades (MEP)', '04-Segurança (PSS)'] as const).map(folderName => {
+                                                    {Array.from(new Set([
+                                                        '01-Arquitetura',
+                                                        '02-Estruturas',
+                                                        '03-Especialidades (MEP)',
+                                                        '04-Segurança (PSS)',
+                                                        ...cdeModels.map(m => m.folder).filter(Boolean)
+                                                    ])).map(folderName => {
                                                         const folderModels = cdeModels.filter(m => m.folder === folderName);
                                                         const isExp = expandedFolders[folderName] ?? true;
                                                         return (
@@ -2310,44 +2358,51 @@ export default function BimViewerPage() {
                                                                 </button>
 
                                                                 {isExp && (
-                                                                    <div className="pl-3 space-y-1 mt-0.5">
+                                                                    <div className="pl-3 space-y-1.5 mt-0.5">
                                                                         {folderModels.length === 0 ? (
                                                                             <div className="text-[10px] text-slate-400 italic py-0.5">Sem modelos nesta pasta</div>
                                                                         ) : (
                                                                             folderModels.map(model => (
                                                                                 <div
                                                                                     key={model.id}
-                                                                                    onClick={() => handleToggleModelActive(model.id)}
+                                                                                    onClick={() => handleLoadModelFromCde(model)}
                                                                                     className={cn(
-                                                                                        "p-1.5 rounded-lg border text-[11px] transition-all cursor-pointer flex items-center justify-between gap-1.5",
+                                                                                        "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex flex-col gap-1.5",
                                                                                         model.active
-                                                                                            ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-950 dark:text-blue-200 shadow-2xs"
+                                                                                            ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-950 dark:text-blue-100 shadow-2xs"
                                                                                             : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
                                                                                     )}
                                                                                 >
-                                                                                    <div className="flex items-center gap-1.5 truncate">
-                                                                                        <input
-                                                                                            type="checkbox"
-                                                                                            checked={model.active}
-                                                                                            onChange={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                handleToggleModelActive(model.id);
-                                                                                            }}
-                                                                                            className="rounded text-blue-600 cursor-pointer w-3.5 h-3.5"
-                                                                                        />
-                                                                                        <div className="truncate">
-                                                                                            <div className="font-semibold truncate text-[11px]">{model.name}</div>
-                                                                                            <div className="text-[9px] text-slate-400">{model.size} • {model.rev}</div>
+                                                                                    <div className="flex items-center justify-between gap-1.5">
+                                                                                        <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
+                                                                                            <Box size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                                                                                            <span className="font-bold truncate text-[11px] text-slate-900 dark:text-slate-100" title={model.name}>
+                                                                                                {model.name}
+                                                                                            </span>
                                                                                         </div>
+                                                                                        <span className={cn(
+                                                                                            "text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0",
+                                                                                            model.isRealCdeFile ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-100 text-slate-600 dark:bg-neutral-700 dark:text-slate-300"
+                                                                                        )}>
+                                                                                            {model.isRealCdeFile ? 'CDE Real' : 'Exemplo'}
+                                                                                        </span>
                                                                                     </div>
-                                                                                    <span className={cn(
-                                                                                        "text-[9px] px-1.5 py-0.5 rounded font-bold shrink-0",
-                                                                                        model.active
-                                                                                            ? "bg-blue-600 text-white"
-                                                                                            : "bg-slate-200 dark:bg-neutral-700 text-slate-600"
-                                                                                    )}>
-                                                                                        {model.active ? 'Ativo' : 'Off'}
-                                                                                    </span>
+
+                                                                                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                                                                                        <span>{model.size} • {model.rev}</span>
+                                                                                        <button
+                                                                                            type="button"
+                                                                                            onClick={(e) => {
+                                                                                                e.stopPropagation();
+                                                                                                handleLoadModelFromCde(model);
+                                                                                            }}
+                                                                                            className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
+                                                                                            title="Descarregar e carregar este modelo IFC diretamente da Cloud no visualizador 3D"
+                                                                                        >
+                                                                                            <Download size={10} />
+                                                                                            <span>Carregar no 3D</span>
+                                                                                        </button>
+                                                                                    </div>
                                                                                 </div>
                                                                             ))
                                                                         )}
