@@ -81,6 +81,9 @@ import {
     LogisticsCatalogItem,
     generateRealisticPdfDrawing
 } from '@/lib/bim-samples';
+import { shouldUseFragmentsEngine, calculateEngineOptimization } from '@/lib/that-open-fragments';
+
+export type CameraViewPreset = 'perspective' | 'isometric' | 'top' | 'front' | 'back' | 'right' | 'left';
 
 // Seed observations for realistic site demonstration
 const SEED_OBSERVATIONS: Omit<SiteObservation, 'id' | 'createdAt'>[] = [
@@ -343,6 +346,9 @@ export default function BimViewerPage() {
 
     // Navigation and Visualization States
     const [viewDimension, setViewDimension] = useState<'3d' | '2d'>('3d');
+    const [currentViewOrientation, setCurrentViewOrientation] = useState<CameraViewPreset>('perspective');
+    const modelCenterRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 4.5, 0));
+    const modelSizeRef = useRef<THREE.Vector3>(new THREE.Vector3(24, 12, 20));
     const [activeMode, setActiveMode] = useState<'navigate' | 'add_point' | 'add_logistics' | 'add_emergency' | 'moving_logistics'>('navigate');
     const [selectedDiscipline, setSelectedDiscipline] = useState<'all' | 'structure' | 'architecture' | 'mep' | 'safety'>('all');
     const [selectedStorey, setSelectedStorey] = useState<string>('all');
@@ -958,6 +964,9 @@ export default function BimViewerPage() {
         const roofSlab = new THREE.Mesh(new THREE.BoxGeometry(16, 0.4, 11), slabMat);
         roofSlab.position.set(0, 9.6, 0);
         addMesh(roofSlab, '3_ROOF_SLAB', 'Laje da Cobertura e Desvão Técnico (IfcRoof)', 'Cobertura', 'Roof', 'architecture');
+
+        modelCenterRef.current = new THREE.Vector3(0, 4.8, 0);
+        modelSizeRef.current = new THREE.Vector3(18, 10, 14);
     }, []);
 
     // Create 2D Structural Grid Overlays (Axes A, B, C, D and 1, 2, 3, 4)
@@ -1430,9 +1439,19 @@ export default function BimViewerPage() {
     // Toggle 2D vs 3D View Dimension
     const handleToggleViewDimension = (mode: '3d' | '2d') => {
         setViewDimension(mode);
-        if (mode === '2d' && !selected2dDrawing && cdeDrawings.length > 0) {
-            setSelected2dDrawing(cdeDrawings[0]);
+        if (mode === '2d') {
+            setDrawingViewMode('interactive');
+            if (!selected2dDrawing) {
+                const targetDrawing = cdeDrawings.length > 0 ? cdeDrawings[0] : (DEFAULT_2D_DRAWINGS[0] || null);
+                if (targetDrawing) {
+                    setSelected2dDrawing(targetDrawing);
+                }
+            }
+            showToast('Modo Planta Técnica 2D ativado com vista interativa de anotações e estaleiro.');
+        } else {
+            showToast('Modo 3D ativado.');
         }
+
         if (!cameraRef.current || !controlsRef.current) return;
 
         if (grid2dGroupRef.current) {
@@ -1446,16 +1465,96 @@ export default function BimViewerPage() {
             controlsRef.current.maxPolarAngle = 0.01;
             controlsRef.current.minPolarAngle = 0.0;
             controlsRef.current.update();
-            showToast('Modo Planta Técnica 2D ativado com eixos e cotas de emergência.');
         } else {
             cameraRef.current.position.set(22, 18, 26);
             controlsRef.current.target.set(0, 4.5, 0);
             controlsRef.current.maxPolarAngle = Math.PI / 2 + 0.02;
             controlsRef.current.minPolarAngle = 0.0;
             controlsRef.current.update();
-            showToast('Modo Perspetiva 3D ativado.');
         }
     };
+
+    // Standard 3D Camera Views (Perspetiva, Isométrica, Topo, Frente, Trás, Lateral Direita, Lateral Esquerda)
+    const handleSetCameraView = useCallback((view: CameraViewPreset) => {
+        setCurrentViewOrientation(view);
+        if (viewDimension === '2d') {
+            setViewDimension('3d');
+        }
+
+        if (!cameraRef.current || !controlsRef.current) return;
+
+        const target = modelCenterRef.current ? modelCenterRef.current.clone() : new THREE.Vector3(0, 4.5, 0);
+        const size = modelSizeRef.current || new THREE.Vector3(24, 12, 20);
+        const maxDim = Math.max(size.x, size.y, size.z, 16);
+
+        const controls = controlsRef.current;
+        const camera = cameraRef.current;
+
+        let destination = new THREE.Vector3();
+        let toastMsg = '';
+
+        controls.minPolarAngle = 0;
+        controls.maxPolarAngle = Math.PI;
+
+        switch (view) {
+            case 'perspective':
+                destination.set(target.x + maxDim * 1.25, target.y + maxDim * 0.9, target.z + maxDim * 1.35);
+                controls.maxPolarAngle = Math.PI / 2 + 0.05;
+                toastMsg = 'Vista Perspetiva 3D ativada.';
+                break;
+            case 'isometric':
+                // Axonometric / Isometric view: equal angles and equal distance on X, Y, Z
+                const isoDist = maxDim * 1.25;
+                destination.set(target.x + isoDist, target.y + isoDist, target.z + isoDist);
+                toastMsg = 'Vista Isométrica 3D ativada.';
+                break;
+            case 'top':
+                destination.set(target.x, target.y + maxDim * 2.2, target.z + 0.001);
+                toastMsg = 'Vista de Topo (Planta Superior) ativada.';
+                break;
+            case 'front':
+                // Alçado Principal (Frente - Sul / Z positivo)
+                destination.set(target.x, target.y + maxDim * 0.15, target.z + maxDim * 2.2);
+                toastMsg = 'Vista de Frente (Alçado Principal) ativada.';
+                break;
+            case 'back':
+                // Alçado Posterior (Trás - Norte / Z negativo)
+                destination.set(target.x, target.y + maxDim * 0.15, target.z - maxDim * 2.2);
+                toastMsg = 'Vista de Trás (Alçado Posterior) ativada.';
+                break;
+            case 'right':
+                // Alçado Direito (Este / X positivo)
+                destination.set(target.x + maxDim * 2.2, target.y + maxDim * 0.15, target.z);
+                toastMsg = 'Vista Lateral Direita (Alçado Este) ativada.';
+                break;
+            case 'left':
+                // Alçado Esquerdo (Oeste / X negativo)
+                destination.set(target.x - maxDim * 2.2, target.y + maxDim * 0.15, target.z);
+                toastMsg = 'Vista Lateral Esquerda (Alçado Oeste) ativada.';
+                break;
+        }
+
+        // Smooth camera lerp animation
+        let step = 0;
+        const initialPos = camera.position.clone();
+        const initialTarget = controls.target.clone();
+
+        const animateCameraMove = () => {
+            step += 0.08;
+            if (step < 1) {
+                camera.position.lerpVectors(initialPos, destination, step);
+                controls.target.lerpVectors(initialTarget, target, step);
+                controls.update();
+                requestAnimationFrame(animateCameraMove);
+            } else {
+                camera.position.copy(destination);
+                controls.target.copy(target);
+                controls.update();
+            }
+        };
+        animateCameraMove();
+        showToast(toastMsg);
+    }, [viewDimension, showToast]);
 
     // Render 3D Observation Pins in Scene
     useEffect(() => {
@@ -1927,6 +2026,8 @@ export default function BimViewerPage() {
 
             if (controlsRef.current && cameraRef.current) {
                 const maxDim = Math.max(size.x, size.y, size.z, 12);
+                modelCenterRef.current = new THREE.Vector3(0, size.y / 2, 0);
+                modelSizeRef.current = size.clone();
                 cameraRef.current.position.set(maxDim * 1.3, maxDim * 0.9, maxDim * 1.4);
                 controlsRef.current.target.set(0, size.y / 2, 0);
                 controlsRef.current.maxDistance = maxDim * 8;
@@ -2229,6 +2330,9 @@ export default function BimViewerPage() {
         });
     }, [projectObservations, categoryFilter, statusFilter, searchFilter]);
 
+    // Active 2D drawing fallback ensuring 2D interactive view never renders empty
+    const active2dDrawing = selected2dDrawing || cdeDrawings[0] || DEFAULT_2D_DRAWINGS[0] || null;
+
     return (
         <div className={cn(
             "relative w-full overflow-hidden bg-slate-100 dark:bg-neutral-950 flex flex-col select-none transition-all duration-200",
@@ -2257,20 +2361,57 @@ export default function BimViewerPage() {
 
                 {/* Middle Ribbon Groups (Compactos, Flat, Sem Scroll) */}
                 <div className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
-                    {/* PROJEÇÃO 3D/2D: Botão Único Ligado/Desligado */}
-                    <button
-                        onClick={() => handleToggleViewDimension(viewDimension === '3d' ? '2d' : '3d')}
-                        className={cn(
-                            "h-7 px-2.5 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer border",
-                            viewDimension === '3d'
-                                ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
-                                : "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700"
-                        )}
-                        title={viewDimension === '3d' ? 'Alternar para Projeção 2D (Plantas Técnicas)' : 'Alternar para Perspetiva 3D'}
-                    >
-                        {viewDimension === '3d' ? <Box size={13} strokeWidth={2} /> : <Layers size={13} strokeWidth={2} />}
-                        <span>{viewDimension.toUpperCase()}</span>
-                    </button>
+                    {/* PROJEÇÃO 3D / 2D INTERATIVO */}
+                    <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
+                        <button
+                            type="button"
+                            onClick={() => handleToggleViewDimension('3d')}
+                            className={cn(
+                                "h-6 px-2.5 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer",
+                                viewDimension === '3d'
+                                    ? "bg-blue-600 text-white shadow-xs"
+                                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                            )}
+                            title="Visualizar Modelo 3D"
+                        >
+                            <Box size={13} strokeWidth={2} />
+                            <span>3D</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleToggleViewDimension('2d')}
+                            className={cn(
+                                "h-6 px-2.5 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer",
+                                viewDimension === '2d'
+                                    ? "bg-indigo-600 text-white shadow-xs"
+                                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                            )}
+                            title="Alternar diretamente para Planta Técnica Interativa 2D"
+                        >
+                            <Layers size={13} strokeWidth={2} />
+                            <span>2D Interativo</span>
+                        </button>
+                    </div>
+
+                    {/* VISTAS 3D PADRONIZADAS */}
+                    {viewDimension === '3d' && (
+                        <div className="flex items-center">
+                            <select
+                                value={currentViewOrientation}
+                                onChange={(e) => handleSetCameraView(e.target.value as CameraViewPreset)}
+                                className="bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[11px] rounded-md px-2 py-0.5 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer h-7 shadow-xs hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+                                title="Orientação e Vistas do Modelo 3D (Perspetiva, Isométrica, Topo, Frente, Trás, Laterais)"
+                            >
+                                <option value="perspective">🏢 Perspetiva 3D</option>
+                                <option value="isometric">📐 Isométrica 3D</option>
+                                <option value="top">⬆️ Topo (Planta Superior)</option>
+                                <option value="front">⬇️ Frente (Alçado Sul)</option>
+                                <option value="back">⬆️ Trás (Alçado Norte)</option>
+                                <option value="right">➡️ Direita (Alçado Este)</option>
+                                <option value="left">⬅️ Esquerda (Alçado Oeste)</option>
+                            </select>
+                        </div>
+                    )}
 
                     {/* CAMADAS: Droplist de Escolha */}
                     <div className="flex items-center">
@@ -2346,15 +2487,9 @@ export default function BimViewerPage() {
                 {/* Right Actions (Pinned) */}
                 <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200 dark:border-neutral-800 h-7">
                     <button
-                        onClick={() => {
-                            if (cameraRef.current && controlsRef.current) {
-                                cameraRef.current.position.set(22, 18, 26);
-                                controlsRef.current.target.set(0, 4.5, 0);
-                                controlsRef.current.update();
-                            }
-                        }}
+                        onClick={() => handleSetCameraView('perspective')}
                         className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
-                        title="Repor câmara inicial"
+                        title="Repor câmara em Perspetiva 3D"
                     >
                         <RotateCcw size={13} strokeWidth={1.75} />
                     </button>
@@ -3264,7 +3399,9 @@ export default function BimViewerPage() {
                     )}
 
                     {/* DUAL-MODE VIEWPORT: 2D TECHNICAL DRAWING SHEET (PRANCHA TÉCNICA) VS 3D WEBGL MODEL */}
-                    {viewDimension === '2d' && selected2dDrawing && (
+                    {viewDimension === '2d' && (selected2dDrawing || active2dDrawing) && (() => {
+                        const dw = (selected2dDrawing || active2dDrawing)!;
+                        return (
                         <div className="absolute inset-0 z-20 flex flex-col bg-slate-200/90 dark:bg-[#121316] select-none overflow-hidden">
                             {/* Sheet Toolbar */}
                             <div className="h-12 px-3 bg-white/95 dark:bg-neutral-900/95 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between shrink-0 shadow-2xs z-20 gap-2">
@@ -3283,12 +3420,12 @@ export default function BimViewerPage() {
                                     <div className="h-5 w-px bg-slate-200 dark:bg-neutral-700 shrink-0 mx-1" />
 
                                     <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shrink-0 font-mono">
-                                        {selected2dDrawing.code}
+                                        {dw.code}
                                     </span>
                                     <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate max-w-[200px] sm:max-w-xs md:max-w-sm">
-                                        {selected2dDrawing.title}
+                                        {dw.title}
                                     </span>
-                                    {selected2dDrawing.isRealCdeFile ? (
+                                    {dw.isRealCdeFile ? (
                                         <span className="text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.5 rounded-full font-bold uppercase shrink-0 border border-emerald-300 dark:border-emerald-800">
                                             ☁️ CDE Real
                                         </span>
@@ -3362,7 +3499,7 @@ export default function BimViewerPage() {
                                     )}
 
                                     <button
-                                        onClick={() => handleOpenAuthenticPdf(selected2dDrawing)}
+                                        onClick={() => handleOpenAuthenticPdf(dw)}
                                         disabled={isGeneratingPdf}
                                         className="h-8 px-2.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
                                         title="Descarregar o ficheiro PDF diretamente"
@@ -3379,7 +3516,7 @@ export default function BimViewerPage() {
                                     <div className="flex items-center gap-1.5 truncate">
                                         <FileText size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
                                         <span className="truncate">
-                                            <strong>Documento PDF Oficial ({selected2dDrawing.fileName}):</strong> Visualização fiel do ficheiro do projeto.
+                                            <strong>Documento PDF Oficial ({dw.fileName}):</strong> Visualização fiel do ficheiro do projeto.
                                         </span>
                                     </div>
                                     <button
@@ -3415,14 +3552,14 @@ export default function BimViewerPage() {
                                         <div className="w-full h-full flex flex-col bg-white dark:bg-neutral-900 rounded-lg shadow-xl border border-slate-300 dark:border-neutral-800 overflow-hidden">
                                             <iframe
                                                 src={currentPdfUrl}
-                                                title={selected2dDrawing.title}
+                                                title={dw.title}
                                                 className="w-full h-full border-none"
                                             />
                                         </div>
                                     ) : (
                                         <div className="flex flex-col items-center justify-center text-slate-600 dark:text-slate-300 py-12">
                                             <Loader2 size={24} className="animate-spin text-blue-600 mb-2" />
-                                            <span className="text-xs font-semibold">A carregar prancha técnica PDF de {selected2dDrawing.code}...</span>
+                                            <span className="text-xs font-semibold">A carregar prancha técnica PDF de {dw.code}...</span>
                                         </div>
                                     )}
                                 </div>
@@ -3461,7 +3598,7 @@ export default function BimViewerPage() {
                                                 radius: catalogMatch?.defaultRadius,
                                                 rotation: 0,
                                                 status: 'active',
-                                                notes: `Implantado na planta 2D "${selected2dDrawing?.code}" em ${new Date().toLocaleDateString('pt-PT')}`
+                                                notes: `Implantado na planta 2D "${dw.code}" em ${new Date().toLocaleDateString('pt-PT')}`
                                             });
 
                                             setActiveMode('navigate');
@@ -3475,12 +3612,12 @@ export default function BimViewerPage() {
                                                 position: [normX, 2, normZ],
                                                 cameraPosition: [normX, 20, normZ + 0.1],
                                                 cameraTarget: [normX, 0, normZ],
-                                                ifcGlobalId: '2D-DRAWING-' + (selected2dDrawing?.code || 'GENERIC'),
-                                                elementName: `Planta 2D: ${selected2dDrawing?.title || 'Desenho'}`,
-                                                storeyName: selected2dDrawing?.storey || 'Piso 0',
-                                                discipline: selected2dDrawing?.discipline || 'architecture'
+                                                ifcGlobalId: '2D-DRAWING-' + (dw.code || 'GENERIC'),
+                                                elementName: `Planta 2D: ${dw.title || 'Desenho'}`,
+                                                storeyName: dw.storey || 'Piso 0',
+                                                discipline: dw.discipline || 'architecture'
                                             });
-                                            setFormTitle(`Inspeção na Planta ${selected2dDrawing?.code || '2D'}`);
+                                            setFormTitle(`Inspeção na Planta ${dw.code || '2D'}`);
                                             setFormDesc('');
                                             setFormCategory('visit_observation');
                                             setFormSeverity('medium');
@@ -3585,12 +3722,12 @@ export default function BimViewerPage() {
 
                                             <text x="12" y="18" fontSize="10" fontWeight="bold" fill="#0f172a" className="dark:fill-white">SAFESITE CDE | SISTEMA OFICIAL DE PROJETO E SST</text>
                                             <text x="12" y="44" fontSize="8" fill="#64748b">OBRA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{currentProject.name}</tspan></text>
-                                            <text x="12" y="58" fontSize="9" fontWeight="bold" fill="#2563eb">{selected2dDrawing.code} - {selected2dDrawing.title}</text>
+                                            <text x="12" y="58" fontSize="9" fontWeight="bold" fill="#2563eb">{dw.code} - {dw.title}</text>
 
-                                            <text x="12" y="84" fontSize="8" fill="#64748b">NÍVEL: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{selected2dDrawing.storey}</tspan></text>
-                                            <text x="12" y="98" fontSize="8" fill="#64748b">ESCALA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{selected2dDrawing.format}</tspan></text>
+                                            <text x="12" y="84" fontSize="8" fill="#64748b">NÍVEL: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{dw.storey}</tspan></text>
+                                            <text x="12" y="98" fontSize="8" fill="#64748b">ESCALA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{dw.format}</tspan></text>
 
-                                            <text x="170" y="84" fontSize="8" fill="#64748b">REVISÃO: <tspan fontWeight="bold" fill="#16a34a">{selected2dDrawing.revision}</tspan></text>
+                                            <text x="170" y="84" fontSize="8" fill="#64748b">REVISÃO: <tspan fontWeight="bold" fill="#16a34a">{dw.revision}</tspan></text>
                                             <text x="170" y="98" fontSize="8" fill="#64748b">ESTADO: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">APROVADO PSS</tspan></text>
                                         </g>
                                     </svg>
@@ -3682,6 +3819,91 @@ export default function BimViewerPage() {
                             </div>
                             )}
                         </div>
+                        );
+                    })()}
+
+                    {/* Floating Standard Views Control Pill when in 3D */}
+                    {viewDimension === '3d' && (
+                        <div className="absolute top-4 right-4 z-10 flex items-center gap-1 bg-white/90 dark:bg-neutral-900/90 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-200/80 dark:border-neutral-800 shadow-md">
+                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-0.5">Vistas:</span>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('perspective')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'perspective' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Perspetiva 3D"
+                            >
+                                Persp
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('isometric')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'isometric' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Isométrica 3D"
+                            >
+                                Iso
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('top')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'top' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Planta Superior (Topo)"
+                            >
+                                Topo
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('front')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'front' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Alçado Principal (Frente - Sul)"
+                            >
+                                Frente
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('back')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'back' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Alçado Posterior (Trás - Norte)"
+                            >
+                                Trás
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('right')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'right' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Alçado Lateral Direito (Este)"
+                            >
+                                Dir
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetCameraView('left')}
+                                className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                    currentViewOrientation === 'left' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
+                                )}
+                                title="Alçado Lateral Esquerdo (Oeste)"
+                            >
+                                Esq
+                            </button>
+                        </div>
                     )}
 
                     {/* 3D WebGL Canvas - Permanent mount to prevent WebGL context loss */}
@@ -3691,7 +3913,7 @@ export default function BimViewerPage() {
                         className={cn(
                             "w-full h-full cursor-grab active:cursor-grabbing",
                             activeMode !== 'navigate' ? 'cursor-crosshair' : '',
-                            viewDimension === '2d' && selected2dDrawing ? 'invisible pointer-events-none' : ''
+                            viewDimension === '2d' ? 'invisible pointer-events-none' : ''
                         )}
                     />
                 </div>
