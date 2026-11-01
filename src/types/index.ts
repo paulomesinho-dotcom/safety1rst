@@ -1,4 +1,4 @@
-
+﻿
 
 export type SystemRole = 'superadmin' | 'admin' | 'user' | 'manager' | 'editor' | 'data_user' | 'approval_user' | 'client_admin';
 export type ProjectRole = 'manager' | 'editor' | 'viewer' | 'data_user' | 'approval_user' | 'none'; // Advanced, Basic, Preview, Data Provider, Approval, or None (Pending Role Assignment)
@@ -1106,6 +1106,8 @@ export interface Accident {
     createdAt: string;
     ifcGlobalId?: string;
     mitigationMeasures?: string;
+    position?: [number, number, number];
+    storeyName?: string;
 }
 
 export interface Ticket {
@@ -1308,4 +1310,30 @@ export interface SiteLogisticsItem {
     radius?: number; // e.g. for crane jib radius or safety zone
     notes?: string;
     status?: 'active' | 'planned' | 'decommissioned';
+    storeyName?: string;
+    phase4D?: string; // Fase no 4D (ex: 'Fase 1: Estrutura', 'Fase 2: Acabamentos')
+    symbolId?: string; // ID ISO 7010 / Leomarc (ex: F001, E001, W001)
+    routePoints?: [number, number][]; // Pontos [x, z] em metros
+}
+
+// Work & Risk Zones with Training & Access Prerequisites (Zonas de Trabalho e Requisitos SST)
+export interface SiteWorkZone {
+    id: string;
+    projectId: string;
+    name: string;
+    category: 'hazard' | 'restricted' | 'lifting' | 'height' | 'hot_work' | 'confined_space' | 'general';
+    storeyName?: string;
+    phase4D?: string; // Associação ao cronograma 4D
+    polygon: [number, number][]; // Coordenadas [x, z] em metros
+    color: string;
+    hatchStyle?: 'diagonal' | 'cross' | 'dots' | 'solid';
+    hatchSpacing?: number;
+    description?: string;
+    // Exigências de entrada e formação para trabalhadores
+    requiredCourseIds?: string[]; // Cursos obrigatórios para aceder a esta zona
+    requiredCertifications?: string[]; // Ex: 'Trabalhos em Altura', 'Espaços Confinados'
+    authorizedCompanyIds?: string[]; // Empresas com autorização
+    maxWorkers?: number;
+    active: boolean;
+    createdAt: string;
 }

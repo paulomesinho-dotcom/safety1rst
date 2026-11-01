@@ -1,8 +1,10 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
+import Bim2dSafetyEditor from '@/components/Bim2dSafetyEditor';
+import { SiteWorkZone } from '@/types';
 import { cn } from '@/lib/utils';
 import {
     Box,
@@ -306,6 +308,9 @@ export default function BimViewerPage() {
         addSiteLogisticsItem,
         updateSiteLogisticsItem,
         deleteSiteLogisticsItem,
+        siteWorkZones,
+        addSiteWorkZone,
+        deleteSiteWorkZone,
     } = useStore();
 
     const currentProject = projects.find(p => p.id === projectId) || { name: 'Obra Skyline Tower' };
@@ -4206,270 +4211,21 @@ export default function BimViewerPage() {
                                         </div>
                                     )}
                                 </div>
-                            ) : (
-                                /* 2D Vector Drawing Sheet Surface */
-                                <div className="flex-1 overflow-auto flex items-center justify-center p-4">
-                                <div
-                                    onClick={(e) => {
-                                        const rect = e.currentTarget.getBoundingClientRect();
-                                        const clickX = e.clientX - rect.left;
-                                        const clickY = e.clientY - rect.top;
-                                        const normX = Number((((clickX / rect.width) - 0.5) * 40).toFixed(2));
-                                        const normZ = Number((((clickY / rect.height) - 0.5) * 32).toFixed(2));
-
-                                        if (activeMode === 'moving_logistics' && activeLogisticsItem) {
-                                            const newPos: [number, number, number] = [normX, 0, normZ];
-                                            updateSiteLogisticsItem(activeLogisticsItem.id, { position: newPos });
-                                            setActiveLogisticsItem(prev => prev ? { ...prev, position: newPos } : null);
-                                            setActiveMode('navigate');
-                                            showToast(`Elemento "${activeLogisticsItem.name}" deslocado na planta 2D para [${normX}, ${normZ}].`);
-                                            return;
-                                        }
-
-                                        if (activeMode === 'add_logistics' || activeMode === 'add_emergency') {
-                                            const type = pendingPlacementType || (activeMode === 'add_emergency' ? 'meeting_point' : 'office_container');
-                                            const catalogMatch = SITE_LOGISTICS_CATALOG.find(c => c.type === type);
-                                            const itemName = catalogMatch ? catalogMatch.name : (type === 'crane' ? 'Grua Torre' : 'Equipamento de Obra');
-                                            const itemCategory = catalogMatch ? catalogMatch.category : (activeMode === 'add_emergency' ? 'emergency' : 'logistics');
-
-                                            addSiteLogisticsItem({
-                                                projectId,
-                                                type,
-                                                name: itemName,
-                                                category: itemCategory,
-                                                position: [normX, 0, normZ],
-                                                radius: catalogMatch?.defaultRadius,
-                                                rotation: 0,
-                                                status: 'active',
-                                                notes: `Implantado na planta 2D "${dw.code}" em ${new Date().toLocaleDateString('pt-PT')}`
-                                            });
-
-                                            setActiveMode('navigate');
-                                            setPendingPlacementType(null);
-                                            showToast(`"${itemName}" implantado na planta 2D com sucesso!`);
-                                            return;
-                                        }
-
-                                        if (activeMode === 'add_point') {
-                                            setPendingPinData({
-                                                position: [normX, 2, normZ],
-                                                cameraPosition: [normX, 20, normZ + 0.1],
-                                                cameraTarget: [normX, 0, normZ],
-                                                ifcGlobalId: '2D-DRAWING-' + (dw.code || 'GENERIC'),
-                                                elementName: `Planta 2D: ${dw.title || 'Desenho'}`,
-                                                storeyName: dw.storey || 'Piso 0',
-                                                discipline: dw.discipline || 'architecture'
-                                            });
-                                            setFormTitle(`Inspeção na Planta ${dw.code || '2D'}`);
-                                            setFormDesc('');
-                                            setFormCategory('visit_observation');
-                                            setFormSeverity('medium');
-                                            setFormCompanyId(companies[0]?.id || '');
-                                            setFormPhoto('');
-                                            setIsCreateModalOpen(true);
-                                        }
-                                    }}
-                                    style={{
-                                        transform: `scale(${sheetZoom})`,
-                                        transformOrigin: 'center center',
-                                        transition: 'transform 0.15s ease-out'
-                                    }}
-                                    className="relative w-[860px] h-[600px] bg-white dark:bg-[#16181b] border-2 border-slate-400 dark:border-neutral-700 shadow-2xl rounded-xs cursor-crosshair overflow-hidden shrink-0"
-                                >
-                                    {/* Real IFC Extracted Floor Plan or CDE PDF in Background */}
-                                    {(dw.previewDataUrl || (dw.vectorSegments && dw.vectorSegments.length > 0)) ? (() => {
-                                        const mb = dw.modelBounds || { minX: -12, maxX: 12, minZ: -10, maxZ: 10, width: 24, depth: 20, height: 10, cutY: 1.5, meshCount: 0 };
-                                        const pad = 64;
-                                        const availW = 860 - pad * 2;
-                                        const availH = 600 - pad * 2;
-                                        const sc = Math.min(availW / Math.max(mb.width, 1), availH / Math.max(mb.depth, 1));
-                                        const rW = mb.width * sc;
-                                        const rH = mb.depth * sc;
-                                        const ox = (860 - rW) / 2;
-                                        const oy = (600 - rH) / 2;
-                                        const mapX = (wx: number) => ox + ((wx - mb.minX) / Math.max(mb.width, 1)) * rW;
-                                        const mapY = (wz: number) => oy + ((wz - mb.minZ) / Math.max(mb.depth, 1)) * rH;
-
-                                        return (
-                                            <div className="absolute inset-0 w-full h-full pointer-events-none select-none z-0 bg-white">
-                                                {dw.previewDataUrl && (
-                                                    <img
-                                                        src={dw.previewDataUrl}
-                                                        alt={dw.title}
-                                                        style={{
-                                                            position: 'absolute',
-                                                            left: `${ox - rW * 0.04}px`,
-                                                            top: `${oy - rH * 0.04}px`,
-                                                            width: `${rW * 1.08}px`,
-                                                            height: `${rH * 1.08}px`,
-                                                            objectFit: 'fill'
-                                                        }}
-                                                    />
-                                                )}
-                                                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 860 600" xmlns="http://www.w3.org/2000/svg">
-                                                    <defs>
-                                                        <pattern id="grid-cad-ifc" width="40" height="40" patternUnits="userSpaceOnUse">
-                                                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" strokeWidth="0.6" />
-                                                        </pattern>
-                                                    </defs>
-                                                    <rect width="860" height="600" fill={dw.previewDataUrl ? "none" : "url(#grid-cad-ifc)"} />
-                                                    <rect x="16" y="16" width="828" height="568" fill="none" stroke="#0f172a" strokeWidth="1.8" />
-                                                    <rect x="20" y="20" width="820" height="560" fill="none" stroke="#64748b" strokeWidth="0.6" />
-                                                    {dw.vectorSegments?.map(([x1, z1, x2, z2], idx) => (
-                                                        <line
-                                                            key={idx}
-                                                            x1={mapX(x1)}
-                                                            y1={mapY(z1)}
-                                                            x2={mapX(x2)}
-                                                            y2={mapY(z2)}
-                                                            stroke="#0f172a"
-                                                            strokeWidth="1.35"
-                                                            strokeLinecap="round"
-                                                        />
-                                                    ))}
-                                                    {/* Real IFC Dimension Lines */}
-                                                    <line x1={ox} y1={oy + rH + 22} x2={ox + rW} y2={oy + rH + 22} stroke="#2563eb" strokeWidth="1" />
-                                                    <line x1={ox} y1={oy + rH + 6} x2={ox} y2={oy + rH + 26} stroke="#2563eb" strokeWidth="0.8" />
-                                                    <line x1={ox + rW} y1={oy + rH + 6} x2={ox + rW} y2={oy + rH + 26} stroke="#2563eb" strokeWidth="0.8" />
-                                                    <text x={ox + rW / 2} y={oy + rH + 18} textAnchor="middle" fill="#1d4ed8" fontSize="10" fontWeight="bold">
-                                                        {mb.width.toFixed(2)} m (IFC Real)
-                                                    </text>
-                                                    <line x1={ox + rW + 22} y1={oy} x2={ox + rW + 22} y2={oy + rH} stroke="#2563eb" strokeWidth="1" />
-                                                    <line x1={ox + rW + 6} y1={oy} x2={ox + rW + 26} y2={oy} stroke="#2563eb" strokeWidth="0.8" />
-                                                    <line x1={ox + rW + 6} y1={oy + rH} x2={ox + rW + 26} y2={oy + rH} stroke="#2563eb" strokeWidth="0.8" />
-                                                    <text x={ox + rW + 28} y={oy + rH / 2} fill="#1d4ed8" fontSize="10" fontWeight="bold">
-                                                        {mb.depth.toFixed(2)} m
-                                                    </text>
-                                                </svg>
-                                            </div>
-                                        );
-                                    })() : currentPdfUrl ? (
-                                        <iframe
-                                            src={`${currentPdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                                            title={dw.title}
-                                            className="absolute inset-0 w-full h-full border-none pointer-events-none select-none z-0 bg-white"
-                                        />
-                                    ) : (
-                                        /* Subtle Technical Grid & Outer Frame */
-                                        <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
-                                            <defs>
-                                                <pattern id="grid-cad" width="40" height="40" patternUnits="userSpaceOnUse">
-                                                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" className="text-slate-200 dark:text-neutral-800/80" strokeWidth="0.5" />
-                                                </pattern>
-                                            </defs>
-                                            <rect width="100%" height="100%" fill="url(#grid-cad)" />
-                                            <rect x="24" y="24" width="812" height="552" fill="none" stroke="currentColor" className="text-slate-800 dark:text-neutral-300" strokeWidth="1.5" />
-                                            <rect x="30" y="30" width="800" height="540" fill="none" stroke="currentColor" className="text-slate-400 dark:text-neutral-600" strokeWidth="0.5" />
-                                        </svg>
-                                    )}
-
-                                    {/* Official Cartouche / Technical Info Badge */}
-                                    <div className="absolute bottom-3 right-3 z-15 pointer-events-none bg-slate-900/90 backdrop-blur-xs text-white text-[10px] px-3 py-1.5 rounded-md border border-slate-700/80 shadow-lg flex items-center gap-2">
-                                        <span className="font-mono font-bold text-blue-400">{dw.code}</span>
-                                        <span className="text-slate-500">•</span>
-                                        <span className="font-semibold truncate max-w-[200px]">{dw.title}</span>
-                                        <span className="text-slate-500">•</span>
-                                        <span className="text-slate-300">{dw.storey}</span>
-                                        {dw.isRealCdeFile ? (
-                                            <span className="bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
-                                                CDE Real
-                                            </span>
-                                        ) : (
-                                            <span className="bg-slate-700 text-slate-300 text-[9px] px-1.5 py-0.5 rounded uppercase">
-                                                Modelo Base
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* INTERACTIVE OVERLAY: GEOLOCATED OBSERVATION PINS */}
-                                    {showObservationsLayer && projectObservations.map(obs => {
-                                        const px = 50 + (obs.position[0] / 20) * 35;
-                                        const py = 50 + (obs.position[2] / 16) * 35;
-                                        const isSelected = activePin?.id === obs.id;
-                                        const color = obs.status === 'resolved' ? 'bg-emerald-500' :
-                                                      obs.severity === 'critical' ? 'bg-red-600' :
-                                                      obs.severity === 'high' ? 'bg-orange-500' : 'bg-blue-600';
-
-                                        return (
-                                            <div
-                                                key={obs.id}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setActivePin(obs);
-                                                    setSelectedElement(null);
-                                                    setActiveLogisticsItem(null);
-                                                    setLeftPanelTab('properties');
-                                                    setIsLeftSidebarOpen(true);
-                                                }}
-                                                style={{ left: `${px}%`, top: `${py}%` }}
-                                                className={cn(
-                                                    "absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center cursor-pointer transition-transform group z-10",
-                                                    isSelected ? "scale-125 ring-4 ring-blue-400 rounded-full" : "hover:scale-110"
-                                                )}
-                                                title={`${obs.title} (${obs.severity})`}
-                                            >
-                                                <div className={cn("w-5 h-5 rounded-full text-white flex items-center justify-center shadow-md", color)}>
-                                                    <MapPin size={11} strokeWidth={2.5} />
-                                                </div>
-                                                <div className="absolute top-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-slate-900/90 text-white text-[9px] px-1.5 py-0.5 rounded font-bold opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md">
-                                                    {obs.title.slice(0, 24)}...
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-
-                                    {/* INTERACTIVE OVERLAY: GEOLOCATED SITE LOGISTICS & EMERGENCY ITEMS */}
-                                    {showLogisticsLayer && projectLogistics.map(item => {
-                                        const px = 50 + (item.position[0] / 20) * 35;
-                                        const py = 50 + (item.position[2] / 16) * 35;
-                                        const isSelected = activeLogisticsItem?.id === item.id;
-                                        const catalogMatch = SITE_LOGISTICS_CATALOG.find(c => c.type === item.type);
-
-                                        return (
-                                            <div
-                                                key={item.id}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setActiveLogisticsItem(item);
-                                                    setSelectedElement(null);
-                                                    setActivePin(null);
-                                                    setLeftPanelTab('properties');
-                                                    setIsLeftSidebarOpen(true);
-                                                }}
-                                                style={{ left: `${px}%`, top: `${py}%` }}
-                                                className={cn(
-                                                    "absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center cursor-pointer transition-transform group z-10",
-                                                    isSelected ? "scale-125 ring-2 ring-amber-500 rounded-lg p-0.5 bg-amber-500/20" : "hover:scale-110"
-                                                )}
-                                                title={`${item.name} [${item.position.join(', ')}]`}
-                                            >
-                                                {/* Crane Radius Circle on 2D Plan */}
-                                                {item.type === 'crane' && (
-                                                    <div
-                                                        style={{ width: `${(item.radius || 26) * 12}px`, height: `${(item.radius || 26) * 12}px` }}
-                                                        className="absolute -translate-x-1/2 -translate-y-1/2 border-2 border-dashed border-amber-500/60 rounded-full pointer-events-none bg-amber-500/5 animate-pulse"
-                                                    />
-                                                )}
-
-                                                <div
-                                                    className="w-6 h-6 rounded-md flex items-center justify-center text-white shadow-md text-xs font-bold"
-                                                    style={{ backgroundColor: catalogMatch?.color || (item.category === 'emergency' ? '#10b981' : '#f59e0b') }}
-                                                >
-                                                    {item.type === 'crane' ? '🏗️' :
-                                                     item.type === 'meeting_point' ? '🚨' :
-                                                     item.type === 'first_aid' ? '🩹' :
-                                                     item.type === 'fire_extinguisher' ? '🧯' :
-                                                     item.type === 'waste_bay' ? '♻️' :
-                                                     item.type === 'office_container' ? '🏢' : '📦'}
-                                                </div>
-                                                <span className="text-[8px] font-bold text-slate-800 dark:text-slate-200 mt-0.5 whitespace-nowrap bg-white/90 dark:bg-neutral-800/90 px-1 rounded shadow-2xs">
-                                                    {item.name.split(' ')[0]}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
+                                                        ) : (
+                                <Bim2dSafetyEditor
+                                    projectId={projectId}
+                                    projectName={currentProject.name}
+                                    storey={dw.storey || selectedStorey}
+                                    activeDrawing={dw}
+                                    logisticsItems={projectLogistics}
+                                    workZones={siteWorkZones?.filter(z => z.projectId === projectId) || []}
+                                    onAddLogisticsItem={addSiteLogisticsItem}
+                                    onDeleteLogisticsItem={deleteSiteLogisticsItem}
+                                    onAddWorkZone={addSiteWorkZone}
+                                    onDeleteWorkZone={deleteSiteWorkZone}
+                                    currentPdfUrl={currentPdfUrl}
+                                    showToast={showToast}
+                                />
                             )}
                         </div>
                         );
