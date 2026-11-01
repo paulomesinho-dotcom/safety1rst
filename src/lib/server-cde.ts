@@ -550,7 +550,11 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 if (lower.includes('02') || lower.includes('est') || lower.includes('struct')) return '02-Estruturas';
                 if (lower.includes('03') || lower.includes('mep') || lower.includes('avac') || lower.includes('hidr') || lower.includes('elet')) return '03-Especialidades (MEP)';
                 if (lower.includes('04') || lower.includes('pss') || lower.includes('segur') || lower.includes('estaleiro')) return '04-Segurança (PSS)';
-                return currentFolder && currentFolder !== 'root' ? currentFolder : '01-Arquitetura';
+                if (currentFolder && currentFolder !== 'root' && currentFolder !== 'Raiz') {
+                    const leaf = currentFolder.split(/[\\/]/).filter(Boolean).pop();
+                    if (leaf) return leaf;
+                }
+                return '01-Arquitetura';
             };
 
             const processFile = (item: any, folderName: string) => {
@@ -650,39 +654,62 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 }
             };
 
-            // 1. Initiate deep scan from project root
-            await scanFolder('root', '', 0);
+            // 1. Initiate deep scan from project configured root
+            const configuredFolder = (config.folderPath || config.folderUrl || '').trim();
+            const initialFolderId = config.provider === 'gdrive' ? (config.folderId || 'root') :
+                                    config.provider === 'onedrive' ? (payload.folderId || config.folderId || 'root') :
+                                    'root';
+            const initialPath = config.provider === 'dropbox' ? (configuredFolder.startsWith('/') ? configuredFolder : (configuredFolder ? `/${configuredFolder}` : '')) : '';
 
-            // 2. Real files vs fallback samples
+            await scanFolder(initialFolderId, initialPath, 0);
+
+            // Also if initialFolderId/initialPath was a specific subfolder and found 0 models, scan root as fallback
+            if (discoveredModels.length === 0 && discoveredDrawings.length === 0 && (initialFolderId !== 'root' || initialPath !== '')) {
+                await scanFolder('root', '', 0);
+            }
+
+            // 2. Real files vs fallback samples:
+            // When a CDE is connected (config.connected === true), NEVER show fake sample models!
+            // Show only what is actually in their CDE. If empty, return [] so the UI shows an honest empty state.
             const hasRealModels = discoveredModels.length > 0;
             const hasRealDrawings = discoveredDrawings.length > 0;
+            const isCdeConnected = Boolean(config.connected || config.provider);
 
-            const finalModels = hasRealModels ? discoveredModels : SAMPLE_BIM_MODELS.map((m, idx) => ({
-                id: `cde-m-${idx + 1}`,
-                cdeId: `sample-${m.fileName}`,
-                folder: m.folder,
-                name: m.fileName,
-                size: m.size,
-                rev: m.rev,
-                active: true,
-                discipline: m.discipline,
-                isRealCdeFile: false
-            }));
+            let finalModels: typeof discoveredModels;
+            if (isCdeConnected) {
+                finalModels = discoveredModels; // Exclusively real files from user's CDE!
+            } else {
+                finalModels = SAMPLE_BIM_MODELS.map((m, idx) => ({
+                    id: `cde-m-${idx + 1}`,
+                    cdeId: `sample-${m.fileName}`,
+                    folder: m.folder,
+                    name: m.fileName,
+                    size: m.size,
+                    rev: m.rev,
+                    active: true,
+                    discipline: m.discipline,
+                    isRealCdeFile: false
+                }));
+            }
 
-            // Only return sample drawings if the user's CDE folder has zero drawings discovered
-            const finalDrawings = hasRealDrawings ? discoveredDrawings : SAMPLE_2D_DRAWINGS.map((d, idx) => ({
-                id: `cde-d-${idx + 1}`,
-                cdeId: `sample-${d.fileName}`,
-                code: d.fileName.split('_')[0] || `DRW-0${idx + 1}`,
-                title: d.title,
-                discipline: d.discipline,
-                storey: d.storey || 'Piso 0',
-                format: d.format || 'A1 (1:100)',
-                revision: 'Exemplo Local',
-                fileName: d.fileName,
-                date: '2026-04-25',
-                isRealCdeFile: false
-            }));
+            let finalDrawings: typeof discoveredDrawings;
+            if (isCdeConnected) {
+                finalDrawings = discoveredDrawings; // Exclusively real drawings from user's CDE!
+            } else {
+                finalDrawings = SAMPLE_2D_DRAWINGS.map((d, idx) => ({
+                    id: `cde-d-${idx + 1}`,
+                    cdeId: `sample-${d.fileName}`,
+                    code: d.fileName.split('_')[0] || `DRW-0${idx + 1}`,
+                    title: d.title,
+                    discipline: d.discipline,
+                    storey: d.storey || 'Piso 0',
+                    format: d.format || 'A1 (1:100)',
+                    revision: 'Exemplo Local',
+                    fileName: d.fileName,
+                    date: '2026-04-25',
+                    isRealCdeFile: false
+                }));
+            }
 
             return {
                 connected: true,
@@ -1743,7 +1770,36 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
         }
 
         const data = await response.json();
-        const files = (data.entries || []).map((item: any) => ({
+        let allEntries = [...(data.entries || [])];
+        let cursor = data.cursor;
+        let hasMore = data.has_more;
+        let iterations = 0;
+
+        while (hasMore && cursor && iterations < 5) {
+            iterations++;
+            try {
+                const continueRes = await fetch('https://api.dropboxapi.com/2/files/list_folder/continue', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ cursor })
+                });
+                if (continueRes.ok) {
+                    const contData = await continueRes.json();
+                    allEntries.push(...(contData.entries || []));
+                    cursor = contData.cursor;
+                    hasMore = contData.has_more;
+                } else {
+                    break;
+                }
+            } catch (_) {
+                break;
+            }
+        }
+
+        const files = allEntries.map((item: any) => ({
             id: item.path_display || item.id,
             name: item.name,
             mimeType: item['.tag'] === 'folder' ? 'application/vnd.google-apps.folder' : 'file',
@@ -1913,7 +1969,7 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
             ? payload.folderId
             : (config.folderId || (payload.path && payload.path !== 'root' ? payload.path : 'root'));
         const q = `'${parentId}' in parents and trashed = false`;
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,webViewLink)`, {
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,webViewLink)&pageSize=1000`, {
             headers: { Authorization: `Bearer ${accessToken}` }
         });
         if (!res.ok) {

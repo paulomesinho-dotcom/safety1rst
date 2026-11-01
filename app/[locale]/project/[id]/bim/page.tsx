@@ -64,7 +64,9 @@ import {
     Fuel,
     Droplets,
     Grid,
-    Footprints
+    Footprints,
+    Star,
+    Zap
 } from 'lucide-react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -229,6 +231,7 @@ export interface CdeDrawing2D {
     date: string;
     webViewLink?: string;
     isRealCdeFile?: boolean;
+    isBaseModel?: boolean;
 }
 
 export interface CdeModelItem {
@@ -242,6 +245,7 @@ export interface CdeModelItem {
     discipline: 'architecture' | 'structure' | 'mep' | 'safety';
     webViewLink?: string;
     isRealCdeFile?: boolean;
+    isBaseModel?: boolean;
 }
 
 const DEFAULT_CDE_MODELS: CdeModelItem[] = [
@@ -350,11 +354,62 @@ export default function BimViewerPage() {
     const [showEmergencyLayer, setShowEmergencyLayer] = useState(true);
     const [activeLayerPreset, setActiveLayerPreset] = useState<'all' | 'inspections' | 'logistics' | 'emergency' | 'clean'>('all');
 
-    // Real CDE Cloud Connection State
-    const [cdeStatus, setCdeStatus] = useState<{ connected: boolean; provider?: string | null; hasFiles?: boolean }>({ connected: false });
+    // Helper to get initial CDE state from localStorage or Zustand storage synchronously
+    const initialCdeData = useMemo(() => {
+        if (typeof window === 'undefined') {
+            return {
+                status: { connected: false },
+                models: DEFAULT_CDE_MODELS,
+                drawings: DEFAULT_2D_DRAWINGS,
+                baseModelId: null,
+                autoLoad: true
+            };
+        }
+        try {
+            const storedState = localStorage.getItem('safesite-storage');
+            let isConnected = false;
+            let provider: string | null = null;
+            if (storedState) {
+                const parsed = JSON.parse(storedState);
+                const projs = parsed?.state?.projects || [];
+                const proj = projs.find((p: any) => p.id === projectId);
+                if (proj?.cdeConfig?.connected || proj?.cdeConfig?.provider) {
+                    isConnected = Boolean(proj.cdeConfig.connected);
+                    provider = proj.cdeConfig.provider;
+                }
+            }
+
+            const cachedModelsRaw = localStorage.getItem(`safesite_cde_models_${projectId}`);
+            const cachedDrawingsRaw = localStorage.getItem(`safesite_cde_drawings_${projectId}`);
+            const savedBaseId = localStorage.getItem(`safesite_base_model_${projectId}`);
+            const autoLoadSetting = localStorage.getItem(`safesite_autoload_ifc_${projectId}`);
+
+            const cachedModels = cachedModelsRaw ? JSON.parse(cachedModelsRaw) : null;
+            const cachedDrawings = cachedDrawingsRaw ? JSON.parse(cachedDrawingsRaw) : null;
+
+            return {
+                status: { connected: isConnected, provider },
+                models: cachedModels && cachedModels.length > 0 ? cachedModels : (isConnected ? [] : DEFAULT_CDE_MODELS),
+                drawings: cachedDrawings && cachedDrawings.length > 0 ? cachedDrawings : (isConnected ? [] : DEFAULT_2D_DRAWINGS),
+                baseModelId: savedBaseId || null,
+                autoLoad: autoLoadSetting !== 'false'
+            };
+        } catch (_) {
+            return {
+                status: { connected: false },
+                models: DEFAULT_CDE_MODELS,
+                drawings: DEFAULT_2D_DRAWINGS,
+                baseModelId: null,
+                autoLoad: true
+            };
+        }
+    }, [projectId]);
+
+    // Real CDE Cloud Connection State (initialized from cache)
+    const [cdeStatus, setCdeStatus] = useState<{ connected: boolean; provider?: string | null; hasFiles?: boolean }>(initialCdeData.status);
     const [isSyncingCde, setIsSyncingCde] = useState(false);
-    const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(DEFAULT_2D_DRAWINGS);
-    const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(DEFAULT_2D_DRAWINGS[0] || null);
+    const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(initialCdeData.drawings);
+    const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(initialCdeData.drawings[0] || null);
     const [drawingViewMode, setDrawingViewMode] = useState<'interactive' | 'pdf'>('interactive');
     const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
     const [sheetZoom, setSheetZoom] = useState<number>(1);
@@ -391,7 +446,11 @@ export default function BimViewerPage() {
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
     // CDE Loaded Models & Explorer Folders
-    const [cdeModels, setCdeModels] = useState<CdeModelItem[]>(DEFAULT_CDE_MODELS);
+    const [cdeModels, setCdeModels] = useState<CdeModelItem[]>(initialCdeData.models);
+    const [baseModelId, setBaseModelId] = useState<string | null>(initialCdeData.baseModelId);
+    const [autoLoadBaseModel, setAutoLoadBaseModel] = useState<boolean>(initialCdeData.autoLoad);
+    const hasAutoLoadedModelRef = useRef<boolean>(false);
+
     const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
         'bim_root': true,
         '01-Arquitetura': true,
@@ -498,25 +557,60 @@ export default function BimViewerPage() {
         };
     }, [selected2dDrawing, projectId]);
 
+    // Handlers for base model designation & auto-load toggle
+    const handleSetBaseModel = (model: CdeModelItem) => {
+        setBaseModelId(model.id);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(`safesite_base_model_${projectId}`, model.id);
+        }
+        showToast(`⭐ "${model.name}" definido como modelo IFC base da obra! Carregará automaticamente ao entrar.`);
+    };
+
+    const handleToggleAutoLoad = () => {
+        const nextVal = !autoLoadBaseModel;
+        setAutoLoadBaseModel(nextVal);
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(`safesite_autoload_ifc_${projectId}`, String(nextVal));
+        }
+        showToast(nextVal ? '⚡ Carregamento automático do modelo base ATIVADO.' : 'Carregamento automático DESATIVADO.');
+    };
+
     // Load Real CDE Cloud Files
     const loadRealCdeFiles = useCallback(async () => {
         setIsSyncingCde(true);
         try {
             // First check status directly from server endpoint
             const statusRes = await fetch(`/api/projects/${projectId}/cde`).catch(() => null);
-            let activeCfg = (currentProject as any)?.cdeConfig;
+            let activeCfg: any = null;
             if (statusRes?.ok) {
                 const sData = await statusRes.json().catch(() => ({}));
                 const sCfg = sData?.cdeConfig || sData?.config;
-                if (sCfg?.connected) {
+                if (sCfg?.connected || sCfg?.provider) {
                     activeCfg = sCfg;
-                    setCdeStatus({
-                        connected: true,
-                        provider: sCfg.provider,
-                        hasFiles: true
-                    });
                 }
-            } else if (activeCfg?.connected) {
+            }
+
+            // Fallback: check project in client store or localStorage
+            if (!activeCfg || !activeCfg.connected) {
+                const storedProjCfg = (currentProject as any)?.cdeConfig;
+                if (storedProjCfg?.connected || storedProjCfg?.provider) {
+                    activeCfg = storedProjCfg;
+                } else if (typeof window !== 'undefined') {
+                    try {
+                        const storedState = localStorage.getItem('safesite-storage');
+                        if (storedState) {
+                            const parsed = JSON.parse(storedState);
+                            const projs = parsed?.state?.projects || [];
+                            const proj = projs.find((p: any) => p.id === projectId);
+                            if (proj?.cdeConfig?.connected || proj?.cdeConfig?.provider) {
+                                activeCfg = proj.cdeConfig;
+                            }
+                        }
+                    } catch (_) {}
+                }
+            }
+
+            if (activeCfg?.connected || activeCfg?.provider) {
                 setCdeStatus({
                     connected: true,
                     provider: activeCfg.provider,
@@ -542,12 +636,33 @@ export default function BimViewerPage() {
                         provider: result.provider || activeCfg?.provider,
                         hasFiles: result.hasFiles ?? true
                     });
-                    if (result.models && result.models.length > 0) {
+                    if (result.models) {
                         setCdeModels(result.models);
+                        try {
+                            localStorage.setItem(`safesite_cde_models_${projectId}`, JSON.stringify(result.models));
+                        } catch (_) {}
+
+                        // Automatic Loading of Base IFC Model on entry / refresh
+                        if (autoLoadBaseModel && !hasAutoLoadedModelRef.current && result.models.length > 0) {
+                            const preferredId = baseModelId || (typeof window !== 'undefined' ? localStorage.getItem(`safesite_base_model_${projectId}`) : null);
+                            const targetModel = result.models.find((m: any) => m.id === preferredId) ||
+                                                result.models.find((m: any) => m.isRealCdeFile) ||
+                                                result.models[0];
+
+                            if (targetModel && targetModel.isRealCdeFile) {
+                                hasAutoLoadedModelRef.current = true;
+                                showToast(`⚡ A carregar automaticamente o modelo base "${targetModel.name}" do CDE...`);
+                                handleLoadModelFromCde(targetModel);
+                            }
+                        }
                     }
-                    if (result.drawings && result.drawings.length > 0) {
+                    if (result.drawings) {
                         setCdeDrawings(result.drawings);
-                        if (!selected2dDrawing || !selected2dDrawing.isRealCdeFile) {
+                        try {
+                            localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(result.drawings));
+                        } catch (_) {}
+
+                        if (result.drawings.length > 0 && (!selected2dDrawing || !selected2dDrawing.isRealCdeFile)) {
                             setSelected2dDrawing(result.drawings[0]);
                         }
                     }
@@ -558,11 +673,27 @@ export default function BimViewerPage() {
         } finally {
             setIsSyncingCde(false);
         }
-    }, [projectId, currentProject, selected2dDrawing]);
+    }, [projectId, currentProject, selected2dDrawing, autoLoadBaseModel, baseModelId]);
 
     useEffect(() => {
         loadRealCdeFiles();
     }, [loadRealCdeFiles]);
+
+    // Immediate Auto-Load on Mount if Real Model is already in Cache
+    useEffect(() => {
+        if (autoLoadBaseModel && !hasAutoLoadedModelRef.current && initialCdeData.models && initialCdeData.models.length > 0) {
+            const preferredId = initialCdeData.baseModelId || (typeof window !== 'undefined' ? localStorage.getItem(`safesite_base_model_${projectId}`) : null);
+            const targetModel = initialCdeData.models.find((m: any) => m.id === preferredId) ||
+                                initialCdeData.models.find((m: any) => m.isRealCdeFile);
+
+            if (targetModel && targetModel.isRealCdeFile) {
+                hasAutoLoadedModelRef.current = true;
+                setTimeout(() => {
+                    handleLoadModelFromCde(targetModel);
+                }, 500);
+            }
+        }
+    }, []);
 
     // Seed Sample Realistic BIM Models & 2D Drawings into the real Connected CDE
     const handleSeedCdeSampleFiles = async () => {
@@ -2325,6 +2456,27 @@ export default function BimViewerPage() {
                                         </button>
                                     </div>
 
+                                    {/* Auto-Load Base Model Setting Toggle */}
+                                    <div className="flex items-center justify-between pt-1 border-t border-slate-200/80 dark:border-neutral-800 text-[10px]">
+                                        <button
+                                            type="button"
+                                            onClick={handleToggleAutoLoad}
+                                            className={cn(
+                                                "w-full flex items-center justify-between px-2 py-1 rounded cursor-pointer transition-colors font-medium shadow-2xs",
+                                                autoLoadBaseModel
+                                                    ? "text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100"
+                                                    : "text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-neutral-800 hover:bg-slate-200"
+                                            )}
+                                            title="Ao entrar ou refrescar a obra, o modelo IFC base é carregado automaticamente no 3D"
+                                        >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                                <Zap size={11} className={autoLoadBaseModel ? "fill-amber-500 text-amber-500" : ""} />
+                                                <span className="truncate">Carregamento automático do IFC</span>
+                                            </div>
+                                            <span className="font-bold uppercase text-[9px]">{autoLoadBaseModel ? 'Ativo' : 'Inativo'}</span>
+                                        </button>
+                                    </div>
+
                                     <div className="flex items-center gap-1.5">
                                         <button
                                             onClick={handleCreateCdeFolders}
@@ -2347,6 +2499,19 @@ export default function BimViewerPage() {
                                         </button>
                                     </div>
                                 </div>
+
+                                {/* Empty state if CDE is connected but has no IFCs discovered yet */}
+                                {cdeStatus.connected && cdeModels.length === 0 && !isSyncingCde && (
+                                    <div className="p-2.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-[11px] space-y-1.5">
+                                        <div className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                                            <Info size={13} className="shrink-0 text-amber-600" />
+                                            <span>Nenhum ficheiro .ifc na pasta da obra</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-600 dark:text-slate-300 leading-snug">
+                                            O CDE está ligado à sua pasta na cloud. Para visualizar o seu edifício aqui, coloque o seu ficheiro <strong>.ifc</strong> na pasta e prima <strong>Sincronizar</strong>.
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* CDE Root Folders Explorer with selectable models */}
                                 <div>
@@ -2407,49 +2572,79 @@ export default function BimViewerPage() {
                                                                         {folderModels.length === 0 ? (
                                                                             <div className="text-[10px] text-slate-400 italic py-0.5">Sem modelos nesta pasta</div>
                                                                         ) : (
-                                                                            folderModels.map(model => (
-                                                                                <div
-                                                                                    key={model.id}
-                                                                                    onClick={() => handleLoadModelFromCde(model)}
-                                                                                    className={cn(
-                                                                                        "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex flex-col gap-1.5",
-                                                                                        model.active
-                                                                                            ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-950 dark:text-blue-100 shadow-2xs"
-                                                                                            : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
-                                                                                    )}
-                                                                                >
-                                                                                    <div className="flex items-center justify-between gap-1.5">
-                                                                                        <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
-                                                                                            <Box size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
-                                                                                            <span className="font-bold truncate text-[11px] text-slate-900 dark:text-slate-100" title={model.name}>
-                                                                                                {model.name}
+                                                                            folderModels.map(model => {
+                                                                                const isBaseModel = model.id === baseModelId || (!baseModelId && model.isRealCdeFile && cdeModels.findIndex(m => m.isRealCdeFile) === 0);
+                                                                                return (
+                                                                                    <div
+                                                                                        key={model.id}
+                                                                                        onClick={() => handleLoadModelFromCde(model)}
+                                                                                        className={cn(
+                                                                                            "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex flex-col gap-1.5",
+                                                                                            model.active
+                                                                                                ? "bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 text-blue-950 dark:text-blue-100 shadow-2xs"
+                                                                                                : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 text-slate-600 dark:text-slate-400 hover:border-slate-300"
+                                                                                        )}
+                                                                                    >
+                                                                                        <div className="flex items-center justify-between gap-1.5">
+                                                                                            <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
+                                                                                                <Box size={13} className="text-blue-600 dark:text-blue-400 shrink-0" />
+                                                                                                <span className="font-bold truncate text-[11px] text-slate-900 dark:text-slate-100" title={model.name}>
+                                                                                                    {model.name}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <span className={cn(
+                                                                                                "text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0",
+                                                                                                model.isRealCdeFile ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-100 text-slate-600 dark:bg-neutral-700 dark:text-slate-300"
+                                                                                            )}>
+                                                                                                {model.isRealCdeFile ? 'CDE Real' : 'Exemplo'}
                                                                                             </span>
                                                                                         </div>
-                                                                                        <span className={cn(
-                                                                                            "text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0",
-                                                                                            model.isRealCdeFile ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-100 text-slate-600 dark:bg-neutral-700 dark:text-slate-300"
-                                                                                        )}>
-                                                                                            {model.isRealCdeFile ? 'CDE Real' : 'Exemplo'}
-                                                                                        </span>
-                                                                                    </div>
 
-                                                                                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
-                                                                                        <span>{model.size} • {model.rev}</span>
-                                                                                        <button
-                                                                                            type="button"
-                                                                                            onClick={(e) => {
-                                                                                                e.stopPropagation();
-                                                                                                handleLoadModelFromCde(model);
-                                                                                            }}
-                                                                                            className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
-                                                                                            title="Descarregar e carregar este modelo IFC diretamente da Cloud no visualizador 3D"
-                                                                                        >
-                                                                                            <Download size={10} />
-                                                                                            <span>Carregar no 3D</span>
-                                                                                        </button>
+                                                                                        <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                                                                                            <div className="flex items-center gap-1.5 truncate">
+                                                                                                <span>{model.size} • {model.rev}</span>
+                                                                                                {isBaseModel && (
+                                                                                                    <span className="text-[8px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/60 px-1 py-0.2 rounded border border-amber-300 dark:border-amber-800" title="Modelo IFC Base carregado automaticamente ao entrar">
+                                                                                                        <Star size={9} className="fill-amber-500 text-amber-500" />
+                                                                                                        <span>Base</span>
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+
+                                                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={(e) => {
+                                                                                                        e.stopPropagation();
+                                                                                                        handleSetBaseModel(model);
+                                                                                                    }}
+                                                                                                    className={cn(
+                                                                                                        "p-1 rounded cursor-pointer transition-colors",
+                                                                                                        isBaseModel
+                                                                                                            ? "text-amber-500 hover:text-amber-600 bg-amber-50 dark:bg-amber-950"
+                                                                                                            : "text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-neutral-700"
+                                                                                                    )}
+                                                                                                    title={isBaseModel ? "Modelo Base atual (carrega automaticamente)" : "Definir como Modelo Base (carrega automaticamente ao entrar na obra)"}
+                                                                                                >
+                                                                                                    <Star size={11} className={isBaseModel ? "fill-amber-500 text-amber-500" : ""} />
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    type="button"
+                                                                                                    onClick={(e) => {
+                                                                                                        e.stopPropagation();
+                                                                                                        handleLoadModelFromCde(model);
+                                                                                                    }}
+                                                                                                    className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10px] flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
+                                                                                                    title="Descarregar e carregar este modelo IFC diretamente da Cloud no visualizador 3D"
+                                                                                                >
+                                                                                                    <Download size={10} />
+                                                                                                    <span>Carregar no 3D</span>
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </div>
                                                                                     </div>
-                                                                                </div>
-                                                                            ))
+                                                                                );
+                                                                            })
                                                                         )}
                                                                     </div>
                                                                 )}
