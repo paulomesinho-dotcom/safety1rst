@@ -66,7 +66,12 @@ import {
     Grid,
     Footprints,
     Star,
-    Zap
+    Zap,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUpFromLine
 } from 'lucide-react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -440,8 +445,8 @@ export default function BimViewerPage() {
     const [logisticsCategoryFilter, setLogisticsCategoryFilter] = useState<string>('all');
     const [logisticsSearchQuery, setLogisticsSearchQuery] = useState<string>('');
 
-    // Left Panel Tabs: 'models' | 'logistics' | 'hierarchy'
-    const [leftPanelTab, setLeftPanelTab] = useState<'models' | 'logistics' | 'hierarchy'>('models');
+    // Left Panel Tabs: 'models' | 'logistics' | 'hierarchy' | 'properties'
+    const [leftPanelTab, setLeftPanelTab] = useState<'models' | 'logistics' | 'hierarchy' | 'properties'>('models');
     const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
     const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1773,6 +1778,8 @@ export default function BimViewerPage() {
                     setActivePin(targetGroup.userData.observation);
                     setSelectedElement(null);
                     setActiveLogisticsItem(null);
+                    setLeftPanelTab('properties');
+                    setIsLeftSidebarOpen(true);
                     return;
                 }
             }
@@ -1790,6 +1797,8 @@ export default function BimViewerPage() {
                     setActiveLogisticsItem(targetGroup.userData.logisticsItem);
                     setSelectedElement(null);
                     setActivePin(null);
+                    setLeftPanelTab('properties');
+                    setIsLeftSidebarOpen(true);
                     return;
                 }
             }
@@ -1837,6 +1846,10 @@ export default function BimViewerPage() {
                     setSelectedElement(mesh.userData);
                     setActivePin(null);
                     setActiveLogisticsItem(null);
+                    if (activeMode !== 'add_point') {
+                        setLeftPanelTab('properties');
+                        setIsLeftSidebarOpen(true);
+                    }
 
                     if (activeMode === 'add_point') {
                         const camPos = cameraRef.current.position;
@@ -2513,58 +2526,123 @@ export default function BimViewerPage() {
                             title="Alternar diretamente para Planta Técnica Interativa 2D"
                         >
                             <Layers size={13} strokeWidth={2} />
-                            <span>2D Interativo</span>
+                            <span>2D</span>
                         </button>
                     </div>
 
-                    {/* MODO DE PROJEÇÃO: Perspetiva vs Isométrica (Ortogonal) */}
+                    {/* MODO DE PROJEÇÃO: Perspetiva vs Isométrica (Apenas Ícones) */}
                     {viewDimension === '3d' && (
                         <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
                             <button
                                 type="button"
                                 onClick={() => handleToggleProjectionMode('perspective')}
                                 className={cn(
-                                    "h-6 px-2 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer",
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
                                     projectionMode === 'perspective'
-                                        ? "bg-blue-600 text-white shadow-xs"
-                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                        ? "bg-blue-600 text-white shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                                 )}
                                 title="Projeção em Perspetiva (vista natural com pontos de fuga)"
                             >
-                                <span>Perspetiva</span>
+                                <Eye size={13} strokeWidth={2} />
                             </button>
                             <button
                                 type="button"
                                 onClick={() => handleToggleProjectionMode('isometric')}
                                 className={cn(
-                                    "h-6 px-2 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer",
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
                                     projectionMode === 'isometric'
-                                        ? "bg-indigo-600 text-white shadow-xs"
-                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                        ? "bg-indigo-600 text-white shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                                 )}
                                 title="Projeção Isométrica / Ortográfica (linhas paralelas sem distorção)"
                             >
-                                <span>Isométrica</span>
+                                <Grid size={13} strokeWidth={2} />
                             </button>
                         </div>
                     )}
 
-                    {/* VISTAS E ALÇADOS DO MODELO */}
+                    {/* VISTAS E ALÇADOS DO MODELO (Apenas Ícones Compactos) */}
                     {viewDimension === '3d' && (
-                        <div className="flex items-center">
-                            <select
-                                value={viewOrientation}
-                                onChange={(e) => handleSetViewOrientation(e.target.value as ViewOrientation)}
-                                className="bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[11px] rounded-md px-2 py-0.5 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer h-7 shadow-xs hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
-                                title="Selecionar Orientação da Vista ou Alçado"
+                        <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
+                            <button
+                                type="button"
+                                onClick={() => handleSetViewOrientation('isometric')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    viewOrientation === 'isometric'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="3D Geral (Axonometria / Perspetiva)"
                             >
-                                <option value="isometric">🎯 3D Geral ({projectionMode === 'isometric' ? 'Isometria' : 'Perspetiva'})</option>
-                                <option value="top">⬆️ Topo ({projectionMode === 'isometric' ? 'Planta 2D Ortográfica' : 'Planta Superior'})</option>
-                                <option value="front">⬇️ Frente ({projectionMode === 'isometric' ? 'Alçado Sul Ortográfico' : 'Alçado Sul'})</option>
-                                <option value="back">⬆️ Trás ({projectionMode === 'isometric' ? 'Alçado Norte Ortográfico' : 'Alçado Norte'})</option>
-                                <option value="right">➡️ Direita ({projectionMode === 'isometric' ? 'Alçado Este Ortográfico' : 'Alçado Este'})</option>
-                                <option value="left">⬅️ Esquerda ({projectionMode === 'isometric' ? 'Alçado Oeste Ortográfico' : 'Alçado Oeste'})</option>
-                            </select>
+                                <Box size={13} strokeWidth={1.8} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetViewOrientation('top')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    viewOrientation === 'top'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title={projectionMode === 'isometric' ? "Topo (Planta 2D Ortográfica)" : "Topo (Planta Superior em Perspetiva)"}
+                            >
+                                <ArrowUp size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetViewOrientation('front')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    viewOrientation === 'front'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title={projectionMode === 'isometric' ? "Frente (Alçado Sul Ortográfico)" : "Frente (Alçado Sul em Perspetiva)"}
+                            >
+                                <ArrowDown size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetViewOrientation('back')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    viewOrientation === 'back'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title={projectionMode === 'isometric' ? "Trás (Alçado Norte Ortográfico)" : "Trás (Alçado Norte em Perspetiva)"}
+                            >
+                                <ArrowUpFromLine size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetViewOrientation('right')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    viewOrientation === 'right'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title={projectionMode === 'isometric' ? "Direita (Alçado Este Ortográfico)" : "Direita (Alçado Este em Perspetiva)"}
+                            >
+                                <ArrowRight size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleSetViewOrientation('left')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    viewOrientation === 'left'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title={projectionMode === 'isometric' ? "Esquerda (Alçado Oeste Ortográfico)" : "Esquerda (Alçado Oeste em Perspetiva)"}
+                            >
+                                <ArrowLeft size={13} strokeWidth={2} />
+                            </button>
                         </div>
                     )}
 
@@ -2681,43 +2759,58 @@ export default function BimViewerPage() {
                     "h-full bg-white dark:bg-[#1a1b1e] border-r border-slate-200 dark:border-neutral-800 z-10 flex flex-col transition-all duration-300 ease-in-out shrink-0 shadow-lg select-none",
                     isLeftSidebarOpen ? "w-80" : "w-0 overflow-hidden border-none"
                 )}>
-                    {/* Left Panel Tabs: 3 Separadores (Icon em cima, nome em baixo: CDE, Estaleiro, Piso) */}
-                    <div className="grid grid-cols-3 border-b border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 shrink-0">
+                    {/* Left Panel Tabs: 4 Separadores com Apenas Ícones (CDE, Estaleiro, Piso, Propriedades) */}
+                    <div className="grid grid-cols-4 border-b border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 shrink-0">
                         <button
                             onClick={() => setLeftPanelTab('models')}
                             className={cn(
-                                "py-2 px-1 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer",
+                                "py-2.5 text-center border-b-2 transition-all flex items-center justify-center cursor-pointer",
                                 leftPanelTab === 'models'
-                                    ? "border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#1a1b1e] font-bold"
-                                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
+                                    ? "border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#1a1b1e]"
+                                    : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                             )}
+                            title="Modelos e Desenhos CDE"
                         >
-                            <FolderTree size={16} strokeWidth={1.75} />
-                            <span className="text-[11px] tracking-tight">CDE</span>
+                            <FolderTree size={18} strokeWidth={1.75} />
                         </button>
                         <button
                             onClick={() => setLeftPanelTab('logistics')}
                             className={cn(
-                                "py-2 px-1 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer",
+                                "py-2.5 text-center border-b-2 transition-all flex items-center justify-center cursor-pointer",
                                 leftPanelTab === 'logistics'
-                                    ? "border-amber-600 text-amber-600 dark:text-amber-400 bg-white dark:bg-[#1a1b1e] font-bold"
-                                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
+                                    ? "border-amber-600 text-amber-600 dark:text-amber-400 bg-white dark:bg-[#1a1b1e]"
+                                    : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                             )}
+                            title="Equipamentos e Estaleiro (Logística)"
                         >
-                            <HardHat size={16} strokeWidth={1.75} />
-                            <span className="text-[11px] tracking-tight">Estaleiro</span>
+                            <HardHat size={18} strokeWidth={1.75} />
                         </button>
                         <button
                             onClick={() => setLeftPanelTab('hierarchy')}
                             className={cn(
-                                "py-2 px-1 text-center border-b-2 transition-all flex flex-col items-center justify-center gap-1 cursor-pointer",
+                                "py-2.5 text-center border-b-2 transition-all flex items-center justify-center cursor-pointer",
                                 leftPanelTab === 'hierarchy'
-                                    ? "border-emerald-600 text-emerald-600 dark:text-emerald-400 bg-white dark:bg-[#1a1b1e] font-bold"
-                                    : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
+                                    ? "border-emerald-600 text-emerald-600 dark:text-emerald-400 bg-white dark:bg-[#1a1b1e]"
+                                    : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                             )}
+                            title="Pisos e Níveis da Obra"
                         >
-                            <Layers size={16} strokeWidth={1.75} />
-                            <span className="text-[11px] tracking-tight">Piso</span>
+                            <Layers size={18} strokeWidth={1.75} />
+                        </button>
+                        <button
+                            onClick={() => setLeftPanelTab('properties')}
+                            className={cn(
+                                "py-2.5 text-center border-b-2 transition-all flex items-center justify-center cursor-pointer relative",
+                                leftPanelTab === 'properties'
+                                    ? "border-purple-600 text-purple-600 dark:text-purple-400 bg-white dark:bg-[#1a1b1e]"
+                                    : "border-transparent text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                            )}
+                            title="Propriedades da Seleção (Elemento, Ponto ou Equipamento)"
+                        >
+                            <Sliders size={18} strokeWidth={1.75} />
+                            {(selectedElement || activePin || activeLogisticsItem) && (
+                                <span className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-purple-600 animate-pulse" />
+                            )}
                         </button>
                     </div>
 
@@ -3284,206 +3377,206 @@ export default function BimViewerPage() {
                                 </div>
                             </div>
                         )}
-                    </div>
 
-                    {/* BOTTOM HALF OF LEFT PANEL: PROPRIEDADES DO ELEMENTO SELECIONADO (SEMPRE VISÍVEL) */}
-                    <div className="h-60 min-h-[220px] max-h-[260px] border-t border-slate-200 dark:border-neutral-800 bg-slate-50/90 dark:bg-neutral-900/90 flex flex-col shrink-0 p-2.5 overflow-hidden">
-                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-neutral-800 shrink-0">
-                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-neutral-400 flex items-center gap-1.5">
-                                <Sliders size={12} strokeWidth={1.75} className="text-blue-600" />
-                                Propriedades da Seleção
-                            </span>
-                            {(selectedElement || activePin || activeLogisticsItem) && (
-                                <button
-                                    onClick={() => {
-                                        setSelectedElement(null);
-                                        setActivePin(null);
-                                        setActiveLogisticsItem(null);
-                                    }}
-                                    className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 cursor-pointer"
-                                >
-                                    <X size={11} strokeWidth={1.75} />
-                                    <span>Limpar</span>
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto py-2 text-xs">
-                            {selectedElement ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-start justify-between gap-1.5">
-                                        <span className="font-bold text-slate-900 dark:text-white text-[11px] leading-tight line-clamp-2">
-                                            {selectedElement.elementName}
-                                        </span>
-                                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 shrink-0">
-                                            {selectedElement.category || 'IFC'}
-                                        </span>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-white dark:bg-neutral-800/80 p-2 rounded-lg border border-slate-200/80 dark:border-neutral-700/80 text-slate-600 dark:text-slate-300">
-                                        <div><span className="text-slate-400">Piso:</span> <strong className="text-slate-800 dark:text-slate-100">{selectedElement.storey}</strong></div>
-                                        <div><span className="text-slate-400">Disciplina:</span> <strong className="uppercase text-blue-600">{selectedElement.discipline || 'Geral'}</strong></div>
-                                        <div className="col-span-2 truncate">
-                                            <span className="text-slate-400">GUID:</span> <span className="font-mono text-[9px]">{selectedElement.ifcGlobalId}</span>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={() => {
-                                            setActiveMode('add_point');
-                                            setPendingPinData({
-                                                position: [0, 2, 0],
-                                                cameraPosition: [10, 10, 10],
-                                                cameraTarget: [0, 2, 0],
-                                                ifcGlobalId: selectedElement.ifcGlobalId,
-                                                elementName: selectedElement.elementName,
-                                                storeyName: selectedElement.storey,
-                                                discipline: selectedElement.discipline
-                                            });
-                                            setFormTitle(`Inspeção: ${selectedElement.elementName}`);
-                                            setFormDesc('');
-                                            setFormCategory('safety_non_compliance');
-                                            setFormSeverity('high');
-                                            setFormCompanyId(companies[0]?.id || '');
-                                            setFormPhoto('');
-                                            setIsCreateModalOpen(true);
-                                        }}
-                                        className="w-full py-1.5 px-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                                    >
-                                        <MapPin size={12} strokeWidth={1.75} />
-                                        <span>+ Registar Não Conformidade</span>
-                                    </button>
-                                </div>
-                            ) : activePin ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-start justify-between gap-1">
-                                        <span className="font-bold text-slate-900 dark:text-white text-[11px] line-clamp-2">
-                                            {activePin.title}
-                                        </span>
-                                        <span className={cn(
-                                            "text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0",
-                                            activePin.severity === 'critical' ? "bg-red-100 text-red-700" :
-                                            activePin.severity === 'high' ? "bg-orange-100 text-orange-700" :
-                                            "bg-slate-100 text-slate-600"
-                                        )}>
-                                            {activePin.severity}
-                                        </span>
-                                    </div>
-                                    <p className="text-[10px] text-slate-600 dark:text-slate-300 line-clamp-2">
-                                        {activePin.description}
-                                    </p>
-                                    <div className="text-[9px] text-slate-400">
-                                        📍 {activePin.storeyName} • {activePin.elementName}
-                                    </div>
-                                    <button
-                                        onClick={() => flyToObservation(activePin)}
-                                        className="w-full py-1 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
-                                    >
-                                        <Eye size={11} strokeWidth={1.75} />
-                                        <span>Focar no Modelo 3D</span>
-                                    </button>
-                                </div>
-                            ) : activeLogisticsItem ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-start justify-between gap-1">
-                                        <span className="font-bold text-slate-900 dark:text-white text-[11px] leading-tight">
-                                            {activeLogisticsItem.name}
-                                        </span>
-                                        <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
-                                            {activeLogisticsItem.category}
-                                        </span>
-                                    </div>
-                                    <div className="text-[10px] text-slate-600 dark:text-slate-300 space-y-0.5 bg-white dark:bg-neutral-800 p-1.5 rounded-lg border border-slate-200 dark:border-neutral-700">
-                                        <div>Tipo: <strong>{activeLogisticsItem.type}</strong></div>
-                                        <div>Posição: <strong className="font-mono text-slate-800 dark:text-slate-100">[{activeLogisticsItem.position.join(', ')}]</strong></div>
-                                        <div>Rotação: <strong className="font-mono">{Math.round(((activeLogisticsItem.rotation || 0) * 180) / Math.PI)}°</strong></div>
-                                        {activeLogisticsItem.radius && <div>Raio de Lança: <strong>{activeLogisticsItem.radius}m</strong></div>}
-                                    </div>
-
-                                    {/* Action: Deslocar / Mover no Modelo */}
-                                    <button
-                                        onClick={() => {
-                                            setActiveMode(activeMode === 'moving_logistics' ? 'navigate' : 'moving_logistics');
-                                            showToast('Modo Deslocação: clique na nova posição do modelo ou planta.');
-                                        }}
-                                        className={cn(
-                                            "w-full py-1.5 px-2 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer",
-                                            activeMode === 'moving_logistics'
-                                                ? "bg-amber-600 text-white animate-pulse"
-                                                : "bg-amber-500 hover:bg-amber-600 text-white"
-                                        )}
-                                    >
-                                        <Move size={12} strokeWidth={2} />
-                                        <span>{activeMode === 'moving_logistics' ? 'Clique no Local Desejado...' : 'Deslocar Elemento (Mover)'}</span>
-                                    </button>
-
-                                    {/* Fine Tuning Nudge Buttons */}
-                                    <div className="bg-white dark:bg-neutral-800 p-1 rounded-lg border border-slate-200 dark:border-neutral-700 space-y-1">
-                                        <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Ajuste Fino de Posição</div>
-                                        <div className="grid grid-cols-4 gap-1">
-                                            <button
-                                                onClick={() => handleNudgeLogisticsItem(-1, 0)}
-                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
-                                                title="Deslocar -1m no Eixo X"
-                                            >
-                                                ← X
-                                            </button>
-                                            <button
-                                                onClick={() => handleNudgeLogisticsItem(1, 0)}
-                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
-                                                title="Deslocar +1m no Eixo X"
-                                            >
-                                                X →
-                                            </button>
-                                            <button
-                                                onClick={() => handleNudgeLogisticsItem(0, -1)}
-                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
-                                                title="Deslocar -1m no Eixo Z"
-                                            >
-                                                ↑ Z
-                                            </button>
-                                            <button
-                                                onClick={() => handleNudgeLogisticsItem(0, 1)}
-                                                className="py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-bold"
-                                                title="Deslocar +1m no Eixo Z"
-                                            >
-                                                ↓ Z
-                                            </button>
-                                        </div>
+                        {/* Tab 4 Content: Propriedades da Seleção (Elemento, Ponto de Inspeção ou Equipamento de Estaleiro) */}
+                        {leftPanelTab === 'properties' && (
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-neutral-800">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-neutral-300 flex items-center gap-1.5">
+                                        <Sliders size={14} strokeWidth={1.75} className="text-purple-600" />
+                                        Propriedades da Seleção
+                                    </span>
+                                    {(selectedElement || activePin || activeLogisticsItem) && (
                                         <button
-                                            onClick={handleRotateLogisticsItem}
-                                            className="w-full py-0.5 px-1 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[10px] font-semibold flex items-center justify-center gap-1"
-                                            title="Rodar 45 graus"
+                                            onClick={() => {
+                                                setSelectedElement(null);
+                                                setActivePin(null);
+                                                setActiveLogisticsItem(null);
+                                            }}
+                                            className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 cursor-pointer"
                                         >
-                                            <RotateCcw size={10} />
-                                            <span>Rodar +45°</span>
+                                            <X size={12} strokeWidth={1.75} />
+                                            <span>Limpar</span>
+                                        </button>
+                                    )}
+                                </div>
+
+                                {selectedElement ? (
+                                    <div className="space-y-3">
+                                        <div className="flex items-start justify-between gap-1.5">
+                                            <span className="font-bold text-slate-900 dark:text-white text-xs leading-tight">
+                                                {selectedElement.elementName}
+                                            </span>
+                                            <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 shrink-0">
+                                                {selectedElement.category || 'IFC'}
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-slate-300">
+                                            <div><span className="text-slate-400">Piso:</span> <strong className="text-slate-800 dark:text-slate-100">{selectedElement.storey}</strong></div>
+                                            <div><span className="text-slate-400">Disciplina:</span> <strong className="uppercase text-blue-600">{selectedElement.discipline || 'Geral'}</strong></div>
+                                            <div className="col-span-2 truncate">
+                                                <span className="text-slate-400">GUID:</span> <span className="font-mono text-[10px]">{selectedElement.ifcGlobalId}</span>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={() => {
+                                                setActiveMode('add_point');
+                                                setPendingPinData({
+                                                    position: [0, 2, 0],
+                                                    cameraPosition: [10, 10, 10],
+                                                    cameraTarget: [0, 2, 0],
+                                                    ifcGlobalId: selectedElement.ifcGlobalId,
+                                                    elementName: selectedElement.elementName,
+                                                    storeyName: selectedElement.storey,
+                                                    discipline: selectedElement.discipline
+                                                });
+                                                setFormTitle(`Inspeção: ${selectedElement.elementName}`);
+                                                setFormDesc('');
+                                                setFormCategory('safety_non_compliance');
+                                                setFormSeverity('high');
+                                                setFormCompanyId(companies[0]?.id || '');
+                                                setFormPhoto('');
+                                                setIsCreateModalOpen(true);
+                                            }}
+                                            className="w-full py-2 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                                        >
+                                            <MapPin size={13} strokeWidth={1.75} />
+                                            <span>+ Registar Não Conformidade</span>
                                         </button>
                                     </div>
+                                ) : activePin ? (
+                                    <div className="space-y-3">
+                                        <div className="flex items-start justify-between gap-1.5">
+                                            <span className="font-bold text-slate-900 dark:text-white text-xs">
+                                                {activePin.title}
+                                            </span>
+                                            <span className={cn(
+                                                "text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0",
+                                                activePin.severity === 'critical' ? "bg-red-100 text-red-700" :
+                                                activePin.severity === 'high' ? "bg-orange-100 text-orange-700" :
+                                                "bg-slate-100 text-slate-600"
+                                            )}>
+                                                {activePin.severity}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                                            {activePin.description}
+                                        </p>
+                                        <div className="text-[10px] text-slate-400 bg-slate-50 dark:bg-neutral-900 p-2 rounded-lg border border-slate-200 dark:border-neutral-800">
+                                            📍 {activePin.storeyName} • {activePin.elementName}
+                                        </div>
+                                        <button
+                                            onClick={() => flyToObservation(activePin)}
+                                            className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                                        >
+                                            <Eye size={13} strokeWidth={1.75} />
+                                            <span>Focar no Modelo 3D</span>
+                                        </button>
+                                    </div>
+                                ) : activeLogisticsItem ? (
+                                    <div className="space-y-3">
+                                        <div className="flex items-start justify-between gap-1.5">
+                                            <span className="font-bold text-slate-900 dark:text-white text-xs leading-tight">
+                                                {activeLogisticsItem.name}
+                                            </span>
+                                            <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shrink-0">
+                                                {activeLogisticsItem.category}
+                                            </span>
+                                        </div>
+                                        <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1 bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800">
+                                            <div>Tipo: <strong>{activeLogisticsItem.type}</strong></div>
+                                            <div>Posição: <strong className="font-mono text-slate-800 dark:text-slate-100">[{activeLogisticsItem.position.join(', ')}]</strong></div>
+                                            <div>Rotação: <strong className="font-mono">{Math.round(((activeLogisticsItem.rotation || 0) * 180) / Math.PI)}°</strong></div>
+                                            {activeLogisticsItem.radius && <div>Raio de Lança: <strong>{activeLogisticsItem.radius}m</strong></div>}
+                                        </div>
 
-                                    <button
-                                        onClick={() => {
-                                            deleteSiteLogisticsItem(activeLogisticsItem.id);
-                                            setActiveLogisticsItem(null);
-                                            showToast('Elemento removido do estaleiro.');
-                                        }}
-                                        className="w-full py-1 px-2 border border-red-300 text-red-600 hover:bg-red-50 rounded text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer"
-                                    >
-                                        <Trash2 size={11} strokeWidth={1.75} />
-                                        <span>Remover do Estaleiro</span>
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="h-full flex flex-col items-center justify-center text-center text-slate-400 dark:text-neutral-500 py-3">
-                                    <Box size={22} className="stroke-[1.5] mb-1.5 opacity-60 text-slate-400" />
-                                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                                        Nenhum elemento selecionado
-                                    </span>
-                                    <p className="text-[10px] text-slate-400 dark:text-neutral-500 max-w-[200px] mt-0.5 leading-normal">
-                                        Clique num elemento 3D, ponto ou equipamento no modelo para ver aqui as propriedades.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
+                                        {/* Action: Deslocar / Mover no Modelo */}
+                                        <button
+                                            onClick={() => {
+                                                setActiveMode(activeMode === 'moving_logistics' ? 'navigate' : 'moving_logistics');
+                                                showToast('Modo Deslocação: clique na nova posição do modelo ou planta.');
+                                            }}
+                                            className={cn(
+                                                "w-full py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer",
+                                                activeMode === 'moving_logistics'
+                                                    ? "bg-amber-600 text-white animate-pulse"
+                                                    : "bg-amber-500 hover:bg-amber-600 text-white"
+                                            )}
+                                        >
+                                            <Move size={13} strokeWidth={2} />
+                                            <span>{activeMode === 'moving_logistics' ? 'Clique no Local Desejado...' : 'Deslocar Elemento (Mover)'}</span>
+                                        </button>
+
+                                        {/* Fine Tuning Nudge Buttons */}
+                                        <div className="bg-slate-50 dark:bg-neutral-900 p-2 rounded-xl border border-slate-200 dark:border-neutral-800 space-y-1.5">
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">Ajuste Fino de Posição</div>
+                                            <div className="grid grid-cols-4 gap-1.5">
+                                                <button
+                                                    onClick={() => handleNudgeLogisticsItem(-1, 0)}
+                                                    className="py-1 px-1 bg-white hover:bg-slate-100 dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-bold"
+                                                    title="Deslocar -1m no Eixo X"
+                                                >
+                                                    ← X
+                                                </button>
+                                                <button
+                                                    onClick={() => handleNudgeLogisticsItem(1, 0)}
+                                                    className="py-1 px-1 bg-white hover:bg-slate-100 dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-bold"
+                                                    title="Deslocar +1m no Eixo X"
+                                                >
+                                                    X →
+                                                </button>
+                                                <button
+                                                    onClick={() => handleNudgeLogisticsItem(0, -1)}
+                                                    className="py-1 px-1 bg-white hover:bg-slate-100 dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-bold"
+                                                    title="Deslocar -1m no Eixo Z"
+                                                >
+                                                    ↑ Z
+                                                </button>
+                                                <button
+                                                    onClick={() => handleNudgeLogisticsItem(0, 1)}
+                                                    className="py-1 px-1 bg-white hover:bg-slate-100 dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-bold"
+                                                    title="Deslocar +1m no Eixo Z"
+                                                >
+                                                    ↓ Z
+                                                </button>
+                                            </div>
+                                            <button
+                                                onClick={handleRotateLogisticsItem}
+                                                className="w-full py-1 px-1 bg-white hover:bg-slate-100 dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-slate-700 dark:text-slate-200 rounded text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer"
+                                                title="Rodar 45 graus"
+                                            >
+                                                <RotateCcw size={11} />
+                                                <span>Rodar +45°</span>
+                                            </button>
+                                        </div>
+
+                                        <button
+                                            onClick={() => {
+                                                deleteSiteLogisticsItem(activeLogisticsItem.id);
+                                                setActiveLogisticsItem(null);
+                                                showToast('Elemento removido do estaleiro.');
+                                            }}
+                                            className="w-full py-1.5 px-3 border border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"
+                                        >
+                                            <Trash2 size={12} strokeWidth={1.75} />
+                                            <span>Remover do Estaleiro</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="h-48 flex flex-col items-center justify-center text-center text-slate-400 dark:text-neutral-500 py-6">
+                                        <Box size={28} className="stroke-[1.5] mb-2 opacity-60 text-slate-400" />
+                                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                            Nenhum elemento selecionado
+                                        </span>
+                                        <p className="text-[11px] text-slate-400 dark:text-neutral-500 max-w-[220px] mt-1 leading-normal">
+                                            Clique num elemento 3D, ponto ou equipamento no modelo para ver aqui as propriedades.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -3844,6 +3937,8 @@ export default function BimViewerPage() {
                                                     setActivePin(obs);
                                                     setSelectedElement(null);
                                                     setActiveLogisticsItem(null);
+                                                    setLeftPanelTab('properties');
+                                                    setIsLeftSidebarOpen(true);
                                                 }}
                                                 style={{ left: `${px}%`, top: `${py}%` }}
                                                 className={cn(
@@ -3877,6 +3972,8 @@ export default function BimViewerPage() {
                                                     setActiveLogisticsItem(item);
                                                     setSelectedElement(null);
                                                     setActivePin(null);
+                                                    setLeftPanelTab('properties');
+                                                    setIsLeftSidebarOpen(true);
                                                 }}
                                                 style={{ left: `${px}%`, top: `${py}%` }}
                                                 className={cn(
