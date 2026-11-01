@@ -83,7 +83,9 @@ import {
 } from '@/lib/bim-samples';
 import { shouldUseFragmentsEngine, calculateEngineOptimization } from '@/lib/that-open-fragments';
 
-export type CameraViewPreset = 'perspective' | 'isometric' | 'top' | 'front' | 'back' | 'right' | 'left';
+export type ProjectionMode = 'perspective' | 'isometric';
+export type ViewOrientation = 'isometric' | 'top' | 'front' | 'back' | 'right' | 'left';
+export type CameraViewPreset = ViewOrientation;
 
 // Seed observations for realistic site demonstration
 const SEED_OBSERVATIONS: Omit<SiteObservation, 'id' | 'createdAt'>[] = [
@@ -335,7 +337,9 @@ export default function BimViewerPage() {
     const mountRef = useRef<HTMLDivElement>(null);
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
     const sceneRef = useRef<THREE.Scene | null>(null);
-    const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+    const cameraRef = useRef<THREE.PerspectiveCamera | THREE.OrthographicCamera | null>(null);
+    const perspCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+    const orthoCameraRef = useRef<THREE.OrthographicCamera | null>(null);
     const controlsRef = useRef<OrbitControls | null>(null);
     const bimGroupRef = useRef<THREE.Group | null>(null);
     const pinsGroupRef = useRef<THREE.Group | null>(null);
@@ -346,7 +350,8 @@ export default function BimViewerPage() {
 
     // Navigation and Visualization States
     const [viewDimension, setViewDimension] = useState<'3d' | '2d'>('3d');
-    const [currentViewOrientation, setCurrentViewOrientation] = useState<CameraViewPreset>('perspective');
+    const [projectionMode, setProjectionMode] = useState<ProjectionMode>('perspective');
+    const [viewOrientation, setViewOrientation] = useState<ViewOrientation>('isometric');
     const modelCenterRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 4.5, 0));
     const modelSizeRef = useRef<THREE.Vector3>(new THREE.Vector3(24, 12, 20));
     const [activeMode, setActiveMode] = useState<'navigate' | 'add_point' | 'add_logistics' | 'add_emergency' | 'moving_logistics'>('navigate');
@@ -416,6 +421,16 @@ export default function BimViewerPage() {
     const [isSyncingCde, setIsSyncingCde] = useState(false);
     const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(initialCdeData.drawings);
     const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(initialCdeData.drawings[0] || null);
+
+    // Active 2D drawing: strictly prioritize real CDE drawings when CDE is connected
+    const active2dDrawing = useMemo(() => {
+        if (selected2dDrawing) return selected2dDrawing;
+        const real = cdeDrawings.find(d => d.isRealCdeFile);
+        if (real) return real;
+        if (!cdeStatus.connected && cdeDrawings.length > 0) return cdeDrawings[0];
+        return null;
+    }, [selected2dDrawing, cdeDrawings, cdeStatus.connected]);
+
     const [drawingViewMode, setDrawingViewMode] = useState<'interactive' | 'pdf'>('interactive');
     const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
     const [sheetZoom, setSheetZoom] = useState<number>(1);
@@ -508,7 +523,8 @@ export default function BimViewerPage() {
 
     // Synchronize Real-time PDF Blob for the selected 2D Drawing (Real CDE or Synthetic Fallback)
     useEffect(() => {
-        if (!selected2dDrawing) {
+        const drawingToDisplay = selected2dDrawing || active2dDrawing;
+        if (!drawingToDisplay) {
             if (currentPdfUrl) {
                 URL.revokeObjectURL(currentPdfUrl);
                 setCurrentPdfUrl(null);
@@ -522,9 +538,9 @@ export default function BimViewerPage() {
         const loadPdfContent = async () => {
             try {
                 // If it is a real file from CDE, download real bytes
-                if (selected2dDrawing.isRealCdeFile) {
-                    const fileId = selected2dDrawing.cdeId || selected2dDrawing.id;
-                    const res = await fetch(`/api/projects/${projectId}/cde/download?fileId=${encodeURIComponent(fileId)}&fileName=${encodeURIComponent(selected2dDrawing.fileName)}`);
+                if (drawingToDisplay.isRealCdeFile) {
+                    const fileId = drawingToDisplay.cdeId || drawingToDisplay.id;
+                    const res = await fetch(`/api/projects/${projectId}/cde/download?fileId=${encodeURIComponent(fileId)}&fileName=${encodeURIComponent(drawingToDisplay.fileName)}`);
                     if (res.ok) {
                         const blob = await res.blob();
                         if (isMounted) {
@@ -537,10 +553,10 @@ export default function BimViewerPage() {
 
                 // Fallback: generate high-fidelity technical drawing PDF
                 const buf = generateRealisticPdfDrawing(
-                    selected2dDrawing.fileName,
-                    selected2dDrawing.title,
-                    selected2dDrawing.code,
-                    selected2dDrawing.storey || 'Piso 0'
+                    drawingToDisplay.fileName,
+                    drawingToDisplay.title,
+                    drawingToDisplay.code,
+                    drawingToDisplay.storey || 'Piso 0'
                 );
                 const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
                 const blob = new Blob([uint8 as any], { type: 'application/pdf' });
@@ -561,7 +577,7 @@ export default function BimViewerPage() {
                 URL.revokeObjectURL(createdBlobUrl);
             }
         };
-    }, [selected2dDrawing, projectId]);
+    }, [selected2dDrawing, active2dDrawing, projectId]);
 
     // Handlers for base model designation & auto-load toggle
     const handleSetBaseModel = (model: CdeModelItem) => {
@@ -670,6 +686,8 @@ export default function BimViewerPage() {
 
                         if (result.drawings.length > 0 && (!selected2dDrawing || !selected2dDrawing.isRealCdeFile)) {
                             setSelected2dDrawing(result.drawings[0]);
+                        } else if (result.drawings.length === 0 && result.status?.connected) {
+                            setSelected2dDrawing(null);
                         }
                     }
                 }
@@ -1253,9 +1271,26 @@ export default function BimViewerPage() {
         scene.background = new THREE.Color(0xf8fafc);
         sceneRef.current = scene;
 
-        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-        camera.position.set(22, 18, 26);
-        cameraRef.current = camera;
+        const aspect = (width || 800) / (height || 600);
+
+        const persCamera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+        persCamera.position.set(22, 18, 26);
+        perspCameraRef.current = persCamera;
+
+        const frustumSize = 35;
+        const orthoCamera = new THREE.OrthographicCamera(
+            (-frustumSize * aspect) / 2,
+            (frustumSize * aspect) / 2,
+            frustumSize / 2,
+            -frustumSize / 2,
+            0.1,
+            2000
+        );
+        orthoCamera.position.set(22, 18, 26);
+        orthoCameraRef.current = orthoCamera;
+
+        const activeCamera = projectionMode === 'isometric' ? orthoCamera : persCamera;
+        cameraRef.current = activeCamera;
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
         renderer.setSize(width || 800, height || 600, false);
@@ -1270,11 +1305,11 @@ export default function BimViewerPage() {
         container.replaceChildren(renderer.domElement);
         rendererRef.current = renderer;
 
-        const controls = new OrbitControls(camera, renderer.domElement);
+        const controls = new OrbitControls(activeCamera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
-        controls.maxDistance = 160;
-        controls.minDistance = 2;
+        controls.maxDistance = 250;
+        controls.minDistance = 1;
         controls.maxPolarAngle = Math.PI / 2 + 0.02;
         controls.target.set(0, 4.5, 0);
         controlsRef.current = controls;
@@ -1351,29 +1386,40 @@ export default function BimViewerPage() {
                 });
             }
 
-            renderer.render(scene, camera);
+            const currentCam = cameraRef.current || persCamera;
+            renderer.render(scene, currentCam);
         };
         animate();
 
-        const handleResize = () => {
-            if (!container || !rendererRef.current || !cameraRef.current) return;
-            const w = container.clientWidth;
-            const h = container.clientHeight;
-            if (w > 0 && h > 0) {
-                cameraRef.current.aspect = w / h;
-                cameraRef.current.updateProjectionMatrix();
+        const updateCameras = (w: number, h: number) => {
+            if (w <= 0 || h <= 0) return;
+            const a = w / h;
+            if (perspCameraRef.current) {
+                perspCameraRef.current.aspect = a;
+                perspCameraRef.current.updateProjectionMatrix();
+            }
+            if (orthoCameraRef.current) {
+                const f = 35;
+                orthoCameraRef.current.left = (-f * a) / 2;
+                orthoCameraRef.current.right = (f * a) / 2;
+                orthoCameraRef.current.top = f / 2;
+                orthoCameraRef.current.bottom = -f / 2;
+                orthoCameraRef.current.updateProjectionMatrix();
+            }
+            if (rendererRef.current) {
                 rendererRef.current.setSize(w, h, false);
             }
+        };
+
+        const handleResize = () => {
+            if (!container) return;
+            updateCameras(container.clientWidth, container.clientHeight);
         };
 
         const resizeObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 const { width: w, height: h } = entry.contentRect;
-                if (w > 0 && h > 0 && rendererRef.current && cameraRef.current) {
-                    cameraRef.current.aspect = w / h;
-                    cameraRef.current.updateProjectionMatrix();
-                    rendererRef.current.setSize(w, h, false);
-                }
+                updateCameras(w, h);
             }
         });
         resizeObserver.observe(container);
@@ -1441,13 +1487,17 @@ export default function BimViewerPage() {
         setViewDimension(mode);
         if (mode === '2d') {
             setDrawingViewMode('interactive');
-            if (!selected2dDrawing) {
-                const targetDrawing = cdeDrawings.length > 0 ? cdeDrawings[0] : (DEFAULT_2D_DRAWINGS[0] || null);
-                if (targetDrawing) {
-                    setSelected2dDrawing(targetDrawing);
+            const realDrawings = cdeDrawings.filter(d => d.isRealCdeFile);
+            if (!selected2dDrawing || !selected2dDrawing.isRealCdeFile) {
+                if (realDrawings.length > 0) {
+                    setSelected2dDrawing(realDrawings[0]);
+                } else if (!cdeStatus.connected && cdeDrawings.length > 0) {
+                    setSelected2dDrawing(cdeDrawings[0]);
+                } else {
+                    setSelected2dDrawing(null);
                 }
             }
-            showToast('Modo Planta Técnica 2D ativado com vista interativa de anotações e estaleiro.');
+            showToast('Modo Planta Técnica 2D ativado.');
         } else {
             showToast('Modo 3D ativado.');
         }
@@ -1474,9 +1524,74 @@ export default function BimViewerPage() {
         }
     };
 
-    // Standard 3D Camera Views (Perspetiva, Isométrica, Topo, Frente, Trás, Lateral Direita, Lateral Esquerda)
-    const handleSetCameraView = useCallback((view: CameraViewPreset) => {
-        setCurrentViewOrientation(view);
+    // Toggle Projection Mode: Perspetiva vs Isométrica (Ortográfica)
+    const handleToggleProjectionMode = useCallback((mode: ProjectionMode) => {
+        setProjectionMode(mode);
+        if (!controlsRef.current || !rendererRef.current) return;
+
+        const controls = controlsRef.current;
+        const target = controls.target.clone();
+        const currentCam = cameraRef.current;
+        const pos = currentCam ? currentCam.position.clone() : new THREE.Vector3(22, 18, 26);
+
+        const container = mountRef.current;
+        const w = container?.clientWidth || 800;
+        const h = container?.clientHeight || 600;
+        const aspect = w / h;
+
+        const size = modelSizeRef.current || new THREE.Vector3(24, 12, 20);
+        const maxDim = Math.max(size.x, size.y, size.z, 16);
+
+        if (mode === 'isometric') {
+            // Switch to genuine OrthographicCamera (Parallel Projection)
+            const dist = pos.distanceTo(target);
+            const frustum = Math.max(maxDim * 1.5, dist * 0.85);
+            let ortho = orthoCameraRef.current;
+            if (!ortho) {
+                ortho = new THREE.OrthographicCamera(
+                    (-frustum * aspect) / 2,
+                    (frustum * aspect) / 2,
+                    frustum / 2,
+                    -frustum / 2,
+                    0.1,
+                    2000
+                );
+                orthoCameraRef.current = ortho;
+            } else {
+                ortho.left = (-frustum * aspect) / 2;
+                ortho.right = (frustum * aspect) / 2;
+                ortho.top = frustum / 2;
+                ortho.bottom = -frustum / 2;
+            }
+            ortho.position.copy(pos);
+            ortho.lookAt(target);
+            ortho.zoom = 1;
+            ortho.updateProjectionMatrix();
+
+            cameraRef.current = ortho;
+            controls.object = ortho;
+            controls.update();
+            showToast('Modo Isométrico / Ortográfico ativado (linhas paralelas sem distorção).');
+        } else {
+            // Switch to PerspectiveCamera
+            const persp = perspCameraRef.current;
+            if (persp) {
+                persp.aspect = aspect;
+                persp.position.copy(pos);
+                persp.lookAt(target);
+                persp.updateProjectionMatrix();
+
+                cameraRef.current = persp;
+                controls.object = persp;
+                controls.update();
+            }
+            showToast('Modo Perspetiva 3D ativado (projeção natural com pontos de fuga).');
+        }
+    }, [showToast]);
+
+    // Select Standard Camera View Orientations (3D Geral, Topo, Frente, Trás, Direita, Esquerda)
+    const handleSetViewOrientation = useCallback((view: ViewOrientation) => {
+        setViewOrientation(view);
         if (viewDimension === '2d') {
             setViewDimension('3d');
         }
@@ -1497,41 +1612,53 @@ export default function BimViewerPage() {
         controls.maxPolarAngle = Math.PI;
 
         switch (view) {
-            case 'perspective':
-                destination.set(target.x + maxDim * 1.25, target.y + maxDim * 0.9, target.z + maxDim * 1.35);
-                controls.maxPolarAngle = Math.PI / 2 + 0.05;
-                toastMsg = 'Vista Perspetiva 3D ativada.';
-                break;
-            case 'isometric':
-                // Axonometric / Isometric view: equal angles and equal distance on X, Y, Z
-                const isoDist = maxDim * 1.25;
-                destination.set(target.x + isoDist, target.y + isoDist, target.z + isoDist);
-                toastMsg = 'Vista Isométrica 3D ativada.';
+            case 'isometric': // 3D Geral / Axonometria
+                if (projectionMode === 'isometric') {
+                    const isoDist = maxDim * 1.35;
+                    destination.set(target.x + isoDist, target.y + isoDist, target.z + isoDist);
+                    toastMsg = 'Vista Axonométrica Isométrica 3D ativada (linhas estritamente paralelas).';
+                } else {
+                    destination.set(target.x + maxDim * 1.25, target.y + maxDim * 0.9, target.z + maxDim * 1.35);
+                    controls.maxPolarAngle = Math.PI / 2 + 0.05;
+                    toastMsg = 'Vista Perspetiva 3D Geral ativada.';
+                }
                 break;
             case 'top':
-                destination.set(target.x, target.y + maxDim * 2.2, target.z + 0.001);
-                toastMsg = 'Vista de Topo (Planta Superior) ativada.';
+                destination.set(target.x, target.y + maxDim * 2.5, target.z + 0.0001);
+                toastMsg = projectionMode === 'isometric'
+                    ? 'Vista de Topo (Planta 2D Ortográfica CAD do Modelo 3D).'
+                    : 'Vista de Topo (Planta Superior em Perspetiva).';
                 break;
             case 'front':
-                // Alçado Principal (Frente - Sul / Z positivo)
-                destination.set(target.x, target.y + maxDim * 0.15, target.z + maxDim * 2.2);
-                toastMsg = 'Vista de Frente (Alçado Principal) ativada.';
+                destination.set(target.x, target.y + maxDim * 0.1, target.z + maxDim * 2.5);
+                toastMsg = projectionMode === 'isometric'
+                    ? 'Vista de Frente (Alçado Principal Sul Ortográfico).'
+                    : 'Vista de Frente (Alçado Principal Sul em Perspetiva).';
                 break;
             case 'back':
-                // Alçado Posterior (Trás - Norte / Z negativo)
-                destination.set(target.x, target.y + maxDim * 0.15, target.z - maxDim * 2.2);
-                toastMsg = 'Vista de Trás (Alçado Posterior) ativada.';
+                destination.set(target.x, target.y + maxDim * 0.1, target.z - maxDim * 2.5);
+                toastMsg = projectionMode === 'isometric'
+                    ? 'Vista de Trás (Alçado Posterior Norte Ortográfico).'
+                    : 'Vista de Trás (Alçado Posterior Norte em Perspetiva).';
                 break;
             case 'right':
-                // Alçado Direito (Este / X positivo)
-                destination.set(target.x + maxDim * 2.2, target.y + maxDim * 0.15, target.z);
-                toastMsg = 'Vista Lateral Direita (Alçado Este) ativada.';
+                destination.set(target.x + maxDim * 2.5, target.y + maxDim * 0.1, target.z);
+                toastMsg = projectionMode === 'isometric'
+                    ? 'Vista Lateral Direita (Alçado Este Ortográfico).'
+                    : 'Vista Lateral Direita (Alçado Este em Perspetiva).';
                 break;
             case 'left':
-                // Alçado Esquerdo (Oeste / X negativo)
-                destination.set(target.x - maxDim * 2.2, target.y + maxDim * 0.15, target.z);
-                toastMsg = 'Vista Lateral Esquerda (Alçado Oeste) ativada.';
+                destination.set(target.x - maxDim * 2.5, target.y + maxDim * 0.1, target.z);
+                toastMsg = projectionMode === 'isometric'
+                    ? 'Vista Lateral Esquerda (Alçado Oeste Ortográfico).'
+                    : 'Vista Lateral Esquerda (Alçado Oeste em Perspetiva).';
                 break;
+        }
+
+        if (view === 'top') {
+            camera.up.set(0, 0, -1);
+        } else {
+            camera.up.set(0, 1, 0);
         }
 
         // Smooth camera lerp animation
@@ -1554,7 +1681,7 @@ export default function BimViewerPage() {
         };
         animateCameraMove();
         showToast(toastMsg);
-    }, [viewDimension, showToast]);
+    }, [viewDimension, projectionMode, showToast]);
 
     // Render 3D Observation Pins in Scene
     useEffect(() => {
@@ -2330,9 +2457,6 @@ export default function BimViewerPage() {
         });
     }, [projectObservations, categoryFilter, statusFilter, searchFilter]);
 
-    // Active 2D drawing fallback ensuring 2D interactive view never renders empty
-    const active2dDrawing = selected2dDrawing || cdeDrawings[0] || DEFAULT_2D_DRAWINGS[0] || null;
-
     return (
         <div className={cn(
             "relative w-full overflow-hidden bg-slate-100 dark:bg-neutral-950 flex flex-col select-none transition-all duration-200",
@@ -2393,22 +2517,53 @@ export default function BimViewerPage() {
                         </button>
                     </div>
 
-                    {/* VISTAS 3D PADRONIZADAS */}
+                    {/* MODO DE PROJEÇÃO: Perspetiva vs Isométrica (Ortogonal) */}
+                    {viewDimension === '3d' && (
+                        <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
+                            <button
+                                type="button"
+                                onClick={() => handleToggleProjectionMode('perspective')}
+                                className={cn(
+                                    "h-6 px-2 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer",
+                                    projectionMode === 'perspective'
+                                        ? "bg-blue-600 text-white shadow-xs"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="Projeção em Perspetiva (vista natural com pontos de fuga)"
+                            >
+                                <span>Perspetiva</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleToggleProjectionMode('isometric')}
+                                className={cn(
+                                    "h-6 px-2 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer",
+                                    projectionMode === 'isometric'
+                                        ? "bg-indigo-600 text-white shadow-xs"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="Projeção Isométrica / Ortográfica (linhas paralelas sem distorção)"
+                            >
+                                <span>Isométrica</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* VISTAS E ALÇADOS DO MODELO */}
                     {viewDimension === '3d' && (
                         <div className="flex items-center">
                             <select
-                                value={currentViewOrientation}
-                                onChange={(e) => handleSetCameraView(e.target.value as CameraViewPreset)}
+                                value={viewOrientation}
+                                onChange={(e) => handleSetViewOrientation(e.target.value as ViewOrientation)}
                                 className="bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[11px] rounded-md px-2 py-0.5 font-bold text-slate-700 dark:text-slate-200 outline-none cursor-pointer h-7 shadow-xs hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
-                                title="Orientação e Vistas do Modelo 3D (Perspetiva, Isométrica, Topo, Frente, Trás, Laterais)"
+                                title="Selecionar Orientação da Vista ou Alçado"
                             >
-                                <option value="perspective">🏢 Perspetiva 3D</option>
-                                <option value="isometric">📐 Isométrica 3D</option>
-                                <option value="top">⬆️ Topo (Planta Superior)</option>
-                                <option value="front">⬇️ Frente (Alçado Sul)</option>
-                                <option value="back">⬆️ Trás (Alçado Norte)</option>
-                                <option value="right">➡️ Direita (Alçado Este)</option>
-                                <option value="left">⬅️ Esquerda (Alçado Oeste)</option>
+                                <option value="isometric">🎯 3D Geral ({projectionMode === 'isometric' ? 'Isometria' : 'Perspetiva'})</option>
+                                <option value="top">⬆️ Topo ({projectionMode === 'isometric' ? 'Planta 2D Ortográfica' : 'Planta Superior'})</option>
+                                <option value="front">⬇️ Frente ({projectionMode === 'isometric' ? 'Alçado Sul Ortográfico' : 'Alçado Sul'})</option>
+                                <option value="back">⬆️ Trás ({projectionMode === 'isometric' ? 'Alçado Norte Ortográfico' : 'Alçado Norte'})</option>
+                                <option value="right">➡️ Direita ({projectionMode === 'isometric' ? 'Alçado Este Ortográfico' : 'Alçado Este'})</option>
+                                <option value="left">⬅️ Esquerda ({projectionMode === 'isometric' ? 'Alçado Oeste Ortográfico' : 'Alçado Oeste'})</option>
                             </select>
                         </div>
                     )}
@@ -2487,9 +2642,9 @@ export default function BimViewerPage() {
                 {/* Right Actions (Pinned) */}
                 <div className="flex items-center gap-1.5 shrink-0 pl-2 border-l border-slate-200 dark:border-neutral-800 h-7">
                     <button
-                        onClick={() => handleSetCameraView('perspective')}
+                        onClick={() => handleSetViewOrientation('isometric')}
                         className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 text-xs shadow-xs cursor-pointer"
-                        title="Repor câmara em Perspetiva 3D"
+                        title="Repor câmara para 3D Geral"
                     >
                         <RotateCcw size={13} strokeWidth={1.75} />
                     </button>
@@ -3633,104 +3788,44 @@ export default function BimViewerPage() {
                                     }}
                                     className="relative w-[860px] h-[600px] bg-white dark:bg-[#16181b] border-2 border-slate-400 dark:border-neutral-700 shadow-2xl rounded-xs cursor-crosshair overflow-hidden shrink-0"
                                 >
-                                    {/* Architectural Grid & Technical Coordinate Axes */}
-                                    <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-                                        <defs>
-                                            <pattern id="grid-cad" width="40" height="40" patternUnits="userSpaceOnUse">
-                                                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" className="text-slate-200 dark:text-neutral-800/80" strokeWidth="0.5" />
-                                            </pattern>
-                                        </defs>
-                                        <rect width="100%" height="100%" fill="url(#grid-cad)" />
+                                    {/* Real CDE PDF Technical Drawing in Background */}
+                                    {currentPdfUrl ? (
+                                        <iframe
+                                            src={`${currentPdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                                            title={dw.title}
+                                            className="absolute inset-0 w-full h-full border-none pointer-events-none select-none z-0 bg-white"
+                                        />
+                                    ) : (
+                                        /* Subtle Technical Grid & Outer Frame */
+                                        <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" xmlns="http://www.w3.org/2000/svg">
+                                            <defs>
+                                                <pattern id="grid-cad" width="40" height="40" patternUnits="userSpaceOnUse">
+                                                    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" className="text-slate-200 dark:text-neutral-800/80" strokeWidth="0.5" />
+                                                </pattern>
+                                            </defs>
+                                            <rect width="100%" height="100%" fill="url(#grid-cad)" />
+                                            <rect x="24" y="24" width="812" height="552" fill="none" stroke="currentColor" className="text-slate-800 dark:text-neutral-300" strokeWidth="1.5" />
+                                            <rect x="30" y="30" width="800" height="540" fill="none" stroke="currentColor" className="text-slate-400 dark:text-neutral-600" strokeWidth="0.5" />
+                                        </svg>
+                                    )}
 
-                                        {/* Outer Margin & Drawing Frame */}
-                                        <rect x="24" y="24" width="812" height="552" fill="none" stroke="currentColor" className="text-slate-800 dark:text-neutral-300" strokeWidth="1.5" />
-                                        <rect x="30" y="30" width="800" height="540" fill="none" stroke="currentColor" className="text-slate-400 dark:text-neutral-600" strokeWidth="0.5" />
-
-                                        {/* Grid Axes Lines (A, B, C, D / 1, 2, 3, 4) */}
-                                        <line x1="80" y1="120" x2="720" y2="120" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
-                                        <line x1="80" y1="260" x2="720" y2="260" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
-                                        <line x1="80" y1="400" x2="720" y2="400" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
-                                        <line x1="140" y1="80" x2="140" y2="460" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
-                                        <line x1="340" y1="80" x2="340" y2="460" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
-                                        <line x1="540" y1="80" x2="540" y2="460" stroke="#94a3b8" strokeDasharray="6 3" strokeWidth="0.75" />
-
-                                        {/* Axis Bubbles */}
-                                        <circle cx="80" cy="120" r="10" fill="#3b82f6" />
-                                        <text x="80" y="124" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">1</text>
-                                        <circle cx="80" cy="260" r="10" fill="#3b82f6" />
-                                        <text x="80" y="264" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">2</text>
-                                        <circle cx="80" cy="400" r="10" fill="#3b82f6" />
-                                        <text x="80" y="404" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">3</text>
-
-                                        <circle cx="140" cy="70" r="10" fill="#3b82f6" />
-                                        <text x="140" y="74" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">A</text>
-                                        <circle cx="340" cy="70" r="10" fill="#3b82f6" />
-                                        <text x="340" y="74" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">B</text>
-                                        <circle cx="540" cy="70" r="10" fill="#3b82f6" />
-                                        <text x="540" y="74" fontSize="10" fill="white" fontWeight="bold" textAnchor="middle">C</text>
-
-                                        {/* Architectural Floor Plan Walls */}
-                                        <rect x="140" y="120" width="400" height="280" fill="none" stroke="#1e293b" className="dark:stroke-slate-300" strokeWidth="3" />
-                                        {/* Interior Partition Walls */}
-                                        <line x1="140" y1="260" x2="340" y2="260" stroke="#475569" className="dark:stroke-slate-400" strokeWidth="2" />
-                                        <line x1="340" y1="120" x2="340" y2="400" stroke="#475569" className="dark:stroke-slate-400" strokeWidth="2" />
-                                        <line x1="340" y1="280" x2="540" y2="280" stroke="#475569" className="dark:stroke-slate-400" strokeWidth="2" />
-
-                                        {/* Reinforced Concrete Columns (40x40cm) */}
-                                        {[
-                                            [140, 120], [340, 120], [540, 120],
-                                            [140, 260], [340, 260], [540, 260],
-                                            [140, 400], [340, 400], [540, 400]
-                                        ].map(([cx, cy], i) => (
-                                            <rect key={i} x={cx - 7} y={cy - 7} width="14" height="14" fill="#0284c7" stroke="#0f172a" strokeWidth="1" />
-                                        ))}
-
-                                        {/* Staircase & Elevator Shaft Core */}
-                                        <rect x="360" y="140" width="70" height="90" fill="#f1f5f9" className="dark:fill-neutral-900" stroke="#64748b" strokeWidth="1.5" />
-                                        <line x1="360" y1="140" x2="430" y2="230" stroke="#94a3b8" strokeWidth="1" />
-                                        <line x1="360" y1="230" x2="430" y2="140" stroke="#94a3b8" strokeWidth="1" />
-                                        <text x="395" y="190" fontSize="9" fill="#64748b" textAnchor="middle" fontWeight="bold">ELEVADOR</text>
-
-                                        {/* Room Tags */}
-                                        <text x="240" y="190" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">SALA REUNIÕES PSS</text>
-                                        <text x="240" y="206" fontSize="9" fill="#94a3b8" textAnchor="middle">Área: 48.0 m²</text>
-
-                                        <text x="240" y="330" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">GABINETE DIREÇÃO</text>
-                                        <text x="240" y="346" fontSize="9" fill="#94a3b8" textAnchor="middle">Área: 42.5 m²</text>
-
-                                        <text x="460" y="340" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">ZONA DE CIRCULAÇÃO</text>
-                                        <text x="460" y="356" fontSize="9" fill="#94a3b8" textAnchor="middle">Saída de Emergência</text>
-
-                                        {/* Emergency Escape Path Arrows (Green ISO 7010) */}
-                                        <path d="M 240 230 L 240 250 L 350 250 L 350 380 L 535 380" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeDasharray="6 3" />
-                                        <polygon points="540,380 530,375 530,385" fill="#16a34a" />
-
-                                        {/* North Arrow Symbol */}
-                                        <g transform="translate(760, 80)">
-                                            <circle cx="0" cy="0" r="18" fill="none" stroke="#64748b" strokeWidth="1" />
-                                            <polygon points="0,-16 6,0 0,-4" fill="#ef4444" />
-                                            <polygon points="0,-16 -6,0 0,-4" fill="#3b82f6" />
-                                            <text x="0" y="26" fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-200" textAnchor="middle">N</text>
-                                        </g>
-
-                                        {/* Official Cartouche / Title Block */}
-                                        <g transform="translate(520, 460)">
-                                            <rect x="0" y="0" width="310" height="110" fill="#f8fafc" className="dark:fill-neutral-900" stroke="#334155" strokeWidth="1.5" />
-                                            <line x1="0" y1="28" x2="310" y2="28" stroke="#cbd5e1" strokeWidth="1" />
-                                            <line x1="0" y1="68" x2="310" y2="68" stroke="#cbd5e1" strokeWidth="1" />
-                                            <line x1="160" y1="68" x2="160" y2="110" stroke="#cbd5e1" strokeWidth="1" />
-
-                                            <text x="12" y="18" fontSize="10" fontWeight="bold" fill="#0f172a" className="dark:fill-white">SAFESITE CDE | SISTEMA OFICIAL DE PROJETO E SST</text>
-                                            <text x="12" y="44" fontSize="8" fill="#64748b">OBRA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{currentProject.name}</tspan></text>
-                                            <text x="12" y="58" fontSize="9" fontWeight="bold" fill="#2563eb">{dw.code} - {dw.title}</text>
-
-                                            <text x="12" y="84" fontSize="8" fill="#64748b">NÍVEL: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{dw.storey}</tspan></text>
-                                            <text x="12" y="98" fontSize="8" fill="#64748b">ESCALA: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">{dw.format}</tspan></text>
-
-                                            <text x="170" y="84" fontSize="8" fill="#64748b">REVISÃO: <tspan fontWeight="bold" fill="#16a34a">{dw.revision}</tspan></text>
-                                            <text x="170" y="98" fontSize="8" fill="#64748b">ESTADO: <tspan fontWeight="bold" fill="#0f172a" className="dark:fill-white">APROVADO PSS</tspan></text>
-                                        </g>
-                                    </svg>
+                                    {/* Official Cartouche / Technical Info Badge */}
+                                    <div className="absolute bottom-3 right-3 z-15 pointer-events-none bg-slate-900/90 backdrop-blur-xs text-white text-[10px] px-3 py-1.5 rounded-md border border-slate-700/80 shadow-lg flex items-center gap-2">
+                                        <span className="font-mono font-bold text-blue-400">{dw.code}</span>
+                                        <span className="text-slate-500">•</span>
+                                        <span className="font-semibold truncate max-w-[200px]">{dw.title}</span>
+                                        <span className="text-slate-500">•</span>
+                                        <span className="text-slate-300">{dw.storey}</span>
+                                        {dw.isRealCdeFile ? (
+                                            <span className="bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded uppercase">
+                                                CDE Real
+                                            </span>
+                                        ) : (
+                                            <span className="bg-slate-700 text-slate-300 text-[9px] px-1.5 py-0.5 rounded uppercase">
+                                                Modelo Base
+                                            </span>
+                                        )}
+                                    </div>
 
                                     {/* INTERACTIVE OVERLAY: GEOLOCATED OBSERVATION PINS */}
                                     {showObservationsLayer && projectObservations.map(obs => {
@@ -3822,87 +3917,144 @@ export default function BimViewerPage() {
                         );
                     })()}
 
-                    {/* Floating Standard Views Control Pill when in 3D */}
+                    {/* Fallback Viewport if 2D Mode is selected but no 2D Drawing exists */}
+                    {viewDimension === '2d' && !active2dDrawing && (
+                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-100/95 dark:bg-neutral-900/95 backdrop-blur-xs p-6 text-center select-none">
+                            <div className="max-w-md p-6 bg-white dark:bg-neutral-800 rounded-2xl border border-slate-200 dark:border-neutral-700 shadow-xl flex flex-col items-center">
+                                <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center mb-4">
+                                    <FileText size={24} />
+                                </div>
+                                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2">
+                                    Sem Plantas 2D no CDE
+                                </h3>
+                                <p className="text-xs text-slate-600 dark:text-slate-300 mb-5 leading-relaxed">
+                                    Não foram detetadas pranchas técnicas 2D (ficheiros PDF) na pasta CDE desta obra. Pode visualizar a <strong>Planta 2D Ortográfica</strong> diretamente gerada do modelo 3D IFC.
+                                </p>
+                                <div className="flex flex-col sm:flex-row items-center gap-2 w-full">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            handleToggleViewDimension('3d');
+                                            handleToggleProjectionMode('isometric');
+                                            handleSetViewOrientation('top');
+                                        }}
+                                        className="w-full sm:flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                                    >
+                                        <Box size={14} />
+                                        <span>📐 Planta 2D do Modelo 3D</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleToggleViewDimension('3d')}
+                                        className="w-full sm:w-auto py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-neutral-700 dark:hover:bg-neutral-600 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                                    >
+                                        Voltar ao 3D
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Floating Standard Views & Projection Control Pill when in 3D */}
                     {viewDimension === '3d' && (
-                        <div className="absolute top-4 right-4 z-10 flex items-center gap-1 bg-white/90 dark:bg-neutral-900/90 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-200/80 dark:border-neutral-800 shadow-md">
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-0.5">Vistas:</span>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('perspective')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'perspective' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Perspetiva 3D"
-                            >
-                                Persp
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('isometric')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'isometric' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Isométrica 3D"
-                            >
-                                Iso
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('top')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'top' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Planta Superior (Topo)"
-                            >
-                                Topo
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('front')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'front' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Alçado Principal (Frente - Sul)"
-                            >
-                                Frente
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('back')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'back' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Alçado Posterior (Trás - Norte)"
-                            >
-                                Trás
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('right')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'right' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Alçado Lateral Direito (Este)"
-                            >
-                                Dir
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleSetCameraView('left')}
-                                className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
-                                    currentViewOrientation === 'left' ? "bg-blue-600 text-white" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-200"
-                                )}
-                                title="Alçado Lateral Esquerdo (Oeste)"
-                            >
-                                Esq
-                            </button>
+                        <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md px-2.5 py-1 rounded-xl border border-slate-200/80 dark:border-neutral-800 shadow-md">
+                            {/* Projection Mode (Persp vs Iso) */}
+                            <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700">
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleProjectionMode('perspective')}
+                                    className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        projectionMode === 'perspective' ? "bg-blue-600 text-white shadow-2xs" : "hover:bg-slate-200 dark:hover:bg-neutral-700 text-slate-700 dark:text-slate-200"
+                                    )}
+                                    title="Projeção em Perspetiva (vista natural com pontos de fuga)"
+                                >
+                                    Persp
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleToggleProjectionMode('isometric')}
+                                    className={cn(
+                                        "px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        projectionMode === 'isometric' ? "bg-indigo-600 text-white shadow-2xs" : "hover:bg-slate-200 dark:hover:bg-neutral-700 text-slate-700 dark:text-slate-200"
+                                    )}
+                                    title="Projeção Isométrica / Ortográfica (linhas paralelas sem distorção)"
+                                >
+                                    Iso
+                                </button>
+                            </div>
+
+                            <div className="h-4 w-px bg-slate-300 dark:bg-neutral-700" />
+
+                            {/* View Orientations (3D Geral, Topo, Frente, Trás, Dir, Esq) */}
+                            <div className="flex items-center gap-0.5">
+                                <button
+                                    type="button"
+                                    onClick={() => handleSetViewOrientation('isometric')}
+                                    className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        viewOrientation === 'isometric' ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-300"
+                                    )}
+                                    title="3D Geral"
+                                >
+                                    3D
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSetViewOrientation('top')}
+                                    className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        viewOrientation === 'top' ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-300"
+                                    )}
+                                    title={projectionMode === 'isometric' ? "Planta 2D Ortográfica CAD (Topo)" : "Planta Superior (Topo em Perspetiva)"}
+                                >
+                                    Topo
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSetViewOrientation('front')}
+                                    className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        viewOrientation === 'front' ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-300"
+                                    )}
+                                    title={projectionMode === 'isometric' ? "Alçado Sul Ortográfico (Frente)" : "Alçado Frente (Sul em Perspetiva)"}
+                                >
+                                    Frente
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSetViewOrientation('back')}
+                                    className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        viewOrientation === 'back' ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-300"
+                                    )}
+                                    title={projectionMode === 'isometric' ? "Alçado Norte Ortográfico (Trás)" : "Alçado Trás (Norte em Perspetiva)"}
+                                >
+                                    Trás
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSetViewOrientation('right')}
+                                    className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        viewOrientation === 'right' ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-300"
+                                    )}
+                                    title={projectionMode === 'isometric' ? "Alçado Este Ortográfico (Direita)" : "Alçado Direita (Este em Perspetiva)"}
+                                >
+                                    Dir
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleSetViewOrientation('left')}
+                                    className={cn(
+                                        "px-1.5 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer",
+                                        viewOrientation === 'left' ? "bg-slate-800 text-white dark:bg-white dark:text-slate-900" : "hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-700 dark:text-slate-300"
+                                    )}
+                                    title={projectionMode === 'isometric' ? "Alçado Oeste Ortográfico (Esquerda)" : "Alçado Esquerda (Oeste em Perspetiva)"}
+                                >
+                                    Esq
+                                </button>
+                            </div>
                         </div>
                     )}
 
