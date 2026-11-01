@@ -545,16 +545,11 @@ export async function executeServerCdeAction(projectId: string, action: string, 
             };
 
             const detectBimFolder = (fileName: string, currentFolder: string = ''): string => {
-                const lower = (currentFolder + ' ' + fileName).toLowerCase();
-                if (lower.includes('01') || lower.includes('arq') || lower.includes('arch')) return '01-Arquitetura';
-                if (lower.includes('02') || lower.includes('est') || lower.includes('struct')) return '02-Estruturas';
-                if (lower.includes('03') || lower.includes('mep') || lower.includes('avac') || lower.includes('hidr') || lower.includes('elet')) return '03-Especialidades (MEP)';
-                if (lower.includes('04') || lower.includes('pss') || lower.includes('segur') || lower.includes('estaleiro')) return '04-Segurança (PSS)';
                 if (currentFolder && currentFolder !== 'root' && currentFolder !== 'Raiz') {
                     const leaf = currentFolder.split(/[\\/]/).filter(Boolean).pop();
                     if (leaf) return leaf;
                 }
-                return '01-Arquitetura';
+                return 'Raiz do CDE';
             };
 
             const processFile = (item: any, folderName: string) => {
@@ -675,80 +670,22 @@ export async function executeServerCdeAction(projectId: string, action: string, 
             const hasRealDrawings = discoveredDrawings.length > 0;
             const isCdeConnected = Boolean(config.connected || config.provider);
 
-            let finalModels: typeof discoveredModels;
-            if (isCdeConnected) {
-                finalModels = discoveredModels; // Exclusively real files from user's CDE!
-            } else {
-                finalModels = SAMPLE_BIM_MODELS.map((m, idx) => ({
-                    id: `cde-m-${idx + 1}`,
-                    cdeId: `sample-${m.fileName}`,
-                    folder: m.folder,
-                    name: m.fileName,
-                    size: m.size,
-                    rev: m.rev,
-                    active: true,
-                    discipline: m.discipline,
-                    isRealCdeFile: false
-                }));
-            }
-
-            let finalDrawings: typeof discoveredDrawings;
-            if (isCdeConnected) {
-                finalDrawings = discoveredDrawings; // Exclusively real drawings from user's CDE!
-            } else {
-                finalDrawings = SAMPLE_2D_DRAWINGS.map((d, idx) => ({
-                    id: `cde-d-${idx + 1}`,
-                    cdeId: `sample-${d.fileName}`,
-                    code: d.fileName.split('_')[0] || `DRW-0${idx + 1}`,
-                    title: d.title,
-                    discipline: d.discipline,
-                    storey: d.storey || 'Piso 0',
-                    format: d.format || 'A1 (1:100)',
-                    revision: 'Exemplo Local',
-                    fileName: d.fileName,
-                    date: '2026-04-25',
-                    isRealCdeFile: false
-                }));
-            }
-
             return {
-                connected: true,
+                connected: isCdeConnected,
                 provider: config.provider,
                 hasFiles: hasRealModels || hasRealDrawings,
                 isRealCloudSync: hasRealModels || hasRealDrawings,
-                models: finalModels,
-                drawings: finalDrawings
+                models: discoveredModels,
+                drawings: discoveredDrawings
             };
         } catch (err: any) {
             console.error('[list_bim_files] Exception:', err);
             return {
-                connected: true,
+                connected: Boolean(config.connected || config.provider),
                 provider: config.provider,
                 error: err.message,
-                models: SAMPLE_BIM_MODELS.map((m, idx) => ({
-                    id: `cde-m-${idx + 1}`,
-                    cdeId: `sample-${m.fileName}`,
-                    folder: m.folder,
-                    name: m.fileName,
-                    size: m.size,
-                    rev: m.rev,
-                    active: true,
-                    discipline: m.discipline,
-                    isRealCdeFile: false
-                })),
-                drawings: SAMPLE_2D_DRAWINGS.map((d, idx) => ({
-                    id: `cde-d-${idx + 1}`,
-                    cdeId: `sample-${d.fileName}`,
-                    code: d.fileName.split('_')[0] || `DRW-0${idx + 1}`,
-                    title: d.title,
-                    discipline: d.discipline,
-                    storey: d.storey || 'Piso 0',
-                    format: d.format || 'A1 (1:100)',
-                    revision: d.rev,
-                    fileName: d.fileName,
-                    date: '2026-04-25',
-                    isRealCdeFile: false
-                }))
+                models: [],
+                drawings: []
             };
         }
     }

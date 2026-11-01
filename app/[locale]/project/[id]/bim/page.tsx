@@ -242,6 +242,20 @@ export interface CdeDrawing2D {
     webViewLink?: string;
     isRealCdeFile?: boolean;
     isBaseModel?: boolean;
+    localBlobUrl?: string;
+    previewDataUrl?: string;
+    vectorSegments?: [number, number, number, number][];
+    modelBounds?: {
+        minX: number;
+        maxX: number;
+        minZ: number;
+        maxZ: number;
+        width: number;
+        depth: number;
+        height: number;
+        cutY: number;
+        meshCount: number;
+    };
 }
 
 export interface CdeModelItem {
@@ -258,65 +272,23 @@ export interface CdeModelItem {
     isBaseModel?: boolean;
 }
 
-const DEFAULT_CDE_MODELS: CdeModelItem[] = [
-    { id: 'm1', folder: '01-Arquitetura', name: 'ARQ_Skyline_Edificio.ifc', size: '24.5 MB', rev: 'Rev 04', active: true, discipline: 'architecture' },
-    { id: 'm2', folder: '01-Arquitetura', name: 'ARQ_Arranjos_Exteriores.ifc', size: '8.2 MB', rev: 'Rev 02', active: false, discipline: 'architecture' },
-    { id: 'm3', folder: '02-Estruturas', name: 'EST_Estrutura_Betao.ifc', size: '31.8 MB', rev: 'Rev 03', active: true, discipline: 'structure' },
-    { id: 'm4', folder: '02-Estruturas', name: 'EST_Fundacoes_Contencoes.ifc', size: '14.1 MB', rev: 'Rev 01', active: false, discipline: 'structure' },
-    { id: 'm5', folder: '03-Especialidades (MEP)', name: 'MEP_Redes_AVAC.ifc', size: '12.4 MB', rev: 'Rev 02', active: true, discipline: 'mep' },
-    { id: 'm6', folder: '03-Especialidades (MEP)', name: 'MEP_Rede_Incendio.ifc', size: '6.7 MB', rev: 'Rev 01', active: true, discipline: 'mep' },
-];
+const DEFAULT_CDE_MODELS: CdeModelItem[] = [];
 
-const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [
-    {
-        id: 'drw-1',
-        code: 'ARQ-01',
-        title: 'Planta de Implantação e Piso 0 (R/C)',
-        discipline: 'architecture',
-        storey: 'Piso 0',
-        format: 'A1 (1:100)',
-        revision: 'Rev. 03 (Exemplo)',
-        fileName: 'P01-ARQ-Planta-Piso0-Licenciamento.pdf',
-        date: '2026-04-12',
-        isRealCdeFile: false
-    },
-    {
-        id: 'drw-2',
-        code: 'EST-02',
-        title: 'Armaduras de Laje e Vigas - Piso 1',
-        discipline: 'structure',
-        storey: 'Piso 1',
-        format: 'A0 (1:50)',
-        revision: 'Rev. 02 (Exemplo)',
-        fileName: 'P02-EST-Armaduras-Laje-Vigas-P1.pdf',
-        date: '2026-04-20',
-        isRealCdeFile: false
-    },
-    {
-        id: 'drw-3',
-        code: 'EST-03',
-        title: 'Pormenorização de Pilares e Núcleo - Piso 2',
-        discipline: 'structure',
-        storey: 'Piso 2',
-        format: 'A1 (1:50)',
-        revision: 'Rev. 01 (Exemplo)',
-        fileName: 'P03-EST-Pilares-Nucleo-Piso2.pdf',
-        date: '2026-04-28',
-        isRealCdeFile: false
-    },
-    {
-        id: 'drw-4',
-        code: 'PSS-01',
-        title: 'Planta de Estaleiro e Segurança (PSS) - Grua e Vias',
-        discipline: 'safety',
-        storey: 'Exterior',
-        format: 'A1 (1:200)',
-        revision: 'Rev. 04 (Exemplo)',
-        fileName: 'EST-01-Plano-Seguranca-Estaleiro.pdf',
-        date: '2026-05-10',
-        isRealCdeFile: false
-    }
-];
+const DEFAULT_2D_DRAWINGS: CdeDrawing2D[] = [];
+
+const isSampleModelId = (m: any) =>
+    !m ||
+    !m.isRealCdeFile ||
+    ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'].includes(m.id) ||
+    String(m.id || '').startsWith('cde-m-') ||
+    ['ARQ_Skyline_Edificio.ifc', 'ARQ_Arranjos_Exteriores.ifc', 'EST_Estrutura_Betao.ifc', 'EST_Fundacoes_Contencoes.ifc', 'MEP_Redes_AVAC.ifc', 'MEP_Rede_Incendio.ifc'].includes(m.name);
+
+const isSampleDrawingId = (d: any) =>
+    !d ||
+    !d.isRealCdeFile ||
+    ['drw-1', 'drw-2', 'drw-3', 'drw-4'].includes(d.id) ||
+    String(d.id || '').startsWith('cde-d-') ||
+    String(d.revision || '').includes('Exemplo');
 
 export default function BimViewerPage() {
     const params = useParams();
@@ -375,8 +347,8 @@ export default function BimViewerPage() {
         if (typeof window === 'undefined') {
             return {
                 status: { connected: false },
-                models: DEFAULT_CDE_MODELS,
-                drawings: DEFAULT_2D_DRAWINGS,
+                models: [],
+                drawings: [],
                 baseModelId: null,
                 autoLoad: true
             };
@@ -400,21 +372,31 @@ export default function BimViewerPage() {
             const savedBaseId = localStorage.getItem(`safesite_base_model_${projectId}`);
             const autoLoadSetting = localStorage.getItem(`safesite_autoload_ifc_${projectId}`);
 
-            const cachedModels = cachedModelsRaw ? JSON.parse(cachedModelsRaw) : null;
-            const cachedDrawings = cachedDrawingsRaw ? JSON.parse(cachedDrawingsRaw) : null;
+            const rawModels = cachedModelsRaw ? JSON.parse(cachedModelsRaw) : [];
+            const rawDrawings = cachedDrawingsRaw ? JSON.parse(cachedDrawingsRaw) : [];
+
+            const cleanModels = Array.isArray(rawModels) ? rawModels.filter((m: any) => !isSampleModelId(m)) : [];
+            const cleanDrawings = Array.isArray(rawDrawings) ? rawDrawings.filter((d: any) => !isSampleDrawingId(d)) : [];
+
+            if (Array.isArray(rawModels) && cleanModels.length !== rawModels.length) {
+                localStorage.setItem(`safesite_cde_models_${projectId}`, JSON.stringify(cleanModels));
+            }
+            if (Array.isArray(rawDrawings) && cleanDrawings.length !== rawDrawings.length) {
+                localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(cleanDrawings));
+            }
 
             return {
                 status: { connected: isConnected, provider },
-                models: cachedModels && cachedModels.length > 0 ? cachedModels : (isConnected ? [] : DEFAULT_CDE_MODELS),
-                drawings: cachedDrawings && cachedDrawings.length > 0 ? cachedDrawings : (isConnected ? [] : DEFAULT_2D_DRAWINGS),
+                models: cleanModels,
+                drawings: cleanDrawings,
                 baseModelId: savedBaseId || null,
                 autoLoad: autoLoadSetting !== 'false'
             };
         } catch (_) {
             return {
                 status: { connected: false },
-                models: DEFAULT_CDE_MODELS,
-                drawings: DEFAULT_2D_DRAWINGS,
+                models: [],
+                drawings: [],
                 baseModelId: null,
                 autoLoad: true
             };
@@ -427,14 +409,13 @@ export default function BimViewerPage() {
     const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(initialCdeData.drawings);
     const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(initialCdeData.drawings[0] || null);
 
-    // Active 2D drawing: strictly prioritize real CDE drawings when CDE is connected
+    // Active 2D drawing: strictly real CDE or IFC-generated drawings
     const active2dDrawing = useMemo(() => {
         if (selected2dDrawing) return selected2dDrawing;
         const real = cdeDrawings.find(d => d.isRealCdeFile);
         if (real) return real;
-        if (!cdeStatus.connected && cdeDrawings.length > 0) return cdeDrawings[0];
         return null;
-    }, [selected2dDrawing, cdeDrawings, cdeStatus.connected]);
+    }, [selected2dDrawing, cdeDrawings]);
 
     const [drawingViewMode, setDrawingViewMode] = useState<'interactive' | 'pdf'>('interactive');
     const [currentPdfUrl, setCurrentPdfUrl] = useState<string | null>(null);
@@ -480,10 +461,6 @@ export default function BimViewerPage() {
 
     const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
         'bim_root': true,
-        '01-Arquitetura': true,
-        '02-Estruturas': true,
-        '03-Especialidades (MEP)': false,
-        '04-Segurança (PSS)': false,
         'drawings_root': true
     });
 
@@ -527,14 +504,17 @@ export default function BimViewerPage() {
         setTimeout(() => setToastMessage(null), 4000);
     }, []);
 
-    // Synchronize Real-time PDF Blob for the selected 2D Drawing (Real CDE or Synthetic Fallback)
+    // Synchronize Real-time PDF Blob for the selected 2D Drawing (from IFC generator or Real CDE)
     useEffect(() => {
         const drawingToDisplay = selected2dDrawing || active2dDrawing;
         if (!drawingToDisplay) {
-            if (currentPdfUrl) {
-                URL.revokeObjectURL(currentPdfUrl);
-                setCurrentPdfUrl(null);
-            }
+            setCurrentPdfUrl(null);
+            return;
+        }
+
+        // If this drawing was generated locally from the 3D IFC model, use its blob URL directly!
+        if (drawingToDisplay.localBlobUrl) {
+            setCurrentPdfUrl(drawingToDisplay.localBlobUrl);
             return;
         }
 
@@ -543,8 +523,8 @@ export default function BimViewerPage() {
 
         const loadPdfContent = async () => {
             try {
-                // If it is a real file from CDE, download real bytes
-                if (drawingToDisplay.isRealCdeFile) {
+                // Download real PDF bytes from CDE
+                if (drawingToDisplay.isRealCdeFile && !String(drawingToDisplay.cdeId || '').startsWith('cde-gen-')) {
                     const fileId = drawingToDisplay.cdeId || drawingToDisplay.id;
                     const res = await fetch(`/api/projects/${projectId}/cde/download?fileId=${encodeURIComponent(fileId)}&fileName=${encodeURIComponent(drawingToDisplay.fileName)}`);
                     if (res.ok) {
@@ -556,22 +536,8 @@ export default function BimViewerPage() {
                         return;
                     }
                 }
-
-                // Fallback: generate high-fidelity technical drawing PDF
-                const buf = generateRealisticPdfDrawing(
-                    drawingToDisplay.fileName,
-                    drawingToDisplay.title,
-                    drawingToDisplay.code,
-                    drawingToDisplay.storey || 'Piso 0'
-                );
-                const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-                const blob = new Blob([uint8 as any], { type: 'application/pdf' });
-                if (isMounted) {
-                    createdBlobUrl = URL.createObjectURL(blob);
-                    setCurrentPdfUrl(createdBlobUrl);
-                }
             } catch (e) {
-                console.warn('Erro ao obter conteúdo do PDF:', e);
+                console.warn('Erro ao obter conteúdo do PDF do CDE:', e);
             }
         };
 
@@ -665,17 +631,18 @@ export default function BimViewerPage() {
                         hasFiles: result.hasFiles ?? true
                     });
                     if (result.models) {
-                        setCdeModels(result.models);
+                        const realModels = result.models.filter((m: any) => !isSampleModelId(m));
+                        setCdeModels(realModels);
                         try {
-                            localStorage.setItem(`safesite_cde_models_${projectId}`, JSON.stringify(result.models));
+                            localStorage.setItem(`safesite_cde_models_${projectId}`, JSON.stringify(realModels));
                         } catch (_) {}
 
                         // Automatic Loading of Base IFC Model on entry / refresh
-                        if (autoLoadBaseModel && !hasAutoLoadedModelRef.current && result.models.length > 0) {
+                        if (autoLoadBaseModel && !hasAutoLoadedModelRef.current && realModels.length > 0) {
                             const preferredId = baseModelId || (typeof window !== 'undefined' ? localStorage.getItem(`safesite_base_model_${projectId}`) : null);
-                            const targetModel = result.models.find((m: any) => m.id === preferredId) ||
-                                                result.models.find((m: any) => m.isRealCdeFile) ||
-                                                result.models[0];
+                            const targetModel = realModels.find((m: any) => m.id === preferredId) ||
+                                                realModels.find((m: any) => m.isRealCdeFile) ||
+                                                realModels[0];
 
                             if (targetModel && targetModel.isRealCdeFile) {
                                 hasAutoLoadedModelRef.current = true;
@@ -685,16 +652,24 @@ export default function BimViewerPage() {
                         }
                     }
                     if (result.drawings) {
-                        setCdeDrawings(result.drawings);
-                        try {
-                            localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(result.drawings));
-                        } catch (_) {}
+                        const realDrawings = result.drawings.filter((d: any) => !isSampleDrawingId(d));
+                        setCdeDrawings(prev => {
+                            const localGenerated = prev.filter(d => Boolean(d.localBlobUrl));
+                            const merged = [
+                                ...localGenerated,
+                                ...realDrawings.filter((rd: any) => !localGenerated.some(lg => lg.fileName === rd.fileName))
+                            ];
+                            try {
+                                const lightMerged = merged.map(({ previewDataUrl: _p, vectorSegments: _v, localBlobUrl: _b, ...rest }) => rest);
+                                localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(lightMerged));
+                            } catch (_) {}
+                            return merged;
+                        });
 
-                        if (result.drawings.length > 0 && (!selected2dDrawing || !selected2dDrawing.isRealCdeFile)) {
-                            setSelected2dDrawing(result.drawings[0]);
-                        } else if (result.drawings.length === 0 && result.status?.connected) {
-                            setSelected2dDrawing(null);
-                        }
+                        setSelected2dDrawing(prev => {
+                            if (prev && (prev.localBlobUrl || !isSampleDrawingId(prev))) return prev;
+                            return realDrawings[0] || null;
+                        });
                     }
                 }
             }
@@ -703,7 +678,7 @@ export default function BimViewerPage() {
         } finally {
             setIsSyncingCde(false);
         }
-    }, [projectId, currentProject, selected2dDrawing, autoLoadBaseModel, baseModelId]);
+    }, [projectId, autoLoadBaseModel, baseModelId]);
 
     useEffect(() => {
         loadRealCdeFiles();
@@ -810,6 +785,17 @@ export default function BimViewerPage() {
         setIsGeneratingPdf(true);
         showToast(`A preparar documento PDF oficial "${target.fileName}"...`);
         try {
+            if (target.localBlobUrl) {
+                const a = document.createElement('a');
+                a.href = target.localBlobUrl;
+                a.download = target.fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast(`Download de "${target.fileName}" iniciado.`);
+                return;
+            }
+
             if (target.isRealCdeFile) {
                 const targetId = target.cdeId || target.id;
                 const url = `/api/projects/${projectId}/cde/download?download=1&fileId=${encodeURIComponent(targetId)}&fileName=${encodeURIComponent(target.fileName)}`;
@@ -822,19 +808,6 @@ export default function BimViewerPage() {
                 showToast(`Download de "${target.fileName}" iniciado.`);
                 return;
             }
-
-            // Fallback para desenhos de exemplo sintéticos
-            const buf = generateRealisticPdfDrawing(
-                target.fileName,
-                target.title,
-                target.code,
-                target.storey || 'Piso 0'
-            );
-            const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-            const blob = new Blob([uint8 as any], { type: 'application/pdf' });
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank');
-            showToast('Documento PDF aberto em novo separador!');
         } catch (err: any) {
             showToast(`Erro ao preparar PDF: ${err.message}`);
         } finally {
@@ -842,22 +815,343 @@ export default function BimViewerPage() {
         }
     };
 
-    // Automatic 2D Technical Floor Plan Generator from 3D IFC Model
+    // Automatic 2D Technical Floor Plan Generator directly from the loaded 3D IFC Model
     const handleGenerate2dDrawingFromModel = async () => {
         setIsGenerating2dPlan(true);
-        showToast('⚡ A analisar o modelo 3D IFC e a gerar a planta técnica 2D...');
+        showToast('⚡ A seccionar a geometria real do modelo 3D IFC para gerar a planta 2D...');
 
         try {
-            const targetStorey = selectedStorey !== 'all' ? selectedStorey : 'Piso 0';
-            const storeyCode = targetStorey.toLowerCase().replace(/\s+/g, '').replace('piso', 'p0');
-            const code = `ARQ-${storeyCode.toUpperCase() || 'P00'}`;
-            const title = `Planta de Arquitetura e Estruturas - ${targetStorey}`;
-            const fileName = `${currentProject.name.replace(/[^a-zA-Z0-9]/g, '_')}_Planta_${storeyCode.toUpperCase()}_Gerada_IFC.pdf`;
+            // Ensure a real 3D IFC model is loaded in bimGroupRef
+            if (bimGroupRef.current && bimGroupRef.current.children.length === 0 && cdeModels.length > 0) {
+                const firstRealModel = cdeModels.find(m => m.isRealCdeFile) || cdeModels[0];
+                if (firstRealModel) {
+                    await handleLoadModelFromCde(firstRealModel);
+                }
+            }
 
-            // Generate authentic vector PDF drawing
-            const buf = generateRealisticPdfDrawing(fileName, title, code, targetStorey);
-            const uint8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-            const pdfBlob = new Blob([uint8 as any], { type: 'application/pdf' });
+            const bimGroup = bimGroupRef.current;
+            if (!bimGroup || bimGroup.children.length === 0) {
+                showToast('Carregue primeiro o seu ficheiro .ifc no visualizador 3D para gerar a planta 2D.');
+                setIsGenerating2dPlan(false);
+                return;
+            }
+
+            bimGroup.updateMatrixWorld(true);
+
+            // Compute exact 3D bounding box of the loaded IFC model
+            const fullBox = new THREE.Box3().setFromObject(bimGroup);
+            const min = fullBox.min;
+            const max = fullBox.max;
+            const size = fullBox.getSize(new THREE.Vector3());
+            const center = fullBox.getCenter(new THREE.Vector3());
+
+            const modelW = Math.max(size.x, 1);
+            const modelD = Math.max(size.z, 1);
+            const modelH = Math.max(size.y, 1);
+
+            const targetStorey = selectedStorey !== 'all' ? selectedStorey : 'Piso 0';
+            let cutRatio = 0.25;
+            if (targetStorey === 'Piso 1') cutRatio = 0.50;
+            else if (targetStorey === 'Piso 2') cutRatio = 0.72;
+            else if (targetStorey === 'Cobertura') cutRatio = 0.90;
+
+            const cutY = min.y + Math.min(Math.max(modelH * cutRatio, 1.15), modelH * 0.92);
+            const sliceBandHalf = Math.max(modelH * 0.18, 1.2);
+
+            // 1. Extract real 2D vector section-cut segments [x1, z1, x2, z2] from IFC meshes
+            const cutSegments: [number, number, number, number][] = [];
+            const projFootprints: [number, number, number, number][] = [];
+            let sectionedMeshCount = 0;
+
+            const vA = new THREE.Vector3();
+            const vB = new THREE.Vector3();
+            const vC = new THREE.Vector3();
+
+            const addPlaneTriangleIntersection = (p1: THREE.Vector3, p2: THREE.Vector3, p3: THREE.Vector3, planeY: number) => {
+                const pts: [number, number][] = [];
+                const checkEdge = (a: THREE.Vector3, b: THREE.Vector3) => {
+                    const da = a.y - planeY;
+                    const db = b.y - planeY;
+                    if ((da <= 0 && db >= 0) || (da >= 0 && db <= 0)) {
+                        const denom = b.y - a.y;
+                        if (Math.abs(denom) > 1e-5) {
+                            const t = (planeY - a.y) / denom;
+                            if (t >= 0 && t <= 1) {
+                                pts.push([a.x + t * (b.x - a.x), a.z + t * (b.z - a.z)]);
+                            }
+                        }
+                    }
+                };
+                checkEdge(p1, p2);
+                checkEdge(p2, p3);
+                checkEdge(p3, p1);
+                if (pts.length >= 2) {
+                    const dx = pts[0][0] - pts[1][0];
+                    const dz = pts[0][1] - pts[1][1];
+                    if (dx * dx + dz * dz > 0.0004) {
+                        cutSegments.push([pts[0][0], pts[0][1], pts[1][0], pts[1][1]]);
+                    }
+                }
+            };
+
+            bimGroup.traverse((child) => {
+                if (child instanceof THREE.Mesh && child.geometry) {
+                    const mBox = new THREE.Box3().setFromObject(child);
+                    if (mBox.max.y < min.y - 0.5 || mBox.min.y > cutY + sliceBandHalf) return;
+
+                    sectionedMeshCount++;
+                    const geom = child.geometry as THREE.BufferGeometry;
+                    const posAttr = geom.attributes.position;
+                    if (!posAttr) return;
+
+                    // If mesh straddles cutY (or within band), intersect its triangles with horizontal plane
+                    const testY = (mBox.min.y <= cutY && mBox.max.y >= cutY)
+                        ? cutY
+                        : (mBox.min.y + mBox.max.y) * 0.5;
+
+                    if (Math.abs(testY - cutY) <= sliceBandHalf && cutSegments.length < 18000) {
+                        const indexAttr = geom.index;
+                        if (indexAttr) {
+                            const triCount = Math.min(indexAttr.count, 9000);
+                            for (let i = 0; i < triCount; i += 3) {
+                                vA.fromBufferAttribute(posAttr, indexAttr.getX(i)).applyMatrix4(child.matrixWorld);
+                                vB.fromBufferAttribute(posAttr, indexAttr.getX(i + 1)).applyMatrix4(child.matrixWorld);
+                                vC.fromBufferAttribute(posAttr, indexAttr.getX(i + 2)).applyMatrix4(child.matrixWorld);
+                                addPlaneTriangleIntersection(vA, vB, vC, testY);
+                            }
+                        } else {
+                            const vertCount = Math.min(posAttr.count, 9000);
+                            for (let i = 0; i < vertCount; i += 3) {
+                                vA.fromBufferAttribute(posAttr, i).applyMatrix4(child.matrixWorld);
+                                vB.fromBufferAttribute(posAttr, i + 1).applyMatrix4(child.matrixWorld);
+                                vC.fromBufferAttribute(posAttr, i + 2).applyMatrix4(child.matrixWorld);
+                                addPlaneTriangleIntersection(vA, vB, vC, testY);
+                            }
+                        }
+                    }
+
+                    // Also record horizontal bounding footprint for elements below cut plane
+                    if (projFootprints.length < 2500) {
+                        const bw = mBox.max.x - mBox.min.x;
+                        const bd = mBox.max.z - mBox.min.z;
+                        if (bw < modelW * 0.98 || bd < modelD * 0.98) {
+                            projFootprints.push([mBox.min.x, mBox.min.z, mBox.max.x, mBox.max.z]);
+                        }
+                    }
+                }
+            });
+
+            // 2. Capture high-resolution Top-Down Orthographic Snapshot of the sliced 3D IFC model
+            let previewDataUrl: string | undefined;
+            const renderer = rendererRef.current;
+            const scene = sceneRef.current;
+            if (renderer && scene) {
+                const prevBg = scene.background;
+                const prevPinsVis = pinsGroupRef.current ? pinsGroupRef.current.visible : true;
+                const prevLogVis = logisticsGroupRef.current ? logisticsGroupRef.current.visible : true;
+                const prevGridVis = grid2dGroupRef.current ? grid2dGroupRef.current.visible : false;
+                const prevClipping = renderer.clippingPlanes;
+                const prevLocalClip = renderer.localClippingEnabled;
+
+                const hiddenHelpers: THREE.Object3D[] = [];
+                scene.children.forEach(obj => {
+                    if (obj instanceof THREE.GridHelper || (obj instanceof THREE.Mesh && !bimGroup.children.includes(obj))) {
+                        if (obj.visible) {
+                            obj.visible = false;
+                            hiddenHelpers.push(obj);
+                        }
+                    }
+                });
+
+                if (pinsGroupRef.current) pinsGroupRef.current.visible = false;
+                if (logisticsGroupRef.current) logisticsGroupRef.current.visible = false;
+                if (grid2dGroupRef.current) grid2dGroupRef.current.visible = false;
+
+                scene.background = new THREE.Color(0xffffff);
+                renderer.localClippingEnabled = true;
+                // Clip above cutY + 0.5m so top roof/upper slabs don't obscure interior walls
+                const sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), cutY + Math.max(modelH * 0.12, 0.6));
+                renderer.clippingPlanes = [sectionPlane];
+
+                const padFactor = 1.08;
+                const halfW = (modelW * padFactor) / 2;
+                const halfD = (modelD * padFactor) / 2;
+                const captureCam = new THREE.OrthographicCamera(-halfW, halfW, halfD, -halfD, 0.1, modelH * 10 + 500);
+                captureCam.position.set(center.x, max.y + modelH + 25, center.z);
+                captureCam.up.set(0, 0, -1);
+                captureCam.lookAt(center.x, center.y, center.z);
+                captureCam.updateProjectionMatrix();
+
+                renderer.render(scene, captureCam);
+                try {
+                    previewDataUrl = renderer.domElement.toDataURL('image/png');
+                } catch (_) {}
+
+                // Restore scene & renderer state
+                renderer.clippingPlanes = prevClipping;
+                renderer.localClippingEnabled = prevLocalClip;
+                scene.background = prevBg;
+                if (pinsGroupRef.current) pinsGroupRef.current.visible = prevPinsVis;
+                if (logisticsGroupRef.current) logisticsGroupRef.current.visible = prevLogVis;
+                if (grid2dGroupRef.current) grid2dGroupRef.current.visible = prevGridVis;
+                hiddenHelpers.forEach(obj => { obj.visible = true; });
+                if (cameraRef.current) {
+                    renderer.render(scene, cameraRef.current);
+                }
+            }
+
+            // 3. Generate Official A3 Landscape Technical PDF (420mm x 297mm) with real IFC geometry
+            const storeyCode = targetStorey.toLowerCase().replace(/\s+/g, '').replace('piso', 'p0');
+            const code = `IFC-${storeyCode.toUpperCase() || 'P00'}`;
+            const activeIfcLabel = loadedIfcName || cdeModels.find(m => m.active)?.name || cdeModels[0]?.name || 'Modelo_IFC';
+            const title = `Planta de Corte Horizontal (${targetStorey}) — ${activeIfcLabel}`;
+            const fileName = `${activeIfcLabel.replace(/\.ifc$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_')}_Planta_${storeyCode.toUpperCase()}.pdf`;
+
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+            // Outer sheet border (A3: 420 x 297 mm)
+            doc.setFillColor(255, 255, 255);
+            doc.rect(0, 0, 420, 297, 'F');
+            doc.setDrawColor(15, 23, 42);
+            doc.setLineWidth(0.6);
+            doc.rect(10, 10, 400, 277);
+            doc.setLineWidth(0.2);
+            doc.rect(12, 12, 396, 273);
+
+            // Drawing viewport box on the A3 sheet: x=[28..315], y=[24..258] (287mm x 234mm)
+            const vpX = 28;
+            const vpY = 24;
+            const vpW = 287;
+            const vpH = 234;
+
+            const scaleX = vpW / modelW;
+            const scaleZ = vpH / modelD;
+            const drawScale = Math.min(scaleX, scaleZ) * 0.86;
+
+            const drawW = modelW * drawScale;
+            const drawH = modelD * drawScale;
+            const offsetX = vpX + (vpW - drawW) / 2;
+            const offsetY = vpY + (vpH - drawH) / 2;
+
+            const toSheetX = (wx: number) => offsetX + ((wx - min.x) / modelW) * drawW;
+            const toSheetY = (wz: number) => offsetY + ((wz - min.z) / modelD) * drawH;
+
+            // Place high-res top-down orthographic IFC render as base layer
+            if (previewDataUrl) {
+                try {
+                    const padW = drawW * 1.08;
+                    const padH = drawH * 1.08;
+                    const imgX = offsetX - (padW - drawW) / 2;
+                    const imgY = offsetY - (padH - drawH) / 2;
+                    doc.addImage(previewDataUrl, 'PNG', imgX, imgY, padW, padH);
+                } catch (_) {}
+            }
+
+            // Structural CAD grid axes proportional to real IFC bounding box
+            const cols = 5;
+            const rows = 4;
+            doc.setDrawColor(203, 213, 225);
+            doc.setLineWidth(0.12);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(7);
+            doc.setTextColor(71, 85, 105);
+
+            for (let i = 0; i <= cols; i++) {
+                const gx = offsetX + (drawW / cols) * i;
+                doc.line(gx, offsetY - 8, gx, offsetY + drawH + 8);
+                doc.circle(gx, offsetY - 11, 2.5);
+                doc.text(String(i + 1), gx - 0.8, offsetY - 10.2);
+            }
+            const axisLetters = ['A', 'B', 'C', 'D', 'E'];
+            for (let j = 0; j <= rows; j++) {
+                const gy = offsetY + (drawH / rows) * j;
+                doc.line(offsetX - 8, gy, offsetX + drawW + 8, gy);
+                doc.circle(offsetX - 11, gy, 2.5);
+                doc.text(axisLetters[j] || String(j + 1), offsetX - 11.8, gy + 0.8);
+            }
+
+            // Draw projected element footprints (light grey CAD lines)
+            doc.setDrawColor(148, 163, 184);
+            doc.setLineWidth(0.12);
+            for (const [x1, z1, x2, z2] of projFootprints) {
+                const sx = toSheetX(x1);
+                const sy = toSheetY(z1);
+                const sw = Math.max(toSheetX(x2) - sx, 0.2);
+                const sh = Math.max(toSheetY(z2) - sy, 0.2);
+                doc.rect(sx, sy, sw, sh);
+            }
+
+            // Draw exact vector section-cut segments from IFC triangles (bold dark CAD lines)
+            doc.setDrawColor(15, 23, 42);
+            doc.setLineWidth(0.32);
+            for (const [x1, z1, x2, z2] of cutSegments) {
+                doc.line(toSheetX(x1), toSheetY(z1), toSheetX(x2), toSheetY(z2));
+            }
+
+            // Exterior Dimension Lines (Cotas Reais do IFC em Metros)
+            doc.setDrawColor(37, 99, 235);
+            doc.setTextColor(30, 64, 175);
+            doc.setLineWidth(0.22);
+            doc.setFontSize(8);
+            // Bottom overall width dimension
+            const dimY = offsetY + drawH + 14;
+            doc.line(offsetX, dimY, offsetX + drawW, dimY);
+            doc.line(offsetX, offsetY + drawH + 2, offsetX, dimY + 2);
+            doc.line(offsetX + drawW, offsetY + drawH + 2, offsetX + drawW, dimY + 2);
+            doc.text(`L = ${modelW.toFixed(2)} m (Dimensão Real IFC)`, offsetX + drawW / 2 - 18, dimY - 1.5);
+
+            // Right overall depth dimension
+            const dimX = offsetX + drawW + 14;
+            doc.line(dimX, offsetY, dimX, offsetY + drawH);
+            doc.line(offsetX + drawW + 2, offsetY, dimX + 2, offsetY);
+            doc.line(offsetX + drawW + 2, offsetY + drawH, dimX + 2, offsetY + drawH);
+            doc.text(`P = ${modelD.toFixed(2)} m`, dimX + 2, offsetY + drawH / 2);
+
+            // Right-Side Technical Sidebar & ISO 19650 Cartouche (x=[325..406])
+            doc.setDrawColor(15, 23, 42);
+            doc.setLineWidth(0.35);
+            doc.line(324, 12, 324, 285);
+
+            // Legend & Model Metrics Box
+            doc.setFillColor(248, 250, 252);
+            doc.rect(327, 16, 78, 85, 'FD');
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(9);
+            doc.setTextColor(15, 23, 42);
+            doc.text('DADOS GEOMÉTRICOS DO IFC', 331, 24);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(51, 65, 85);
+            doc.text(`Ficheiro Base: ${activeIfcLabel.slice(0, 28)}`, 331, 33);
+            doc.text(`Nível / Piso: ${targetStorey}`, 331, 40);
+            doc.text(`Cota de Corte Horizontal: +${(cutY - min.y).toFixed(2)} m`, 331, 47);
+            doc.text(`Largura Total (Eixo X): ${modelW.toFixed(2)} m`, 331, 54);
+            doc.text(`Profundidade (Eixo Z): ${modelD.toFixed(2)} m`, 331, 61);
+            doc.text(`Altura Total do Modelo: ${modelH.toFixed(2)} m`, 331, 68);
+            doc.text(`Elementos 3D Seccionados: ${sectionedMeshCount}`, 331, 75);
+            doc.text(`Segmentos Vetoriais 2D: ${cutSegments.length}`, 331, 82);
+            doc.text(`Norma: ISO 16739 (IFC) / ISO 19650`, 331, 89);
+
+            // Official Title Block (Carimbo Técnico) at bottom-right
+            doc.setFillColor(15, 23, 42);
+            doc.rect(327, 215, 78, 16, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(10);
+            doc.text('SAFESITE BIM • PLANTA 2D', 331, 223);
+            doc.setFontSize(7.5);
+            doc.text('EXTRAÇÃO DIRETA DO MODELO IFC', 331, 228.5);
+
+            doc.setDrawColor(15, 23, 42);
+            doc.rect(327, 231, 78, 51);
+            doc.setTextColor(15, 23, 42);
+            doc.setFontSize(8);
+            doc.text(`OBRA: ${currentProject.name.slice(0, 26)}`, 331, 239);
+            doc.text(`PEÇA: ${code} — ${targetStorey}`, 331, 247);
+            doc.text(`MODELO: ${activeIfcLabel.slice(0, 25)}`, 331, 255);
+            doc.text(`FORMATO: A3 Horizontal • Data: ${new Date().toLocaleDateString('pt-PT')}`, 331, 263);
+            doc.text(`ESTADO: Gerado do IFC Carregado (Rev. R0)`, 331, 271);
+
+            const pdfBlob = doc.output('blob');
             const createdBlobUrl = URL.createObjectURL(pdfBlob);
             const generatedPdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
 
@@ -867,20 +1161,35 @@ export default function BimViewerPage() {
                 code,
                 title,
                 fileName,
-                format: '1:100 (A3)',
+                format: `${modelW.toFixed(1)}×${modelD.toFixed(1)}m (A3)`,
                 storey: targetStorey,
-                revision: 'R0',
+                revision: 'IFC Direto',
                 discipline: 'architecture',
                 date: new Date().toISOString().slice(0, 10),
                 isRealCdeFile: true,
-                cdeId: `cde-gen-${Date.now()}`
+                cdeId: `cde-gen-${Date.now()}`,
+                localBlobUrl: createdBlobUrl,
+                previewDataUrl,
+                vectorSegments: cutSegments.slice(0, 6000),
+                modelBounds: {
+                    minX: min.x,
+                    maxX: max.x,
+                    minZ: min.z,
+                    maxZ: max.z,
+                    width: modelW,
+                    depth: modelD,
+                    height: modelH,
+                    cutY: cutY - min.y,
+                    meshCount: sectionedMeshCount
+                }
             };
 
-            // Update drawings in state and localStorage
+            // Persist metadata in state and localStorage (without overflowing quota with large base64)
             setCdeDrawings(prev => {
-                const next = [newDrawing, ...prev.filter(d => d.id !== newDrawingId)];
+                const next = [newDrawing, ...prev.filter(d => d.id !== newDrawingId && !isSampleDrawingId(d))];
                 try {
-                    localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(next));
+                    const lightNext = next.map(({ previewDataUrl: _p, vectorSegments: _v, localBlobUrl: _b, ...rest }) => rest);
+                    localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(lightNext));
                 } catch (_) {}
                 return next;
             });
@@ -897,7 +1206,7 @@ export default function BimViewerPage() {
                     if (data?.cdeConfig?.connected) {
                         uploadToCDEFolder(
                             { ...data.cdeConfig, projectId } as any,
-                            'Desenhos 2D (Plantas)/01-Arquitetura',
+                            'Desenhos 2D (Plantas)',
                             generatedPdfFile
                         ).then(() => {
                             showToast(`Planta "${code}" arquivada com sucesso no CDE Cloud.`);
@@ -907,10 +1216,10 @@ export default function BimViewerPage() {
                     }
                 }).catch(() => {});
 
-            showToast(`⚡ Planta técnica 2D (${code}) gerada a partir do modelo 3D IFC com sucesso!`);
+            showToast(`⚡ Planta 2D (${code}) extraída do modelo IFC "${activeIfcLabel}" (${sectionedMeshCount} elementos)!`);
         } catch (err: any) {
-            console.error('Erro ao gerar planta 2D:', err);
-            showToast('Aviso: Não foi possível gerar a planta 2D automaticamente.');
+            console.error('Erro ao gerar planta 2D a partir do IFC:', err);
+            showToast('Aviso: Não foi possível extrair a planta 2D do modelo IFC.');
         } finally {
             setIsGenerating2dPlan(false);
         }
@@ -1448,8 +1757,6 @@ export default function BimViewerPage() {
         pinsGroup.name = 'PinsGroup';
         scene.add(pinsGroup);
         pinsGroupRef.current = pinsGroup;
-
-        buildDefaultBimBuilding(bimGroup);
 
         let animationFrameId: number;
         const clock = new THREE.Clock();
@@ -2256,12 +2563,13 @@ export default function BimViewerPage() {
                 return [
                     {
                         id: `m_${Date.now()}`,
-                        folder: '01-Arquitetura',
+                        folder: 'Raiz do CDE',
                         name: file.name,
                         size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
                         rev: 'Upload Local',
                         active: true,
-                        discipline: 'architecture'
+                        discipline: 'architecture',
+                        isRealCdeFile: true
                     },
                     ...prev
                 ];
@@ -2939,21 +3247,11 @@ export default function BimViewerPage() {
                                         <button
                                             onClick={handleCreateCdeFolders}
                                             disabled={isCreatingCdeFolders}
-                                            className="flex-1 py-1 px-1.5 rounded-lg bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[10px] font-bold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1 cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs"
+                                            className="w-full py-1 px-1.5 rounded-lg bg-white dark:bg-neutral-800 border border-slate-200 dark:border-neutral-700 text-[10px] font-bold text-slate-700 dark:text-slate-200 flex items-center justify-center gap-1 cursor-pointer hover:bg-slate-50 transition-colors shadow-2xs"
                                             title="Criar estrutura oficial de pastas BIM e 2D no CDE"
                                         >
                                             {isCreatingCdeFolders ? <Loader2 size={11} className="animate-spin" /> : <FolderPlus size={11} />}
-                                            <span>+ Pastas</span>
-                                        </button>
-
-                                        <button
-                                            onClick={handleSeedCdeSampleFiles}
-                                            disabled={isCreatingCdeFolders}
-                                            className="flex-1 py-1 px-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-[10px] font-bold text-blue-700 dark:text-blue-300 flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                                            title="Carregar modelos IFC e pranchas 2D fidedignas para o seu CDE conectado"
-                                        >
-                                            <Sparkles size={11} />
-                                            <span>+ Carregar Exemplos</span>
+                                            <span>+ Criar Pastas no CDE</span>
                                         </button>
                                     </div>
                                 </div>
@@ -3001,37 +3299,33 @@ export default function BimViewerPage() {
 
                                             {expandedFolders.bim_root && (
                                                 <div className="pl-3.5 space-y-2 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
-                                                    {Array.from(new Set([
-                                                        '01-Arquitetura',
-                                                        '02-Estruturas',
-                                                        '03-Especialidades (MEP)',
-                                                        '04-Segurança (PSS)',
-                                                        ...cdeModels.map(m => m.folder).filter(Boolean)
-                                                    ])).map(folderName => {
-                                                        const folderModels = cdeModels.filter(m => m.folder === folderName);
-                                                        const isExp = expandedFolders[folderName] ?? true;
-                                                        return (
-                                                            <div key={folderName} className="space-y-1">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [folderName]: !p[folderName] }))}
-                                                                    className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 py-0.5 cursor-pointer"
-                                                                >
-                                                                    <div className="flex items-center gap-1.5 truncate">
-                                                                        <ChevronRight size={11} className={cn("transition-transform text-slate-400", isExp ? "rotate-90" : "")} />
-                                                                        <FolderOpen size={12} className="text-amber-600" />
-                                                                        <span className="truncate">{folderName}</span>
-                                                                    </div>
-                                                                    <span className="text-[9px] text-slate-400">({folderModels.length})</span>
-                                                                </button>
+                                                    {cdeModels.length === 0 ? (
+                                                        <div className="text-[10px] text-slate-400 italic py-1">
+                                                            Sem ficheiros .ifc carregados no CDE.
+                                                        </div>
+                                                    ) : (
+                                                        Array.from(new Set(cdeModels.map(m => m.folder || 'Raiz do CDE'))).map(folderName => {
+                                                            const folderModels = cdeModels.filter(m => (m.folder || 'Raiz do CDE') === folderName);
+                                                            const isExp = expandedFolders[folderName] ?? true;
+                                                            return (
+                                                                <div key={folderName} className="space-y-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setExpandedFolders(p => ({ ...p, [folderName]: !p[folderName] }))}
+                                                                        className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-700 dark:text-slate-300 hover:text-slate-900 py-0.5 cursor-pointer"
+                                                                    >
+                                                                        <div className="flex items-center gap-1.5 truncate">
+                                                                            <ChevronRight size={11} className={cn("transition-transform text-slate-400", isExp ? "rotate-90" : "")} />
+                                                                            <FolderOpen size={12} className="text-amber-600" />
+                                                                            <span className="truncate">{folderName}</span>
+                                                                        </div>
+                                                                        <span className="text-[9px] text-slate-400">({folderModels.length})</span>
+                                                                    </button>
 
-                                                                {isExp && (
-                                                                    <div className="pl-3 space-y-1.5 mt-0.5">
-                                                                        {folderModels.length === 0 ? (
-                                                                            <div className="text-[10px] text-slate-400 italic py-0.5">Sem modelos nesta pasta</div>
-                                                                        ) : (
-                                                                            folderModels.map(model => {
-                                                                                const isBaseModel = model.id === baseModelId || (!baseModelId && model.isRealCdeFile && cdeModels.findIndex(m => m.isRealCdeFile) === 0);
+                                                                    {isExp && (
+                                                                        <div className="pl-3 space-y-1.5 mt-0.5">
+                                                                            {folderModels.map(model => {
+                                                                                const isBaseModel = model.id === baseModelId || (!baseModelId && cdeModels[0]?.id === model.id);
                                                                                 return (
                                                                                     <div
                                                                                         key={model.id}
@@ -3050,11 +3344,8 @@ export default function BimViewerPage() {
                                                                                                     {model.name}
                                                                                                 </span>
                                                                                             </div>
-                                                                                            <span className={cn(
-                                                                                                "text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0",
-                                                                                                model.isRealCdeFile ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" : "bg-slate-100 text-slate-600 dark:bg-neutral-700 dark:text-slate-300"
-                                                                                            )}>
-                                                                                                {model.isRealCdeFile ? 'CDE Real' : 'Exemplo'}
+                                                                                            <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                                                                CDE Real
                                                                                             </span>
                                                                                         </div>
 
@@ -3102,13 +3393,13 @@ export default function BimViewerPage() {
                                                                                         </div>
                                                                                     </div>
                                                                                 );
-                                                                            })
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
+                                                                            })}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -3985,8 +4276,74 @@ export default function BimViewerPage() {
                                     }}
                                     className="relative w-[860px] h-[600px] bg-white dark:bg-[#16181b] border-2 border-slate-400 dark:border-neutral-700 shadow-2xl rounded-xs cursor-crosshair overflow-hidden shrink-0"
                                 >
-                                    {/* Real CDE PDF Technical Drawing in Background */}
-                                    {currentPdfUrl ? (
+                                    {/* Real IFC Extracted Floor Plan or CDE PDF in Background */}
+                                    {(dw.previewDataUrl || (dw.vectorSegments && dw.vectorSegments.length > 0)) ? (() => {
+                                        const mb = dw.modelBounds || { minX: -12, maxX: 12, minZ: -10, maxZ: 10, width: 24, depth: 20, height: 10, cutY: 1.5, meshCount: 0 };
+                                        const pad = 64;
+                                        const availW = 860 - pad * 2;
+                                        const availH = 600 - pad * 2;
+                                        const sc = Math.min(availW / Math.max(mb.width, 1), availH / Math.max(mb.depth, 1));
+                                        const rW = mb.width * sc;
+                                        const rH = mb.depth * sc;
+                                        const ox = (860 - rW) / 2;
+                                        const oy = (600 - rH) / 2;
+                                        const mapX = (wx: number) => ox + ((wx - mb.minX) / Math.max(mb.width, 1)) * rW;
+                                        const mapY = (wz: number) => oy + ((wz - mb.minZ) / Math.max(mb.depth, 1)) * rH;
+
+                                        return (
+                                            <div className="absolute inset-0 w-full h-full pointer-events-none select-none z-0 bg-white">
+                                                {dw.previewDataUrl && (
+                                                    <img
+                                                        src={dw.previewDataUrl}
+                                                        alt={dw.title}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            left: `${ox - rW * 0.04}px`,
+                                                            top: `${oy - rH * 0.04}px`,
+                                                            width: `${rW * 1.08}px`,
+                                                            height: `${rH * 1.08}px`,
+                                                            objectFit: 'fill'
+                                                        }}
+                                                    />
+                                                )}
+                                                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 860 600" xmlns="http://www.w3.org/2000/svg">
+                                                    <defs>
+                                                        <pattern id="grid-cad-ifc" width="40" height="40" patternUnits="userSpaceOnUse">
+                                                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" strokeWidth="0.6" />
+                                                        </pattern>
+                                                    </defs>
+                                                    <rect width="860" height="600" fill={dw.previewDataUrl ? "none" : "url(#grid-cad-ifc)"} />
+                                                    <rect x="16" y="16" width="828" height="568" fill="none" stroke="#0f172a" strokeWidth="1.8" />
+                                                    <rect x="20" y="20" width="820" height="560" fill="none" stroke="#64748b" strokeWidth="0.6" />
+                                                    {dw.vectorSegments?.map(([x1, z1, x2, z2], idx) => (
+                                                        <line
+                                                            key={idx}
+                                                            x1={mapX(x1)}
+                                                            y1={mapY(z1)}
+                                                            x2={mapX(x2)}
+                                                            y2={mapY(z2)}
+                                                            stroke="#0f172a"
+                                                            strokeWidth="1.35"
+                                                            strokeLinecap="round"
+                                                        />
+                                                    ))}
+                                                    {/* Real IFC Dimension Lines */}
+                                                    <line x1={ox} y1={oy + rH + 22} x2={ox + rW} y2={oy + rH + 22} stroke="#2563eb" strokeWidth="1" />
+                                                    <line x1={ox} y1={oy + rH + 6} x2={ox} y2={oy + rH + 26} stroke="#2563eb" strokeWidth="0.8" />
+                                                    <line x1={ox + rW} y1={oy + rH + 6} x2={ox + rW} y2={oy + rH + 26} stroke="#2563eb" strokeWidth="0.8" />
+                                                    <text x={ox + rW / 2} y={oy + rH + 18} textAnchor="middle" fill="#1d4ed8" fontSize="10" fontWeight="bold">
+                                                        {mb.width.toFixed(2)} m (IFC Real)
+                                                    </text>
+                                                    <line x1={ox + rW + 22} y1={oy} x2={ox + rW + 22} y2={oy + rH} stroke="#2563eb" strokeWidth="1" />
+                                                    <line x1={ox + rW + 6} y1={oy} x2={ox + rW + 26} y2={oy} stroke="#2563eb" strokeWidth="0.8" />
+                                                    <line x1={ox + rW + 6} y1={oy + rH} x2={ox + rW + 26} y2={oy + rH} stroke="#2563eb" strokeWidth="0.8" />
+                                                    <text x={ox + rW + 28} y={oy + rH / 2} fill="#1d4ed8" fontSize="10" fontWeight="bold">
+                                                        {mb.depth.toFixed(2)} m
+                                                    </text>
+                                                </svg>
+                                            </div>
+                                        );
+                                    })() : currentPdfUrl ? (
                                         <iframe
                                             src={`${currentPdfUrl}#toolbar=0&navpanes=0&scrollbar=0`}
                                             title={dw.title}
@@ -4635,7 +4992,7 @@ export default function BimViewerPage() {
 
                         <div className="p-4 flex-1 overflow-y-auto space-y-3">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {DEFAULT_2D_DRAWINGS.map(drawing => (
+                                {cdeDrawings.map(drawing => (
                                     <div
                                         key={drawing.id}
                                         onClick={() => setSelected2dDrawing(drawing)}
@@ -4685,7 +5042,7 @@ export default function BimViewerPage() {
 
                         <div className="p-3 border-t border-slate-200 dark:border-neutral-800 flex items-center justify-between bg-slate-50 dark:bg-neutral-800/50 text-xs">
                             <span className="text-slate-500">
-                                {DEFAULT_2D_DRAWINGS.length} desenhos técnicos arquivados no projeto.
+                                {cdeDrawings.length} desenhos técnicos arquivados no projeto.
                             </span>
                             <button
                                 onClick={() => setIs2dDrawingsModalOpen(false)}
