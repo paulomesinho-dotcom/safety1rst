@@ -1,6 +1,6 @@
 ﻿import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation, SiteObservation, SiteLogisticsItem, SiteWorkZone } from '../types';
+import type { User, Account, Project, Company, Worker, Equipment, Module, ProjectRole, ProjectAccess, PDFTemplate, Document, CompanyRequest, Notification, AccessLog, AccessPoint, Training, Accident, RiskAssessment, CompanyProfile, WorkerProfile, EquipmentProfile, Ticket, TicketMessage, WorkflowLog, Course, TrainingSession, WorkerTrainingRecord, SubscriptionRequest, SubscriptionRequestStatus, PlanType, PlatformPlan, CompanyInvitation, SiteObservation, SiteLogisticsItem, SiteWorkZone, WorkPlanTask } from '../types';
 import { DEFAULT_PLATFORM_PLANS } from '../types';
 
 export interface ProjectRequest {
@@ -79,6 +79,10 @@ export interface AppState {
     updateSiteLogisticsItem: (id: string, updates: Partial<SiteLogisticsItem>) => void;
     deleteSiteLogisticsItem: (id: string) => void;
     siteWorkZones: SiteWorkZone[];
+    workPlanTasks: WorkPlanTask[];
+    addWorkPlanTask: (task: Omit<WorkPlanTask, 'id' | 'createdAt'> & { id?: string }) => void;
+    updateWorkPlanTask: (id: string, updates: Partial<WorkPlanTask>) => void;
+    deleteWorkPlanTask: (id: string) => void;
     addSiteWorkZone: (zone: Omit<SiteWorkZone, 'id' | 'createdAt'> & { id?: string }) => void;
     updateSiteWorkZone: (id: string, updates: Partial<SiteWorkZone>) => void;
     deleteSiteWorkZone: (id: string) => void;
@@ -583,6 +587,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     siteObservations: [],
     siteLogisticsItems: [],
     siteWorkZones: [],
+    workPlanTasks: [],
 
     isInitialized: false,
 
@@ -3502,6 +3507,20 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         siteLogisticsItems: (state.siteLogisticsItems || []).filter(i => i.id !== id)
     })),
 
+        addWorkPlanTask: (task) => set((state) => {
+        const id = task.id || nanoid();
+        const newTask: WorkPlanTask = { ...task, id, createdAt: new Date().toISOString() };
+        dbInsert('work_plan_tasks', newTask).catch(console.error);
+        return { workPlanTasks: [newTask, ...(state.workPlanTasks || [])] };
+    }),
+    updateWorkPlanTask: (id, updates) => set((state) => {
+        dbUpdate('work_plan_tasks', id, updates).catch(console.error);
+        return { workPlanTasks: (state.workPlanTasks || []).map(t => t.id === id ? { ...t, ...updates } : t) };
+    }),
+    deleteWorkPlanTask: (id) => set((state) => {
+        dbRemove('work_plan_tasks', id).catch(console.error);
+        return { workPlanTasks: (state.workPlanTasks || []).filter(t => t.id !== id) };
+    }),
     addSiteWorkZone: (zone) => set((state) => {
         const id = zone.id || nanoid();
         const newZone: SiteWorkZone = { ...zone, id, createdAt: new Date().toISOString() };

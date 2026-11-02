@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useParams } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import Bim2dSafetyEditor from '@/components/Bim2dSafetyEditor';
-import { SiteWorkZone } from '@/types';
+import Bim4dSimulationPlayer from '@/components/Bim4dSimulationPlayer';
+import { SiteWorkZone, WorkPlanTask } from '@/types';
 import { cn } from '@/lib/utils';
 import {
     Box,
@@ -311,6 +312,10 @@ export default function BimViewerPage() {
         siteWorkZones,
         addSiteWorkZone,
         deleteSiteWorkZone,
+        workPlanTasks,
+        addWorkPlanTask,
+        updateWorkPlanTask,
+        deleteWorkPlanTask,
     } = useStore();
 
     const currentProject = projects.find(p => p.id === projectId) || { name: 'Obra Skyline Tower' };
@@ -340,6 +345,10 @@ export default function BimViewerPage() {
     const [selectedDiscipline, setSelectedDiscipline] = useState<'all' | 'structure' | 'architecture' | 'mep' | 'safety'>('all');
     const [selectedStorey, setSelectedStorey] = useState<string>('all');
     const [ghostMode, setGhostMode] = useState<boolean>(true);
+    // 4D Construction Simulation & Time-Lapse Player
+    const [simDate, setSimDate] = useState<string>(new Date().toISOString().slice(0, 10));
+    const [is4dActive, setIs4dActive] = useState<boolean>(false);
+    const [show4dFutureGhost, setShow4dFutureGhost] = useState<boolean>(true);
 
     // Layer Visibility & Preset Dropdown
     const [showObservationsLayer, setShowObservationsLayer] = useState(true);
@@ -1236,8 +1245,30 @@ export default function BimViewerPage() {
     }, [siteObservations, projectId]);
 
     const projectLogistics = useMemo(() => {
-        return (siteLogisticsItems || []).filter(l => l.projectId === projectId);
-    }, [siteLogisticsItems, projectId]);
+        return (siteLogisticsItems || []).filter(l => {
+            if (l.projectId !== projectId) return false;
+            if (is4dActive && simDate) {
+                if (l.startDate && l.startDate > simDate) return false;
+                if (l.endDate && l.endDate < simDate) return false;
+            }
+            return true;
+        });
+    }, [siteLogisticsItems, projectId, is4dActive, simDate]);
+
+    const projectWorkZones = useMemo(() => {
+        return (siteWorkZones || []).filter(z => {
+            if (z.projectId !== projectId) return false;
+            if (is4dActive && simDate) {
+                if (z.startDate && z.startDate > simDate) return false;
+                if (z.endDate && z.endDate < simDate) return false;
+            }
+            return true;
+        });
+    }, [siteWorkZones, projectId, is4dActive, simDate]);
+
+    const projectTasks = useMemo(() => {
+        return (workPlanTasks || []).filter(t => t.projectId === projectId);
+    }, [workPlanTasks, projectId]);
 
     // Seed default observations and logistics elements if empty
     useEffect(() => {
@@ -1837,7 +1868,7 @@ export default function BimViewerPage() {
         renderLogisticsAndEmergencyItems(logisticsGroupRef.current, filtered);
     }, [projectLogistics, showLogisticsLayer, showEmergencyLayer, renderLogisticsAndEmergencyItems]);
 
-    // Handle Discipline and Storey Filtering
+    // Handle Discipline, Storey, and 4D Timeline Filtering
     useEffect(() => {
         if (!bimGroupRef.current) return;
 
@@ -1849,14 +1880,42 @@ export default function BimViewerPage() {
                 const matchesStorey = selectedStorey === 'all' || elementStorey === selectedStorey || elementStorey === 'Exterior';
                 const matchesDiscipline = selectedDiscipline === 'all' || elementDiscipline === selectedDiscipline;
 
-                if (matchesStorey && matchesDiscipline) {
+                // 4D Construction Simulation Status Matching
+                let is4dVisible = true;
+                let is4dActiveTask = false;
+                if (is4dActive && simDate && projectTasks.length > 0) {
+                    const matchingTasks = projectTasks.filter(t => !t.storeyName || t.storeyName === elementStorey || t.storeyName === 'all');
+                    if (matchingTasks.length > 0) {
+                        const hasCompleted = matchingTasks.some(t => t.endDate && t.endDate < simDate);
+                        const hasInProgress = matchingTasks.some(t => t.startDate && t.endDate && t.startDate <= simDate && t.endDate >= simDate);
+                        const isFuture = matchingTasks.every(t => t.startDate && t.startDate > simDate);
+
+                        if (hasInProgress) {
+                            is4dActiveTask = true;
+                            is4dVisible = true;
+                        } else if (hasCompleted) {
+                            is4dVisible = true;
+                        } else if (isFuture) {
+                            is4dVisible = show4dFutureGhost;
+                        }
+                    }
+                }
+
+                if (matchesStorey && matchesDiscipline && is4dVisible) {
                     child.visible = true;
                     if (child.material) {
-                        child.material.transparent = Boolean(child.userData.category === 'CurtainWall');
-                        child.material.opacity = child.userData.category === 'CurtainWall' ? 0.45 : 1.0;
-                        child.material.depthWrite = true;
+                        if (is4dActive && is4dActiveTask) {
+                            child.material.transparent = true;
+                            child.material.opacity = 0.85;
+                            child.material.color = new THREE.Color(0xf59e0b);
+                            child.material.depthWrite = true;
+                        } else {
+                            child.material.transparent = Boolean(child.userData.category === 'CurtainWall');
+                            child.material.opacity = child.userData.category === 'CurtainWall' ? 0.45 : 1.0;
+                            child.material.depthWrite = true;
+                        }
                     }
-                } else if (!matchesStorey) {
+                } else if (!matchesStorey || !is4dVisible) {
                     child.visible = false;
                 } else {
                     if (ghostMode) {
@@ -1872,7 +1931,7 @@ export default function BimViewerPage() {
                 }
             }
         });
-    }, [selectedDiscipline, selectedStorey, ghostMode]);
+    }, [selectedDiscipline, selectedStorey, ghostMode, is4dActive, simDate, show4dFutureGhost, projectTasks]);
 
     // Toggle 2D vs 3D View Dimension
     const handleToggleViewDimension = (mode: '3d' | '2d') => {
@@ -3034,6 +3093,29 @@ export default function BimViewerPage() {
                         </div>
                     )}
 
+                    {/* SIMULAÇÃO 4D (Player Temporal de Estaleiro & Construção como no 4DIFC) */}
+                    <div className="flex items-center pl-1 border-l border-slate-200 dark:border-neutral-800">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const next = !is4dActive;
+                                setIs4dActive(next);
+                                showToast(next ? '⚡ Modo Simulação 4D Ativado! Use o player inferior.' : 'Modo 4D Desativado.');
+                            }}
+                            className={cn(
+                                "h-7 px-2.5 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs border",
+                                is4dActive
+                                    ? "bg-purple-600 text-white border-purple-600 shadow-sm"
+                                    : "bg-white dark:bg-neutral-800 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-50"
+                            )}
+                            title="Ativar/Desativar Player de Simulação 4D (Como no 4DIFC)"
+                        >
+                            <Calendar size={13} strokeWidth={2} />
+                            <span>Simulação 4D</span>
+                            {is4dActive && <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping ml-0.5" />}
+                        </button>
+                    </div>
+
                     {/* CAMADAS: Droplist de Escolha */}
                     <div className="flex items-center">
                         <select
@@ -3996,6 +4078,20 @@ export default function BimViewerPage() {
                     }}
                     className="relative flex-1 w-full h-full flex overflow-hidden"
                 >
+                    {/* 4D Construction Simulation Player Bar */}
+                    {is4dActive && (
+                        <Bim4dSimulationPlayer
+                            tasks={projectTasks}
+                            logisticsItems={siteLogisticsItems?.filter(l => l.projectId === projectId) || []}
+                            workZones={siteWorkZones?.filter(z => z.projectId === projectId) || []}
+                            currentDate={simDate}
+                            onDateChange={(d) => setSimDate(d)}
+                            showFuture={show4dFutureGhost}
+                            onToggleShowFuture={(sh) => setShow4dFutureGhost(sh)}
+                            activeTaskCount={projectTasks.filter(t => t.startDate && t.endDate && t.startDate <= simDate && t.endDate >= simDate).length}
+                        />
+                    )}
+
                     {/* Loading HUD when parsing IFC file */}
                     {isLoadingModel && (
                         <div className="absolute inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center text-white">
@@ -4218,7 +4314,7 @@ export default function BimViewerPage() {
                                     storey={dw.storey || selectedStorey}
                                     activeDrawing={dw}
                                     logisticsItems={projectLogistics}
-                                    workZones={siteWorkZones?.filter(z => z.projectId === projectId) || []}
+                                    workZones={projectWorkZones}
                                     onAddLogisticsItem={addSiteLogisticsItem}
                                     onDeleteLogisticsItem={deleteSiteLogisticsItem}
                                     onAddWorkZone={addSiteWorkZone}

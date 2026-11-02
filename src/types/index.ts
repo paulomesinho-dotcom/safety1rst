@@ -1162,6 +1162,8 @@ export interface WorkPlanTask {
 
     // Localização — IfcZone
     locationId?: string;            // AccessPoint ID
+    storeyName?: string;            // Nível / Piso associado ao 4D
+    ifcCategory?: string;           // Categoria IFC (Slab, Wall, Column, Beam)
 
     // Estado
     status: 'planned' | 'active' | 'completed' | 'delayed' | 'cancelled';
@@ -1311,6 +1313,8 @@ export interface SiteLogisticsItem {
     notes?: string;
     status?: 'active' | 'planned' | 'decommissioned';
     storeyName?: string;
+    startDate?: string; // Data início de ativação da zona
+    endDate?: string;   // Data de fecho da zona
     phase4D?: string; // Fase no 4D (ex: 'Fase 1: Estrutura', 'Fase 2: Acabamentos')
     symbolId?: string; // ID ISO 7010 / Leomarc (ex: F001, E001, W001)
     routePoints?: [number, number][]; // Pontos [x, z] em metros
@@ -1323,6 +1327,8 @@ export interface SiteWorkZone {
     name: string;
     category: 'hazard' | 'restricted' | 'lifting' | 'height' | 'hot_work' | 'confined_space' | 'general';
     storeyName?: string;
+    startDate?: string; // Data início de ativação da zona
+    endDate?: string;   // Data de fecho da zona
     phase4D?: string; // Associação ao cronograma 4D
     polygon: [number, number][]; // Coordenadas [x, z] em metros
     color: string;
