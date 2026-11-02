@@ -299,6 +299,27 @@ export default function Bim2dSafetyEditor({
                 </div>
             )}
 
+            {activeTool === 'draw_route' && (
+                <div className="h-10 px-3 bg-emerald-50/90 border-b border-emerald-200 flex items-center justify-between text-xs overflow-x-auto no-scrollbar gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-bold text-emerald-900 text-[11px]">Desenhar Percurso de Evacuação:</span>
+                        <span className="text-[11px] text-emerald-800">Clique na planta para marcar os pontos. As setas direcionais e sinalização ISO serão criadas em 2D e projetadas em 3D.</span>
+                    </div>
+                    {pendingPoints.length > 0 && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[11px] font-bold text-emerald-800">{pendingPoints.length} ponto(s) marcado(s)</span>
+                            <button
+                                type="button"
+                                onClick={handleFinishRoute}
+                                className="h-6 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold cursor-pointer"
+                            >
+                                Concluir Rota
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {activeTool === 'draw_zone' && (
                 <div className="h-10 px-3 bg-red-50/90 border-b border-red-200 flex items-center gap-3 text-xs overflow-x-auto shrink-0">
                     <span className="font-bold text-red-900 text-[11px]">Tipo de Zona:</span>
@@ -376,7 +397,7 @@ export default function Bim2dSafetyEditor({
                         </svg>
                     )}
 
-                    {/* 45-Degree Diagonal Hatched Work & Hazard Zones */}
+                    {/* 45-Degree Diagonal Hatched Work & Hazard Zones + Evacuation Routes */}
                     <svg className="absolute inset-0 w-full h-full pointer-events-none z-5" viewBox="0 0 860 600">
                         <defs>
                             <pattern id="diag-hazard" width="16" height="16" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
@@ -385,6 +406,12 @@ export default function Bim2dSafetyEditor({
                             <pattern id="diag-height" width="16" height="16" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
                                 <line x1="0" y1="0" x2="0" y2="16" stroke="#3b82f6" strokeWidth="4" strokeOpacity="0.4" />
                             </pattern>
+                            <marker id="arrow-evac" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#16a34a" />
+                            </marker>
+                            <marker id="arrow-pending" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                                <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#22c55e" />
+                            </marker>
                         </defs>
                         {workZones.map(zone => {
                             if (!zone.polygon || zone.polygon.length < 3) return null;
@@ -401,7 +428,7 @@ export default function Bim2dSafetyEditor({
                             );
                         })}
                         {/* Pending Zone In Progress */}
-                        {pendingPoints.length > 1 && (
+                        {activeTool === 'draw_zone' && pendingPoints.length > 1 && (
                             <polyline
                                 points={pendingPoints.map(([wx, wz]) => `${(50 + (wx / 20) * 35) * 8.6},${(50 + (wz / 16) * 35) * 6.0}`).join(' ')}
                                 fill="none"
@@ -409,6 +436,101 @@ export default function Bim2dSafetyEditor({
                                 strokeWidth="2"
                                 strokeDasharray="4 2"
                             />
+                        )}
+
+                        {/* Evacuation Routes (Setas e Percursos de Fuga com Traçado Verde e Setas Direcionais) */}
+                        {logisticsItems.filter(item => item.type === 'evacuation_route' && item.routePoints && item.routePoints.length >= 2).map(item => {
+                            const pts = item.routePoints!.map(([wx, wz]) => {
+                                const px = (50 + (wx / 20) * 35) * 8.6;
+                                const py = (50 + (wz / 16) * 35) * 6.0;
+                                return `${px},${py}`;
+                            }).join(' ');
+
+                            return (
+                                <g key={item.id} className="pointer-events-auto cursor-pointer" onClick={(e) => {
+                                    e.stopPropagation();
+                                    showToast(`${item.name} (${item.routePoints?.length} pontos de evacuação)`);
+                                }}>
+                                    {/* Glowing green route corridor */}
+                                    <polyline
+                                        points={pts}
+                                        fill="none"
+                                        stroke="#22c55e"
+                                        strokeWidth="8"
+                                        strokeOpacity="0.28"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                    {/* Main directional route with arrowhead at the end */}
+                                    <polyline
+                                        points={pts}
+                                        fill="none"
+                                        stroke="#15803d"
+                                        strokeWidth="3"
+                                        strokeDasharray="8 5"
+                                        markerEnd="url(#arrow-evac)"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                    />
+                                    {/* Waypoint circle markers */}
+                                    {item.routePoints!.map(([wx, wz], idx) => {
+                                        const px = (50 + (wx / 20) * 35) * 8.6;
+                                        const py = (50 + (wz / 16) * 35) * 6.0;
+                                        const isLast = idx === item.routePoints!.length - 1;
+                                        return (
+                                            <g key={idx}>
+                                                <circle
+                                                    cx={px}
+                                                    cy={py}
+                                                    r={isLast ? 6 : 4}
+                                                    fill={isLast ? "#16a34a" : "#22c55e"}
+                                                    stroke="#ffffff"
+                                                    strokeWidth="1.5"
+                                                />
+                                                {isLast && (
+                                                    <text
+                                                        x={px + 8}
+                                                        y={py + 3}
+                                                        fontSize="10"
+                                                        fontWeight="bold"
+                                                        fill="#15803d"
+                                                        className="select-none"
+                                                    >
+                                                        SAÍDA
+                                                    </text>
+                                                )}
+                                            </g>
+                                        );
+                                    })}
+                                </g>
+                            );
+                        })}
+
+                        {/* Pending Evacuation Route In Progress */}
+                        {activeTool === 'draw_route' && pendingPoints.length >= 1 && (
+                            <g>
+                                {pendingPoints.length >= 2 && (
+                                    <polyline
+                                        points={pendingPoints.map(([wx, wz]) => `${(50 + (wx / 20) * 35) * 8.6},${(50 + (wz / 16) * 35) * 6.0}`).join(' ')}
+                                        fill="none"
+                                        stroke="#22c55e"
+                                        strokeWidth="3"
+                                        strokeDasharray="6 4"
+                                        markerEnd="url(#arrow-pending)"
+                                    />
+                                )}
+                                {pendingPoints.map(([wx, wz], idx) => (
+                                    <circle
+                                        key={idx}
+                                        cx={(50 + (wx / 20) * 35) * 8.6}
+                                        cy={(50 + (wz / 16) * 35) * 6.0}
+                                        r="4"
+                                        fill="#22c55e"
+                                        stroke="#ffffff"
+                                        strokeWidth="1.5"
+                                    />
+                                ))}
+                            </g>
                         )}
                     </svg>
 

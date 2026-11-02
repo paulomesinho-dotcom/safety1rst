@@ -74,7 +74,9 @@ import {
     ArrowDown,
     ArrowLeft,
     ArrowRight,
-    ArrowUpFromLine
+    ArrowUpFromLine,
+    Copy,
+    Scissors
 } from 'lucide-react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -341,7 +343,13 @@ export default function BimViewerPage() {
     const [viewOrientation, setViewOrientation] = useState<ViewOrientation>('isometric');
     const modelCenterRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 4.5, 0));
     const modelSizeRef = useRef<THREE.Vector3>(new THREE.Vector3(24, 12, 20));
-    const [activeMode, setActiveMode] = useState<'navigate' | 'add_point' | 'add_logistics' | 'add_emergency' | 'moving_logistics'>('navigate');
+    const selectedMeshRef = useRef<THREE.Mesh | null>(null);
+    const [activeMode, setActiveMode] = useState<'navigate' | 'pan' | 'add_point' | 'add_logistics' | 'add_emergency' | 'moving_logistics'>('navigate');
+    const [isXRayMode, setIsXRayMode] = useState<boolean>(false);
+    const [sectionCutActive, setSectionCutActive] = useState<boolean>(false);
+    const [sectionCutHeight, setSectionCutHeight] = useState<number>(10);
+    const [modelHeightRange, setModelHeightRange] = useState<{ min: number; max: number }>({ min: -2, max: 25 });
+    const [copiedGuid, setCopiedGuid] = useState<boolean>(false);
     const [selectedDiscipline, setSelectedDiscipline] = useState<'all' | 'structure' | 'architecture' | 'mep' | 'safety'>('all');
     const [selectedStorey, setSelectedStorey] = useState<string>('all');
     const [ghostMode, setGhostMode] = useState<boolean>(true);
@@ -1455,6 +1463,109 @@ export default function BimViewerPage() {
         });
     }, []);
 
+    const createSignageCanvasTexture = useCallback((symbolId?: string, label?: string, type?: string): THREE.Texture => {
+        if (typeof document === 'undefined') return new THREE.Texture();
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return new THREE.Texture();
+
+        const isFire = symbolId?.startsWith('F') || type === 'fire_extinguisher';
+        const isWarning = symbolId?.startsWith('W') || type === 'fuel_depot';
+        const isMandatory = symbolId?.startsWith('M') || type === 'gate';
+        const isSafe = symbolId?.startsWith('E') || type === 'meeting_point' || type === 'first_aid' || type === 'evacuation_route';
+
+        let bgColor = '#16a34a'; // ISO 7010 Green
+        let textColor = '#ffffff';
+        let borderColor = '#ffffff';
+
+        if (isFire) {
+            bgColor = '#dc2626'; // ISO 7010 Red
+        } else if (isWarning) {
+            bgColor = '#f59e0b'; // ISO 7010 Yellow
+            textColor = '#0f172a';
+            borderColor = '#0f172a';
+        } else if (isMandatory) {
+            bgColor = '#2563eb'; // ISO 7010 Blue
+        } else if (isSafe) {
+            bgColor = '#16a34a';
+        }
+
+        // Background
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, 256, 256);
+
+        // Inner Border
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = 12;
+        ctx.strokeRect(12, 12, 232, 232);
+
+        // Header Code
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 36px Arial, sans-serif';
+        const code = symbolId || (isFire ? 'F001' : isSafe ? 'E001' : isWarning ? 'W001' : 'SST');
+        ctx.fillText(code, 128, 62);
+
+        // Center Graphic Pictogram Representation
+        ctx.font = '64px Arial, sans-serif';
+        if (isFire) {
+            ctx.fillText('🧯', 128, 130);
+        } else if (symbolId === 'E003' || type === 'first_aid') {
+            ctx.fillText('✚', 128, 130);
+        } else if (symbolId === 'E007' || type === 'meeting_point') {
+            ctx.fillText('👥', 128, 130);
+        } else if (isSafe) {
+            ctx.fillText('➔', 128, 130);
+        } else if (isWarning) {
+            ctx.fillText('⚠️', 128, 130);
+        } else {
+            ctx.fillText('🛡️', 128, 130);
+        }
+
+        // Bottom Subtitle Label
+        ctx.font = 'bold 20px Arial, sans-serif';
+        const displayLabel = (label || code).slice(0, 16);
+        ctx.fillText(displayLabel, 128, 202);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        return texture;
+    }, []);
+
+    const createSignage3D = useCallback((symbolId?: string, label?: string, type?: string): THREE.Group => {
+        const signGroup = new THREE.Group();
+
+        const poleMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.0, 16), poleMat);
+        pole.position.y = 1.0;
+        pole.castShadow = true;
+        signGroup.add(pole);
+
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 16), poleMat);
+        base.position.y = 0.02;
+        signGroup.add(base);
+
+        const texture = createSignageCanvasTexture(symbolId, label, type);
+        const signMat = new THREE.MeshStandardMaterial({
+            map: texture,
+            roughness: 0.3,
+            metalness: 0.1
+        });
+        const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1e293b });
+        const board = new THREE.Mesh(
+            new THREE.BoxGeometry(0.85, 0.85, 0.04),
+            [edgeMat, edgeMat, edgeMat, edgeMat, signMat, signMat]
+        );
+        board.position.y = 1.95;
+        board.castShadow = true;
+        signGroup.add(board);
+
+        return signGroup;
+    }, [createSignageCanvasTexture]);
+
     // Render 3D and 2D High-Detail Meshes for Estaleiro & Emergência Items
     const renderLogisticsAndEmergencyItems = useCallback((group: THREE.Group, items: SiteLogisticsItem[]) => {
         group.clear();
@@ -1674,16 +1785,78 @@ export default function BimViewerPage() {
                 horn.position.set(0, 3.5, 0.3);
                 itemGroup.add(pole, horn);
             } else if (item.type === 'evacuation_route') {
-                // Evacuation Route Chevron on Floor
-                const greenMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.8 });
-                const arrow = new THREE.Mesh(new THREE.BoxGeometry(4, 0.04, 1.2), greenMat);
-                arrow.position.y = 0.05;
-                itemGroup.add(arrow);
+                // 3D Evacuation Path with Ground Track, Directional Chevrons and Exit Totem
+                if (item.routePoints && item.routePoints.length >= 2) {
+                    const routeMat = new THREE.MeshStandardMaterial({
+                        color: 0x16a34a,
+                        roughness: 0.4,
+                        metalness: 0.1
+                    });
+                    const chevronMat = new THREE.MeshBasicMaterial({ color: 0x4ade80 });
+
+                    for (let i = 0; i < item.routePoints.length - 1; i++) {
+                        const p1 = item.routePoints[i];
+                        const p2 = item.routePoints[i + 1];
+                        const dx = p2[0] - p1[0];
+                        const dz = p2[1] - p1[1];
+                        const dist = Math.sqrt(dx * dx + dz * dz);
+                        if (dist < 0.01) continue;
+
+                        const midX = (p1[0] + p2[0]) / 2 - item.position[0];
+                        const midZ = (p1[1] + p2[1]) / 2 - item.position[2];
+                        const angle = Math.atan2(dz, dx);
+
+                        // Ground track ribbon (0.7m wide)
+                        const trackGeo = new THREE.BoxGeometry(dist, 0.05, 0.7);
+                        const track = new THREE.Mesh(trackGeo, routeMat);
+                        track.position.set(midX, 0.05, midZ);
+                        track.rotation.y = -angle;
+                        itemGroup.add(track);
+
+                        // Directional chevrons along the segment (every ~2.5m)
+                        const numChevrons = Math.max(1, Math.floor(dist / 2.5));
+                        for (let c = 1; c <= numChevrons; c++) {
+                            const frac = c / (numChevrons + 1);
+                            const cx = (p1[0] + dx * frac) - item.position[0];
+                            const cz = (p1[1] + dz * frac) - item.position[2];
+
+                            const arrowCone = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.5, 3), chevronMat);
+                            arrowCone.rotation.x = Math.PI / 2;
+                            arrowCone.rotation.z = -angle - Math.PI / 2;
+                            arrowCone.position.set(cx, 0.08, cz);
+                            itemGroup.add(arrowCone);
+                        }
+
+                        // Waypoint disk
+                        const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.06, 16), chevronMat);
+                        disc.position.set(p1[0] - item.position[0], 0.06, p1[1] - item.position[2]);
+                        itemGroup.add(disc);
+                    }
+
+                    // Destination point: 3D Exit Totem
+                    const lastPt = item.routePoints[item.routePoints.length - 1];
+                    const exitTotem = createSignage3D('E001', 'SAÍDA DE EMERGÊNCIA', 'evacuation_route');
+                    exitTotem.position.set(lastPt[0] - item.position[0], 0, lastPt[1] - item.position[2]);
+                    itemGroup.add(exitTotem);
+                } else {
+                    const greenMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.8 });
+                    const arrow = new THREE.Mesh(new THREE.BoxGeometry(4, 0.04, 1.2), greenMat);
+                    arrow.position.y = 0.05;
+                    itemGroup.add(arrow);
+                    const exitTotem = createSignage3D('E001', item.name, 'evacuation_route');
+                    itemGroup.add(exitTotem);
+                }
+            }
+
+            // If item has an ISO 7010 symbol assigned, add standing 3D signage totem
+            if (item.symbolId && item.type !== 'evacuation_route') {
+                const totem = createSignage3D(item.symbolId, item.name, item.type);
+                itemGroup.add(totem);
             }
 
             group.add(itemGroup);
         });
-    }, [activeLogisticsItem]);
+    }, [activeLogisticsItem, createSignage3D]);
 
     // Initialize Three.js Scene
     useEffect(() => {
@@ -1728,14 +1901,15 @@ export default function BimViewerPage() {
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.05;
         container.replaceChildren(renderer.domElement);
+        renderer.localClippingEnabled = true;
         rendererRef.current = renderer;
 
         const controls = new OrbitControls(activeCamera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.maxDistance = 250;
-        controls.minDistance = 1;
-        controls.maxPolarAngle = Math.PI / 2 + 0.02;
+        controls.minDistance = 0.5;
+        controls.maxPolarAngle = Math.PI - 0.05;
         controls.target.set(0, 4.5, 0);
         controlsRef.current = controls;
 
@@ -1867,6 +2041,59 @@ export default function BimViewerPage() {
         });
         renderLogisticsAndEmergencyItems(logisticsGroupRef.current, filtered);
     }, [projectLogistics, showLogisticsLayer, showEmergencyLayer, renderLogisticsAndEmergencyItems]);
+
+    // Handle Active Mode (Orbit vs Pan mouse drag)
+    useEffect(() => {
+        if (!controlsRef.current) return;
+        if (activeMode === 'pan') {
+            controlsRef.current.mouseButtons.LEFT = THREE.MOUSE.PAN;
+            controlsRef.current.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+        } else {
+            controlsRef.current.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+            controlsRef.current.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+        }
+    }, [activeMode]);
+
+    // Handle 3D Section Cut Plane
+    useEffect(() => {
+        if (!rendererRef.current) return;
+        rendererRef.current.localClippingEnabled = true;
+        if (sectionCutActive) {
+            const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), sectionCutHeight);
+            rendererRef.current.clippingPlanes = [plane];
+        } else {
+            rendererRef.current.clippingPlanes = [];
+        }
+    }, [sectionCutActive, sectionCutHeight]);
+
+    // Handle X-Ray Interior View (Wall / Facade transparency)
+    useEffect(() => {
+        if (!bimGroupRef.current) return;
+        bimGroupRef.current.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.userData?.isIfcElement) {
+                if (selectedMeshRef.current === child) return;
+
+                const cat = child.userData.category;
+                const isEnvelope = cat === 'Wall' || cat === 'CurtainWall' || cat === 'Roof' || cat === 'Slab';
+
+                if (isXRayMode) {
+                    if (isEnvelope) {
+                        child.material.transparent = true;
+                        child.material.opacity = 0.22;
+                        child.material.depthWrite = false;
+                    }
+                } else {
+                    if (child.userData.originalMaterial) {
+                        child.material = child.userData.originalMaterial;
+                    } else {
+                        child.material.transparent = cat === 'CurtainWall';
+                        child.material.opacity = cat === 'CurtainWall' ? 0.45 : 1.0;
+                        child.material.depthWrite = true;
+                    }
+                }
+            }
+        });
+    }, [isXRayMode]);
 
     // Handle Discipline, Storey, and 4D Timeline Filtering
     useEffect(() => {
@@ -2189,9 +2416,37 @@ export default function BimViewerPage() {
         });
     }, [projectObservations, showObservationsLayer]);
 
+    // Clear Selection and restore original 3D material
+    const clearSelection = useCallback(() => {
+        if (selectedMeshRef.current && selectedMeshRef.current.userData?.originalMaterial) {
+            selectedMeshRef.current.material = selectedMeshRef.current.userData.originalMaterial;
+        }
+        selectedMeshRef.current = null;
+        setSelectedElement(null);
+        setActivePin(null);
+        setActiveLogisticsItem(null);
+    }, []);
+
+    // Focus camera on selected element
+    const flyToElement = useCallback((elem: any) => {
+        if (!controlsRef.current || !cameraRef.current) return;
+        const target = new THREE.Vector3(
+            elem.centerPosition ? elem.centerPosition[0] : 0,
+            elem.centerPosition ? elem.centerPosition[1] : (elem.elevationY || 3),
+            elem.centerPosition ? elem.centerPosition[2] : 0
+        );
+        controlsRef.current.target.copy(target);
+        cameraRef.current.position.set(target.x + 8, target.y + 6, target.z + 8);
+        controlsRef.current.update();
+        showToast("Câmara focada em " + elem.elementName);
+    }, [showToast]);
+
     // Handle Canvas Click (Raycasting for inspection points and logistics placement)
     const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
         if (!mountRef.current || !cameraRef.current || !sceneRef.current) return;
+        // In Pan mode, left click dragging should not create or select pins/elements
+        if (activeMode === 'pan') return;
+
         const rect = mountRef.current.getBoundingClientRect();
         mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -2221,6 +2476,10 @@ export default function BimViewerPage() {
                     targetGroup = targetGroup.parent;
                 }
                 if (targetGroup?.userData?.observation) {
+                    if (selectedMeshRef.current && selectedMeshRef.current.userData?.originalMaterial) {
+                        selectedMeshRef.current.material = selectedMeshRef.current.userData.originalMaterial;
+                    }
+                    selectedMeshRef.current = null;
                     setActivePin(targetGroup.userData.observation);
                     setSelectedElement(null);
                     setActiveLogisticsItem(null);
@@ -2240,6 +2499,10 @@ export default function BimViewerPage() {
                     targetGroup = targetGroup.parent;
                 }
                 if (targetGroup?.userData?.logisticsItem) {
+                    if (selectedMeshRef.current && selectedMeshRef.current.userData?.originalMaterial) {
+                        selectedMeshRef.current.material = selectedMeshRef.current.userData.originalMaterial;
+                    }
+                    selectedMeshRef.current = null;
                     setActiveLogisticsItem(targetGroup.userData.logisticsItem);
                     setSelectedElement(null);
                     setActivePin(null);
@@ -2280,7 +2543,7 @@ export default function BimViewerPage() {
             }
         }
 
-        // 4. Raycast on Building IFC Elements
+        // 4. Raycast on Building IFC Elements with High-Visibility 3D Selection Highlight
         if (bimGroupRef.current) {
             const intersects = raycasterRef.current.intersectObjects(bimGroupRef.current.children, true);
             if (intersects.length > 0) {
@@ -2289,7 +2552,47 @@ export default function BimViewerPage() {
                 const point = hit.point;
 
                 if (mesh.userData?.isIfcElement) {
-                    setSelectedElement(mesh.userData);
+                    // Restore previously selected mesh material
+                    if (selectedMeshRef.current && selectedMeshRef.current !== mesh) {
+                        if (selectedMeshRef.current.userData?.originalMaterial) {
+                            selectedMeshRef.current.material = selectedMeshRef.current.userData.originalMaterial;
+                        }
+                    }
+
+                    // Save original material
+                    if (!mesh.userData.originalMaterial) {
+                        mesh.userData.originalMaterial = mesh.material;
+                    }
+
+                    // Apply high-visibility cyan highlight material
+                    const highlightMat = new THREE.MeshStandardMaterial({
+                        color: 0x06b6d4, // Cyan-500
+                        emissive: 0x0891b2,
+                        emissiveIntensity: 0.65,
+                        roughness: 0.25,
+                        metalness: 0.2
+                    });
+                    mesh.material = highlightMat;
+                    selectedMeshRef.current = mesh;
+
+                    // Compute dimensions and volume
+                    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+                    const bb = mesh.geometry.boundingBox;
+                    const dimX = bb ? Number((bb.max.x - bb.min.x).toFixed(2)) : 0;
+                    const dimY = bb ? Number((bb.max.y - bb.min.y).toFixed(2)) : 0;
+                    const dimZ = bb ? Number((bb.max.z - bb.min.z).toFixed(2)) : 0;
+                    const volume = dimX > 0 && dimY > 0 && dimZ > 0 ? Number((dimX * dimY * dimZ).toFixed(2)) : undefined;
+                    const area = dimX > 0 && dimZ > 0 ? Number((dimX * dimZ).toFixed(2)) : undefined;
+
+                    setSelectedElement({
+                        ...mesh.userData,
+                        dimensions: { width: dimX, height: dimY, length: dimZ },
+                        volume,
+                        area,
+                        elevationY: Number(mesh.position.y.toFixed(2)),
+                        centerPosition: [Number(point.x.toFixed(2)), Number(point.y.toFixed(2)), Number(point.z.toFixed(2))],
+                        meshUuid: mesh.uuid
+                    });
                     setActivePin(null);
                     setActiveLogisticsItem(null);
                     if (activeMode !== 'add_point') {
@@ -2321,9 +2624,7 @@ export default function BimViewerPage() {
                     }
                 }
             } else {
-                setSelectedElement(null);
-                setActivePin(null);
-                setActiveLogisticsItem(null);
+                clearSelection();
             }
         }
     };
@@ -2977,6 +3278,38 @@ export default function BimViewerPage() {
                         </button>
                     </div>
 
+                    {/* NAVEGAÇÃO 3D: Orbitar vs Pan (Deslocamento) */}
+                    {viewDimension === '3d' && (
+                        <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
+                            <button
+                                type="button"
+                                onClick={() => setActiveMode('navigate')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    activeMode === 'navigate'
+                                        ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="Orbitar / Girar Modelo (Arrastar com botão esquerdo para rodar)"
+                            >
+                                <RotateCcw size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveMode(activeMode === 'pan' ? 'navigate' : 'pan')}
+                                className={cn(
+                                    "h-6 w-6 rounded-md flex items-center justify-center transition-all cursor-pointer",
+                                    activeMode === 'pan'
+                                        ? "bg-blue-600 text-white shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="Pan / Deslocar Modelo (Arrastar com botão esquerdo para mover a vista)"
+                            >
+                                <Move size={13} strokeWidth={2} />
+                            </button>
+                        </div>
+                    )}
+
                     {/* MODO DE PROJEÇÃO: Perspetiva vs Isométrica (Apenas Ícones) */}
                     {viewDimension === '3d' && (
                         <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
@@ -3089,6 +3422,48 @@ export default function BimViewerPage() {
                                 title={projectionMode === 'isometric' ? "Esquerda (Alçado Oeste Ortográfico)" : "Esquerda (Alçado Oeste em Perspetiva)"}
                             >
                                 <ArrowLeft size={13} strokeWidth={2} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* VER INTERIOR DO EDIFÍCIO: Modo Raio-X & Plano de Corte 3D */}
+                    {viewDimension === '3d' && (
+                        <div className="flex items-center bg-slate-100 dark:bg-neutral-800 p-0.5 rounded-lg border border-slate-200 dark:border-neutral-700 gap-0.5 h-7">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const next = !isXRayMode;
+                                    setIsXRayMode(next);
+                                    showToast(next ? 'Modo Raio-X Ativado: paredes e lajes translúcidas para ver o interior' : 'Modo Raio-X Desativado');
+                                }}
+                                className={cn(
+                                    "h-6 px-2 rounded-md flex items-center gap-1 transition-all cursor-pointer text-[11px] font-semibold",
+                                    isXRayMode
+                                        ? "bg-indigo-600 text-white shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="Ver Interior (Modo Raio-X: fachadas e paredes translúcidas)"
+                            >
+                                <Eye size={12} strokeWidth={2} />
+                                <span className="hidden sm:inline">Raio-X</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const next = !sectionCutActive;
+                                    setSectionCutActive(next);
+                                    showToast(next ? 'Plano de Corte 3D Ativado: use o slider para cortar pisos' : 'Plano de Corte Desativado');
+                                }}
+                                className={cn(
+                                    "h-6 px-2 rounded-md flex items-center gap-1 transition-all cursor-pointer text-[11px] font-semibold",
+                                    sectionCutActive
+                                        ? "bg-amber-600 text-white shadow-2xs"
+                                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                                )}
+                                title="Plano de Corte 3D Horizontal (Fatiar pisos para ver o interior)"
+                            >
+                                <Scissors size={12} strokeWidth={2} />
+                                <span className="hidden sm:inline">Corte</span>
                             </button>
                         </div>
                     )}
@@ -3870,11 +4245,7 @@ export default function BimViewerPage() {
                                     </span>
                                     {(selectedElement || activePin || activeLogisticsItem) && (
                                         <button
-                                            onClick={() => {
-                                                setSelectedElement(null);
-                                                setActivePin(null);
-                                                setActiveLogisticsItem(null);
-                                            }}
+                                            onClick={clearSelection}
                                             className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 cursor-pointer"
                                         >
                                             <X size={12} strokeWidth={1.75} />
@@ -3894,39 +4265,121 @@ export default function BimViewerPage() {
                                             </span>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-slate-300">
-                                            <div><span className="text-slate-400">Piso:</span> <strong className="text-slate-800 dark:text-slate-100">{selectedElement.storey}</strong></div>
-                                            <div><span className="text-slate-400">Disciplina:</span> <strong className="uppercase text-blue-600">{selectedElement.discipline || 'Geral'}</strong></div>
-                                            <div className="col-span-2 truncate">
-                                                <span className="text-slate-400">GUID:</span> <span className="font-mono text-[10px]">{selectedElement.ifcGlobalId}</span>
+                                        {/* Status visual de destaque no 3D */}
+                                        <div className="flex items-center gap-1.5 text-[10px] text-cyan-700 dark:text-cyan-300 font-semibold bg-cyan-50 dark:bg-cyan-950/40 px-2 py-1 rounded-lg border border-cyan-200 dark:border-cyan-800">
+                                            <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse shrink-0" />
+                                            <span>Elemento Realçado a Cyan no Modelo 3D</span>
+                                        </div>
+
+                                        {/* Metadados e Localização IFC */}
+                                        <div className="space-y-1.5 bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800 text-[11px] text-slate-600 dark:text-slate-300">
+                                            <div className="flex justify-between items-center pb-1 border-b border-slate-200 dark:border-neutral-800">
+                                                <span className="text-slate-400">Entidade:</span>
+                                                <strong className="text-slate-800 dark:text-slate-100 font-mono text-[10px]">{selectedElement.category ? `Ifc${selectedElement.category}` : 'IfcBuildingElement'}</strong>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-400">Piso / Nível:</span>
+                                                <strong className="text-slate-800 dark:text-slate-100">{selectedElement.storey}</strong>
+                                            </div>
+                                            {selectedElement.elevationY !== undefined && (
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-slate-400">Cota de Elevação (Y):</span>
+                                                    <strong className="font-mono text-slate-800 dark:text-slate-100">{selectedElement.elevationY} m</strong>
+                                                </div>
+                                            )}
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-400">Disciplina:</span>
+                                                <strong className="uppercase text-blue-600 font-bold">{selectedElement.discipline || 'Estrutura'}</strong>
+                                            </div>
+                                            <div className="pt-1 border-t border-slate-200 dark:border-neutral-800 flex items-center justify-between">
+                                                <span className="text-slate-400">GUID:</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (selectedElement.ifcGlobalId) {
+                                                            navigator.clipboard.writeText(selectedElement.ifcGlobalId);
+                                                            setCopiedGuid(true);
+                                                            setTimeout(() => setCopiedGuid(false), 2000);
+                                                        }
+                                                    }}
+                                                    className="font-mono text-[10px] text-slate-700 dark:text-slate-200 hover:text-blue-600 flex items-center gap-1 cursor-pointer"
+                                                    title="Copiar GUID para a área de transferência"
+                                                >
+                                                    <Copy size={11} />
+                                                    <span className="truncate max-w-[120px]">{selectedElement.ifcGlobalId}</span>
+                                                    {copiedGuid && <span className="text-emerald-600 font-bold text-[9px]">(Copiado!)</span>}
+                                                </button>
                                             </div>
                                         </div>
 
-                                        <button
-                                            onClick={() => {
-                                                setActiveMode('add_point');
-                                                setPendingPinData({
-                                                    position: [0, 2, 0],
-                                                    cameraPosition: [10, 10, 10],
-                                                    cameraTarget: [0, 2, 0],
-                                                    ifcGlobalId: selectedElement.ifcGlobalId,
-                                                    elementName: selectedElement.elementName,
-                                                    storeyName: selectedElement.storey,
-                                                    discipline: selectedElement.discipline
-                                                });
-                                                setFormTitle(`Inspeção: ${selectedElement.elementName}`);
-                                                setFormDesc('');
-                                                setFormCategory('safety_non_compliance');
-                                                setFormSeverity('high');
-                                                setFormCompanyId(companies[0]?.id || '');
-                                                setFormPhoto('');
-                                                setIsCreateModalOpen(true);
-                                            }}
-                                            className="w-full py-2 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                                        >
-                                            <MapPin size={13} strokeWidth={1.75} />
-                                            <span>+ Registar Não Conformidade</span>
-                                        </button>
+                                        {/* Geometria e Dimensões 3D */}
+                                        {selectedElement.dimensions && (
+                                            <div className="space-y-1 bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800 text-[11px] text-slate-600 dark:text-slate-300">
+                                                <div className="font-bold text-[10px] uppercase tracking-wider text-slate-400 pb-1">Geometria do Elemento</div>
+                                                <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                                    <div>Dimensões (L×C×A): <strong className="font-mono text-slate-800 dark:text-slate-100">{selectedElement.dimensions.width}×{selectedElement.dimensions.length}×{selectedElement.dimensions.height}m</strong></div>
+                                                    {selectedElement.volume && <div>Volume: <strong className="font-mono text-slate-800 dark:text-slate-100">{selectedElement.volume} m³</strong></div>}
+                                                    {selectedElement.area && <div>Área Base: <strong className="font-mono text-slate-800 dark:text-slate-100">{selectedElement.area} m²</strong></div>}
+                                                    {selectedElement.centerPosition && <div className="col-span-2 text-slate-400">Centro: <span className="font-mono text-[9px]">[{selectedElement.centerPosition.join(', ')}]</span></div>}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Requisitos Legais & Prevenção SST (DL 273/2003) */}
+                                        <div className="bg-amber-50 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200 dark:border-amber-800/60 text-[11px] space-y-1 text-amber-900 dark:text-amber-200">
+                                            <div className="font-bold text-[10px] uppercase flex items-center gap-1 text-amber-800 dark:text-amber-300">
+                                                <ShieldCheck size={12} />
+                                                <span>Segurança do Trabalho (DL 273/2003)</span>
+                                            </div>
+                                            <p className="text-[10px] leading-relaxed text-amber-800 dark:text-amber-300/90">
+                                                {selectedElement.category === 'Slab'
+                                                    ? 'Risco de queda em altura na bordadura ou vãos da laje. Exige proteção coletiva periférica EN 13374 Classe A/B.'
+                                                    : selectedElement.category === 'Wall'
+                                                    ? 'Risco de entalamento e queda de cargas durante descofragem e betonagem.'
+                                                    : selectedElement.category === 'Column' || selectedElement.category === 'Beam'
+                                                    ? 'Risco de queda de objetos em suspensão durante elevação e betonagem vertical.'
+                                                    : 'Verificar estabilidade provisória, acessos e equipamentos de proteção coletiva.'}
+                                            </p>
+                                        </div>
+
+                                        {/* Botões de Ação Direta */}
+                                        <div className="space-y-1.5 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => flyToElement(selectedElement)}
+                                                className="w-full py-1.5 px-3 bg-slate-100 dark:bg-neutral-800 hover:bg-slate-200 dark:hover:bg-neutral-700 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                                            >
+                                                <Eye size={13} strokeWidth={1.75} />
+                                                <span>Focar Câmara no Elemento</span>
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setActiveMode('add_point');
+                                                    setPendingPinData({
+                                                        position: selectedElement.centerPosition || [0, 2, 0],
+                                                        cameraPosition: [10, 10, 10],
+                                                        cameraTarget: selectedElement.centerPosition || [0, 2, 0],
+                                                        ifcGlobalId: selectedElement.ifcGlobalId,
+                                                        elementName: selectedElement.elementName,
+                                                        storeyName: selectedElement.storey,
+                                                        discipline: selectedElement.discipline
+                                                    });
+                                                    setFormTitle(`Inspeção: ${selectedElement.elementName}`);
+                                                    setFormDesc('');
+                                                    setFormCategory('safety_non_compliance');
+                                                    setFormSeverity('high');
+                                                    setFormCompanyId(companies[0]?.id || '');
+                                                    setFormPhoto('');
+                                                    setIsCreateModalOpen(true);
+                                                }}
+                                                className="w-full py-2 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                                            >
+                                                <MapPin size={13} strokeWidth={1.75} />
+                                                <span>+ Registar Não Conformidade SST</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 ) : activePin ? (
                                     <div className="space-y-3">
@@ -4130,6 +4583,42 @@ export default function BimViewerPage() {
                         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-amber-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 animate-pulse pointer-events-none">
                             <Move size={15} />
                             Clique na nova posição (3D ou na planta 2D) para deslocar o elemento
+                        </div>
+                    )}
+
+                    {/* Pan Notice Overlay */}
+                    {activeMode === 'pan' && (
+                        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-full shadow-lg flex items-center gap-2 pointer-events-none">
+                            <Move size={14} />
+                            Modo Pan Ativo: arraste com o botão esquerdo para deslocar a vista
+                        </div>
+                    )}
+
+                    {/* Floating Section Cut Height Slider */}
+                    {sectionCutActive && viewDimension === '3d' && (
+                        <div className="absolute top-4 right-4 z-30 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-md p-2.5 rounded-xl border border-amber-300 dark:border-amber-700 shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400">
+                                <Scissors size={14} />
+                                <span>Corte 3D:</span>
+                                <span className="font-mono text-slate-900 dark:text-white font-bold">{sectionCutHeight}m</span>
+                            </div>
+                            <input
+                                type="range"
+                                min={modelHeightRange.min}
+                                max={modelHeightRange.max}
+                                step={0.5}
+                                value={sectionCutHeight}
+                                onChange={(e) => setSectionCutHeight(Number(e.target.value))}
+                                className="w-36 h-1.5 bg-slate-200 dark:bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-amber-600"
+                                title="Deslize para cortar a altura do modelo"
+                            />
+                            <button
+                                onClick={() => setSectionCutActive(false)}
+                                className="h-5 w-5 rounded flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer"
+                                title="Fechar corte 3D"
+                            >
+                                <X size={13} />
+                            </button>
                         </div>
                     )}
 
@@ -4475,8 +4964,9 @@ export default function BimViewerPage() {
                         ref={mountRef}
                         onClick={handleCanvasClick}
                         className={cn(
-                            "w-full h-full cursor-grab active:cursor-grabbing",
-                            activeMode !== 'navigate' ? 'cursor-crosshair' : '',
+                            "w-full h-full",
+                            activeMode === 'pan' ? 'cursor-grab active:cursor-grabbing' :
+                            activeMode === 'navigate' ? 'cursor-default' : 'cursor-crosshair',
                             viewDimension === '2d' ? 'invisible pointer-events-none' : ''
                         )}
                     />
