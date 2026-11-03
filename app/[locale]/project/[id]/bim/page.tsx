@@ -1706,39 +1706,70 @@ export default function BimViewerPage() {
         } catch (_) {}
     };
 
-    // Filter project observations and logistics items
+    // Regras de Visibilidade por Subprojeto e Obra Global (Raiz):
+    // - O que é criado num subprojeto só é visível nesse subprojeto.
+    // - O que é criado na raiz (global) é visível sempre, mas pode ser ocultado com o toggle showRootBaselineElements.
+    const isItemVisibleInActiveScope = useCallback((itemSubProjectId?: string) => {
+        const isRootItem = !itemSubProjectId || itemSubProjectId === 'global';
+        if (selectedSubProjectId === 'global') {
+            if (!isRootItem) return false;
+            return showRootBaselineElements;
+        }
+
+        // Estamos num subprojeto específico:
+        if (itemSubProjectId === selectedSubProjectId) {
+            return true; // Itens deste subprojeto são SEMPRE visíveis
+        }
+
+        if (isRootItem) {
+            return showRootBaselineElements; // Itens da raiz são visíveis por defeito, mas podem ser ocultados
+        }
+
+        return false; // Itens de outros subprojetos NUNCA são visíveis
+    }, [selectedSubProjectId, showRootBaselineElements]);
+
     const projectObservations = useMemo(() => {
-        return (siteObservations || []).filter(o => o.projectId === projectId);
-    }, [siteObservations, projectId]);
+        return (siteObservations || []).filter(o => {
+            if (o.projectId !== projectId) return false;
+            return isItemVisibleInActiveScope(o.subProjectId);
+        });
+    }, [siteObservations, projectId, isItemVisibleInActiveScope]);
 
     const projectLogistics = useMemo(() => {
         return (siteLogisticsItems || []).filter(l => {
             if (l.projectId !== projectId) return false;
+            if (!isItemVisibleInActiveScope(l.subProjectId)) return false;
             if (is4dActive && simDate) {
                 if (l.startDate && l.startDate > simDate) return false;
                 if (l.endDate && l.endDate < simDate) return false;
             }
             return true;
         });
-    }, [siteLogisticsItems, projectId, is4dActive, simDate]);
+    }, [siteLogisticsItems, projectId, isItemVisibleInActiveScope, is4dActive, simDate]);
 
     const projectWorkZones = useMemo(() => {
         return (siteWorkZones || []).filter(z => {
             if (z.projectId !== projectId) return false;
+            if (!isItemVisibleInActiveScope(z.subProjectId)) return false;
             if (is4dActive && simDate) {
                 if (z.startDate && z.startDate > simDate) return false;
                 if (z.endDate && z.endDate < simDate) return false;
             }
             return true;
         });
-    }, [siteWorkZones, projectId, is4dActive, simDate]);
+    }, [siteWorkZones, projectId, isItemVisibleInActiveScope, is4dActive, simDate]);
 
     const projectTasks = useMemo(() => {
         return (workPlanTasks || []).filter(t => t.projectId === projectId);
     }, [workPlanTasks, projectId]);
 
-    // Seed default observations and logistics elements if empty
+    // Seed inicial único para projetos novos (apenas na primeira visita, sem recriar se o utilizador apagou)
     useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const seedFlagKey = `safesite_initialized_seed_${projectId}`;
+        if (localStorage.getItem(seedFlagKey)) return;
+        localStorage.setItem(seedFlagKey, 'true');
+
         if (!siteObservations || siteObservations.length === 0) {
             for (const seed of SEED_OBSERVATIONS) {
                 addSiteObservation({
@@ -1755,7 +1786,7 @@ export default function BimViewerPage() {
                 });
             }
         }
-    }, [projectId, siteObservations, siteLogisticsItems, addSiteObservation, addSiteLogisticsItem]);
+    }, [projectId]);
 
     // Build the Base Procedural BIM Model
     const buildDefaultBimBuilding = useCallback((group: THREE.Group) => {
@@ -4822,18 +4853,40 @@ export default function BimViewerPage() {
                                 {/* Inventory of Placed Elements in Project */}
                                 <div className="pt-2 border-t border-slate-200 dark:border-neutral-800">
                                     <div className="flex items-center justify-between mb-1.5">
-                                        <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                            Inventário no Estaleiro ({projectLogistics.length})
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center gap-1.5">
+                                            <span>Inventário no Estaleiro</span>
+                                            <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 font-mono px-1.5 rounded-full font-bold">
+                                                {projectLogistics.length}
+                                            </span>
                                         </span>
-                                        <button
-                                            onClick={handleExportSitePlanPDF}
-                                            className="text-[10px] text-emerald-600 font-bold hover:underline cursor-pointer"
-                                        >
-                                            Exportar PSS &rarr;
-                                        </button>
+                                        <div className="flex items-center gap-2">
+                                            {projectLogistics.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (confirm('Tem a certeza de que pretende apagar todos os elementos de estaleiro deste âmbito?')) {
+                                                            projectLogistics.forEach(it => deleteSiteLogisticsItem(it.id));
+                                                            setActiveLogisticsItem(null);
+                                                            showToast('Inventário de estaleiro limpo com sucesso.');
+                                                        }
+                                                    }}
+                                                    className="text-[9.5px] text-red-500 hover:text-red-700 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                                                    title="Apagar todos os elementos de estaleiro"
+                                                >
+                                                    <Trash2 size={10} />
+                                                    <span>Limpar Todos</span>
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={handleExportSitePlanPDF}
+                                                className="text-[10px] text-emerald-600 font-bold hover:underline cursor-pointer"
+                                            >
+                                                Exportar PSS &rarr;
+                                            </button>
+                                        </div>
                                     </div>
 
-                                    <div className="space-y-1.5 max-h-32 overflow-y-auto pr-0.5">
+                                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
                                         {projectLogistics.length === 0 ? (
                                             <div className="text-[10px] text-slate-400 italic py-1">Nenhum elemento implantado ainda.</div>
                                         ) : (
@@ -5063,34 +5116,151 @@ export default function BimViewerPage() {
                                         </div>
                                     </div>
                                 ) : activePin ? (
-                                    <div className="space-y-3">
-                                        <div className="flex items-start justify-between gap-1.5">
-                                            <span className="font-bold text-slate-900 dark:text-white text-xs">
-                                                {activePin.title}
-                                            </span>
-                                            <span className={cn(
-                                                "text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0",
-                                                activePin.severity === 'critical' ? "bg-red-100 text-red-700" :
-                                                activePin.severity === 'high' ? "bg-orange-100 text-orange-700" :
-                                                "bg-slate-100 text-slate-600"
-                                            )}>
-                                                {activePin.severity}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-slate-600 dark:text-slate-300">
-                                            {activePin.description}
-                                        </p>
-                                        <div className="text-[10px] text-slate-400 bg-slate-50 dark:bg-neutral-900 p-2 rounded-lg border border-slate-200 dark:border-neutral-800">
-                                            📍 {activePin.storeyName} • {activePin.elementName}
-                                        </div>
-                                        <button
-                                            onClick={() => flyToObservation(activePin)}
-                                            className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                                        >
-                                            <Eye size={13} strokeWidth={1.75} />
-                                            <span>Focar no Modelo 3D</span>
-                                        </button>
-                                    </div>
+                                     <div className="space-y-3">
+                                         {/* Header com Título e Gravidade */}
+                                         <div className="flex items-start justify-between gap-1.5">
+                                             <div>
+                                                 <div className="flex items-center gap-1.5 mb-1">
+                                                     <MapPin size={14} className="text-red-500 shrink-0" />
+                                                     <span className="font-bold text-slate-900 dark:text-white text-xs leading-tight">
+                                                         {activePin.title}
+                                                     </span>
+                                                 </div>
+                                                 <span className="text-[9.5px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-neutral-800 text-slate-600 dark:text-slate-400 font-medium">
+                                                     {activePin.category === 'safety_non_compliance' ? '⚠️ Não Conformidade SST' :
+                                                      activePin.category === 'risk_point' ? '🚨 Ponto de Risco Crítico' :
+                                                      activePin.category === 'quality_check' ? '🔍 Controlo de Qualidade' : '📋 Visita de Inspeção'}
+                                                 </span>
+                                             </div>
+                                             <span className={cn(
+                                                 "text-[9px] uppercase font-bold px-1.5 py-0.5 rounded shrink-0",
+                                                 activePin.severity === 'critical' ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 border border-red-200" :
+                                                 activePin.severity === 'high' ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300 border border-orange-200" :
+                                                 activePin.severity === 'medium' ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300" :
+                                                 "bg-slate-100 text-slate-600"
+                                             )}>
+                                                 {activePin.severity}
+                                             </span>
+                                         </div>
+
+                                         {/* Gestão de Estado BCF / SST */}
+                                         <div className="p-2 rounded-lg bg-slate-50 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 space-y-1">
+                                             <label className="text-[10px] font-bold text-slate-500 uppercase block">Estado da Ocorrência:</label>
+                                             <div className="grid grid-cols-3 gap-1">
+                                                 {(['open', 'in_progress', 'resolved'] as const).map(st => {
+                                                     const isCur = activePin.status === st;
+                                                     return (
+                                                         <button
+                                                             key={st}
+                                                             type="button"
+                                                             onClick={() => {
+                                                                 updateSiteObservation(activePin.id, { status: st });
+                                                                 setActivePin({ ...activePin, status: st });
+                                                                 showToast(`Estado alterado para "${st === 'open' ? 'Aberto' : st === 'in_progress' ? 'Em Resolução' : 'Resolvido'}".`);
+                                                             }}
+                                                             className={cn(
+                                                                 "py-1 px-1 rounded text-[10px] font-bold cursor-pointer transition-colors text-center shadow-2xs",
+                                                                 isCur
+                                                                     ? st === 'resolved' ? "bg-emerald-600 text-white" :
+                                                                       st === 'in_progress' ? "bg-blue-600 text-white" : "bg-amber-500 text-white"
+                                                                     : "bg-white dark:bg-neutral-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100"
+                                                             )}
+                                                         >
+                                                             {st === 'open' ? '🟡 Aberto' : st === 'in_progress' ? '🔵 Em Curso' : '🟢 Resolvido'}
+                                                         </button>
+                                                     );
+                                                 })}
+                                             </div>
+                                         </div>
+
+                                         {/* Descrição Detalhada */}
+                                         <div className="space-y-1">
+                                             <label className="text-[10px] font-bold text-slate-500 uppercase block">Descrição Técnica:</label>
+                                             <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed bg-slate-50/50 dark:bg-neutral-900/50 p-2 rounded-lg border border-slate-100 dark:border-neutral-800">
+                                                 {activePin.description || 'Sem descrição registada.'}
+                                             </p>
+                                         </div>
+
+                                         {/* Metadados BIM e Coordenadas */}
+                                         <div className="text-[10.5px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-neutral-900 p-2.5 rounded-lg border border-slate-200 dark:border-neutral-800 space-y-1 font-sans">
+                                             <div className="flex items-center justify-between">
+                                                 <span className="text-slate-400">Piso / Localização:</span>
+                                                 <strong className="text-slate-800 dark:text-slate-100">{activePin.storeyName || 'Piso 0'}</strong>
+                                             </div>
+                                             <div className="flex items-center justify-between">
+                                                 <span className="text-slate-400">Elemento IFC:</span>
+                                                 <strong className="truncate max-w-[140px] text-slate-800 dark:text-slate-100">{activePin.elementName || 'Sem elemento associado'}</strong>
+                                             </div>
+                                             {activePin.ifcGlobalId && (
+                                                 <div className="flex items-center justify-between font-mono text-[9.5px]">
+                                                     <span className="text-slate-400">GlobalId:</span>
+                                                     <span className="truncate max-w-[140px] text-blue-600">{activePin.ifcGlobalId}</span>
+                                                 </div>
+                                             )}
+                                             <div className="flex items-center justify-between font-mono text-[9.5px]">
+                                                 <span className="text-slate-400">Coordenadas 3D:</span>
+                                                 <span>[{activePin.position.map(n => Number(n).toFixed(2)).join(', ')}]</span>
+                                             </div>
+                                             <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-neutral-800">
+                                                 <span className="text-slate-400">Âmbito / Subprojeto:</span>
+                                                 <span className="font-semibold text-blue-600">
+                                                     {activePin.subProjectId ? (subProjects.find(s => s.id === activePin.subProjectId)?.name || activePin.subProjectId) : 'Obra Global (Raiz)'}
+                                                 </span>
+                                             </div>
+                                             {activePin.createdByName && (
+                                                 <div className="flex items-center justify-between text-[9.5px] text-slate-400">
+                                                     <span>Registado por:</span>
+                                                     <span>{activePin.createdByName}</span>
+                                                 </div>
+                                             )}
+                                         </div>
+
+                                         {/* Fotos da Ocorrência */}
+                                         {activePin.photos && activePin.photos.length > 0 && (
+                                             <div className="space-y-1">
+                                                 <label className="text-[10px] font-bold text-slate-500 uppercase block">Registo Fotográfico:</label>
+                                                 <div className="grid grid-cols-2 gap-1.5">
+                                                     {activePin.photos.map((ph, idx) => (
+                                                         <img
+                                                             key={idx}
+                                                             src={ph}
+                                                             alt="Evidência fotográfica"
+                                                             onClick={() => setLightboxPhoto(ph)}
+                                                             className="w-full h-16 object-cover rounded-lg border border-slate-200 dark:border-neutral-700 cursor-pointer hover:opacity-90"
+                                                         />
+                                                     ))}
+                                                 </div>
+                                             </div>
+                                         )}
+
+                                         {/* Ações: Focar 3D e Apagar Ponto */}
+                                         <div className="space-y-2 pt-1">
+                                             <button
+                                                 type="button"
+                                                 onClick={() => flyToObservation(activePin)}
+                                                 className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                                             >
+                                                 <Eye size={13} strokeWidth={1.75} />
+                                                 <span>Focar no Modelo 3D</span>
+                                             </button>
+
+                                             <button
+                                                 type="button"
+                                                 onClick={() => {
+                                                     if (confirm(`Tem a certeza de que pretende apagar este ponto de inspeção ("${activePin.title}")?`)) {
+                                                         deleteSiteObservation(activePin.id);
+                                                         setActivePin(null);
+                                                         showToast('Ponto de inspeção apagado com sucesso.');
+                                                     }
+                                                 }}
+                                                 className="w-full py-2 px-3 bg-red-50 hover:bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer border border-red-200 dark:border-red-800 transition-colors"
+                                                 title="Remover permanentemente esta ocorrência"
+                                             >
+                                                 <Trash2 size={13} />
+                                                 <span>Apagar Ponto de Inspeção</span>
+                                             </button>
+                                         </div>
+                                     </div>
                                 ) : activeLogisticsItem ? (
                                     <div className="space-y-3">
                                         <div className="flex items-start justify-between gap-1.5">
@@ -5832,6 +6002,21 @@ export default function BimViewerPage() {
                                                 className="text-blue-600 hover:underline font-bold shrink-0"
                                             >
                                                 Focar 3D &rarr;
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (confirm(`Apagar ponto de inspeção "${obs.title}"?`)) {
+                                                        deleteSiteObservation(obs.id);
+                                                        if (activePin?.id === obs.id) setActivePin(null);
+                                                        showToast('Ponto de inspeção apagado.');
+                                                    }
+                                                }}
+                                                className="text-slate-400 hover:text-red-600 p-0.5 rounded cursor-pointer transition-colors"
+                                                title="Apagar inspeção"
+                                            >
+                                                <Trash2 size={12} />
                                             </button>
                                         </div>
                                     </div>
