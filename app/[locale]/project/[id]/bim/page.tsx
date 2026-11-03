@@ -11,6 +11,7 @@ import {
     Box,
     MapPin,
     Eye,
+    EyeOff,
     Plus,
     Filter,
     Camera,
@@ -596,6 +597,7 @@ export default function BimViewerPage() {
     const [isLoadingModel, setIsLoadingModel] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [loadedIfcName, setLoadedIfcName] = useState<string | null>(null);
+    const [showRootBaselineElements, setShowRootBaselineElements] = useState<boolean>(true);
     const [isCreatingCdeFolders, setIsCreatingCdeFolders] = useState(false);
     const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -4241,6 +4243,39 @@ export default function BimViewerPage() {
                                         <span className="text-[10px] text-slate-400 font-semibold font-mono">
                                             {subProjects.length} fases • {cdeDrawings.length} PDFs
                                         </span>
+                                    </div>
+
+                                    {/* Toggle de Visibilidade dos Elementos da Raiz (Obra Global) */}
+                                    <div className="p-2 mb-2 rounded-xl bg-slate-100/80 dark:bg-neutral-850 border border-slate-200 dark:border-neutral-750 flex items-center justify-between gap-2 shadow-2xs">
+                                        <div className="flex items-center gap-1.5 truncate">
+                                            <Layers size={13} className="text-blue-600 shrink-0" />
+                                            <div className="truncate">
+                                                <div className="text-[10.5px] font-bold text-slate-800 dark:text-slate-200 truncate">
+                                                    {selectedSubProjectId === 'global' ? 'Elementos da Obra Global' : 'Herdar Elementos da Obra Global'}
+                                                </div>
+                                                <div className="text-[8.5px] text-slate-500">
+                                                    {showRootBaselineElements ? 'Visíveis neste âmbito' : 'Ocultados para isolar fase'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const next = !showRootBaselineElements;
+                                                setShowRootBaselineElements(next);
+                                                showToast(next ? 'Elementos da Obra Global visíveis.' : 'Elementos da Obra Global ocultados.');
+                                            }}
+                                            className={cn(
+                                                "px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all shrink-0 flex items-center gap-1 shadow-2xs",
+                                                showRootBaselineElements
+                                                    ? "bg-blue-600 text-white"
+                                                    : "bg-slate-200 dark:bg-neutral-700 text-slate-600 dark:text-slate-300"
+                                            )}
+                                            title="Clique para alternar visibilidade dos elementos da raiz (Obra Global)"
+                                        >
+                                            {showRootBaselineElements ? <Eye size={11} /> : <EyeOff size={11} />}
+                                            <span>{showRootBaselineElements ? 'Visíveis' : 'Ocultos'}</span>
+                                        </button>
                                     </div>
 
                                     <div className="space-y-2">
