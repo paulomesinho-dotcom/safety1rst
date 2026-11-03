@@ -1278,6 +1278,7 @@ export interface RiskAssessment {
 export interface SiteObservation {
     id: string;
     projectId: string;
+    subProjectId?: string;
     title: string;
     description: string;
     category: 'visit_observation' | 'safety_non_compliance' | 'risk_point' | 'quality_check' | 'progress_note';
@@ -1304,6 +1305,7 @@ export interface SiteObservation {
 export interface SiteLogisticsItem {
     id: string;
     projectId: string;
+    subProjectId?: string;
     type: 'crane' | 'mobile_crane' | 'hoist' | 'gate' | 'office_container' | 'dining_container' | 'sanitary_container' | 'first_aid' | 'meeting_point' | 'fire_extinguisher' | 'alarm_siren' | 'waste_bay' | 'evacuation_route' | 'fuel_depot' | 'scaffolding' | 'pedestrian_path' | 'vehicle_route' | 'wheel_wash' | string;
     name: string;
     category: 'logistics' | 'emergency';
@@ -1324,6 +1326,7 @@ export interface SiteLogisticsItem {
 export interface SiteWorkZone {
     id: string;
     projectId: string;
+    subProjectId?: string;
     name: string;
     category: 'hazard' | 'restricted' | 'lifting' | 'height' | 'hot_work' | 'confined_space' | 'general';
     storeyName?: string;

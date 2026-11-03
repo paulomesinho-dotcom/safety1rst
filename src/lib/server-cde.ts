@@ -505,6 +505,10 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 id: string;
                 cdeId: string;
                 folder: string;
+                folderPath?: string;
+                subProject?: string;
+                subProjectId?: string;
+                bimState?: string;
                 name: string;
                 size: string;
                 rev: string;
@@ -523,6 +527,10 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 storey: string;
                 format: string;
                 revision: string;
+                subProjectId?: string;
+                subProject?: string;
+                bimState?: string;
+                folderPath?: string;
                 fileName: string;
                 date: string;
                 webViewLink?: string;
@@ -533,6 +541,28 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 if (!bytes || bytes <= 0) return '0 MB';
                 const mb = bytes / (1024 * 1024);
                 return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+            };
+
+            const detectSubProjectName = (folderPath: string = ''): string => {
+                if (!folderPath || folderPath === 'Raiz' || folderPath === 'root') return 'global';
+                const parts = folderPath.split(/[\\/]/).filter(Boolean);
+                if (parts.length > 0) {
+                    const first = parts[0];
+                    if (!first.startsWith('01-') && !first.startsWith('02-') && !first.startsWith('03-') && !first.startsWith('04-') &&
+                        !first.toLowerCase().includes('modelos') && !first.toLowerCase().includes('desenhos')) {
+                        return first;
+                    }
+                }
+                return 'global';
+            };
+
+            const detectBimState = (folderPath: string = ''): 'WIP' | 'SHARED' | 'PUBLISHED' | 'ARCHIVED' => {
+                const upper = folderPath.toUpperCase();
+                if (upper.includes('/WIP') || upper.endsWith('WIP')) return 'WIP';
+                if (upper.includes('/SHARED') || upper.endsWith('SHARED')) return 'SHARED';
+                if (upper.includes('/PUBLISHED') || upper.endsWith('PUBLISHED')) return 'PUBLISHED';
+                if (upper.includes('/ARCHIVED') || upper.endsWith('ARCHIVED')) return 'ARCHIVED';
+                return 'SHARED';
             };
 
             const detectDiscipline = (fileName: string, folderName: string = ''): 'architecture' | 'structure' | 'mep' | 'safety' => {
@@ -559,14 +589,19 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                 if (lower.endsWith('.ifc')) {
                     const discipline = detectDiscipline(name, folderName);
                     const folder = detectBimFolder(name, folderName);
+                    const subProject = detectSubProjectName(folderName);
+                    const bimState = detectBimState(folderName);
                     discoveredModels.push({
                         id: item.id || `cde-${name}`,
                         cdeId: item.id || item.path_display || name,
                         folder,
+                        folderPath: folderName,
+                        subProject,
+                        bimState,
                         name: item.name,
                         size: formatSize(item.size),
                         rev: 'Cloud CDE',
-                        active: true,
+                        active: false,
                         discipline,
                         webViewLink: item.webViewLink,
                         isRealCdeFile: true
@@ -597,6 +632,8 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                                    ext === 'dwg' ? 'AutoCAD DWG' :
                                    ext === 'dxf' ? 'AutoCAD DXF' : 'Imagem Técnica';
 
+                    const subProject = detectSubProjectName(folderName);
+                    const bimState = detectBimState(folderName);
                     discoveredDrawings.push({
                         id: item.id || `cde-dw-${name}`,
                         cdeId: item.id || item.path_display || name,
@@ -606,6 +643,9 @@ export async function executeServerCdeAction(projectId: string, action: string, 
                         storey,
                         format,
                         revision: 'Cloud CDE',
+                        subProjectId: subProject,
+                        bimState,
+                        folderPath: folderName,
                         fileName: name,
                         date: new Date().toISOString().split('T')[0],
                         webViewLink: item.webViewLink,
@@ -1814,7 +1854,7 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
         return { id: data.metadata?.path_display || newFolderPath, name: payload.name, exists: false };
     }
 
-    if (action === 'init_project_bim_structure') {
+    if (action === 'init_project_bim_structure' || action === 'create_subproject_bim_folders') {
         const logs: string[] = [];
         let basePath = config.folderPath && config.folderPath !== '/' ? config.folderPath.replace(/\/$/, '') : '';
         const createDbx = async (folderPath: string, label: string) => {
@@ -2075,7 +2115,7 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
         };
     }
 
-    if (action === 'init_project_bim_structure') {
+    if (action === 'init_project_bim_structure' || action === 'create_subproject_bim_folders') {
         const logs: string[] = [];
         const rootId = config.folderId || 'root';
         const createGdrive = async (parentId: string, name: string) => {

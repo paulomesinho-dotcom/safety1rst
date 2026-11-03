@@ -263,6 +263,7 @@ export interface CdeDrawing2D {
     revision: string;
     bimState?: BimState;
     subProjectId?: string;
+    subProject?: string;
     subProjectName?: string;
     folderPath?: string;
     overlays?: any;
@@ -321,6 +322,8 @@ export interface CdeModelItem {
     folderPath?: string;
     bimState?: BimState;
     subProjectId?: string;
+    subProject?: string;
+    subProjectName?: string;
     localBlobUrl?: string;
     id: string;
     cdeId?: string;
@@ -514,6 +517,38 @@ export default function BimViewerPage() {
         ];
     });
     const [selectedSubProjectId, setSelectedSubProjectId] = useState<string>('global');
+
+    const activeSubProject = useMemo(() => {
+        return subProjects.find(sp => sp.id === selectedSubProjectId) || subProjects[0];
+    }, [subProjects, selectedSubProjectId]);
+
+    const handleSelectSubProject = useCallback((subId: string) => {
+        if (subId === selectedSubProjectId) return;
+        const targetSub = subProjects.find(s => s.id === subId);
+        setSelectedSubProjectId(subId);
+
+        // Limpar geometria 3D do modelo IFC anterior para isolar o subprojeto
+        if (bimGroupRef.current) {
+            bimGroupRef.current.clear();
+        }
+        setLoadedIfcName(null);
+
+        // Limpar desenho 2D selecionado
+        setSelected2dDrawing(null);
+
+        // Desativar estado ativo nos modelos CDE
+        setCdeModels(prev => prev.map(m => ({ ...m, active: false })));
+
+        // Expandir o subprojeto na árvore CDE
+        setExpandedFolders(prev => ({
+            ...prev,
+            [`sp_${subId}`]: true,
+            [`sp_${subId}_01_ifc`]: true,
+            [`sp_${subId}_02_drw`]: true
+        }));
+
+        showToast(`Subprojeto "${targetSub?.name || subId}" selecionado. Área de trabalho limpa para esta fase.`);
+    }, [selectedSubProjectId, subProjects]);
     const [isNewSubProjectModalOpen, setIsNewSubProjectModalOpen] = useState<boolean>(false);
     const [newSubProjectName, setNewSubProjectName] = useState<string>('');
     const [newSubProjectCode, setNewSubProjectCode] = useState<string>('');
@@ -1424,10 +1459,28 @@ export default function BimViewerPage() {
             localStorage.setItem(`safesite_bim_subprojects_${projectId}`, JSON.stringify(nextSubs));
         } catch (_) {}
 
+        // Limpar modelo 3D Web-IFC anterior e desenho 2D da raiz
+        if (bimGroupRef.current) {
+            bimGroupRef.current.clear();
+        }
+        setLoadedIfcName(null);
+        setSelected2dDrawing(null);
+        setCdeModels(prev => prev.map(m => ({ ...m, active: false })));
+
+        // Expandir automaticamente as pastas do novo subprojeto na navegação esquerda CDE
+        setExpandedFolders(prev => ({
+            ...prev,
+            [`sp_${newId}`]: true,
+            [`sp_${newId}_01_ifc`]: true,
+            [`sp_${newId}_02_drw`]: true,
+            [`sp_${newId}_03_emerg`]: true,
+            [`sp_${newId}_04_insp`]: true
+        }));
+
         setIsNewSubProjectModalOpen(false);
         setNewSubProjectName('');
         setNewSubProjectCode('');
-        showToast(`Subprojeto "${newSub.name}" registado. A criar pastas no CDE externo...`);
+        showToast(`Subprojeto "${newSub.name}" criado com área limpa. A sincronizar estrutura ISO 19650 no CDE externo...`);
 
         // Sincronizar criação física das pastas no CDE externo (SharePoint / Google Drive / Dropbox)
         try {
@@ -3345,6 +3398,7 @@ export default function BimViewerPage() {
                     ...prev
                 ];
             });
+            setLoadedIfcName(file.name);
             showToast(`Modelo IFC "${file.name}" carregado com sucesso (${loadedMeshesCount} elementos 3D).`);
 
             // Sincronização automática para a pasta CDE Cloud caso esteja ligado
@@ -3397,6 +3451,7 @@ export default function BimViewerPage() {
 
             // Mark this model as active in CDE models list
             setCdeModels(prev => prev.map(m => m.id === model.id ? { ...m, active: true } : m));
+            setLoadedIfcName(model.name);
             showToast(`Modelo IFC "${model.name}" aberto diretamente do CDE!`);
         } catch (err: any) {
             console.error('Erro ao abrir modelo do CDE:', err);
@@ -4153,7 +4208,7 @@ export default function BimViewerPage() {
                                         <div className="flex items-center justify-between">
                                             <span className="text-[11px] font-bold text-blue-950 dark:text-blue-200 flex items-center gap-1.5">
                                                 <Building2 size={13} className="text-blue-600" />
-                                                <span>Projeto / Âmbito de Segurança:</span>
+                                                <span>Subprojeto / Âmbito Ativo:</span>
                                             </span>
                                             <button
                                                 type="button"
@@ -4162,17 +4217,17 @@ export default function BimViewerPage() {
                                                 title="Criar novo subprojeto ou fase da obra com estrutura ISO 19650"
                                             >
                                                 <Plus size={11} />
-                                                <span>Novo</span>
+                                                <span>+ Subprojeto</span>
                                             </button>
                                         </div>
                                         <select
                                             value={selectedSubProjectId}
-                                            onChange={e => setSelectedSubProjectId(e.target.value)}
+                                            onChange={e => handleSelectSubProject(e.target.value)}
                                             className="w-full h-7 px-2 bg-white dark:bg-neutral-800 border border-blue-300 dark:border-blue-800 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 cursor-pointer focus:outline-none"
                                         >
                                             {subProjects.map(sp => (
                                                 <option key={sp.id} value={sp.id}>
-                                                    📁 {sp.name} ({sp.code})
+                                                    📁 {sp.name} ({sp.code}) {sp.id === selectedSubProjectId ? '• [Ativo]' : ''}
                                                 </option>
                                             ))}
                                         </select>
@@ -4181,313 +4236,420 @@ export default function BimViewerPage() {
                                     <div className="flex items-center justify-between mb-1.5">
                                         <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
                                             <FolderTree size={14} className="text-blue-600" strokeWidth={1.75} />
-                                            Estrutura de Pastas CDE (ISO 19650)
+                                            Estrutura CDE por Subprojeto (ISO 19650)
                                         </span>
                                         <span className="text-[10px] text-slate-400 font-semibold font-mono">
-                                            {cdeDrawings.length} PDFs • {cdeModels.length} IFCs
+                                            {subProjects.length} fases • {cdeDrawings.length} PDFs
                                         </span>
                                     </div>
 
-                                    <div className="p-2 bg-slate-50 dark:bg-neutral-900 rounded-xl border border-slate-200 dark:border-neutral-800 space-y-2">
-                                        
-                                        {/* PASTA 01: MODELOS BIM (IFC) */}
-                                        <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedFolders(p => ({ ...p, f_01_ifc: !p.f_01_ifc }))}
-                                                className="w-full flex items-center justify-between p-2 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
-                                            >
-                                                <div className="flex items-center gap-1.5 truncate">
-                                                    <ChevronRight size={13} className={cn("transition-transform text-slate-400", expandedFolders.f_01_ifc ? "rotate-90" : "")} />
-                                                    <FolderOpen size={14} className="text-amber-500" />
-                                                    <span className="text-[11px] truncate">01-Modelos BIM (IFC)</span>
-                                                </div>
-                                                <span className="text-[9px] bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded-full font-bold">
-                                                    {cdeModels.length}
-                                                </span>
-                                            </button>
+                                    <div className="space-y-2">
+                                        {subProjects.map(sp => {
+                                            const isCurrentActive = sp.id === selectedSubProjectId;
+                                            const spKey = `sp_${sp.id}`;
+                                            const isSpExpanded = expandedFolders[spKey] ?? (isCurrentActive || subProjects.length === 1);
 
-                                            {expandedFolders.f_01_ifc && (
-                                                <div className="p-2 pt-0 space-y-1.5 border-t border-slate-100 dark:border-neutral-800">
-                                                    {/* Subpastas ISO 19650 para IFC: WIP, SHARED, PUBLISHED, ARCHIVED */}
-                                                    {(['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED'] as const).map(state => {
-                                                        const folderModels = cdeModels.filter(m => (m.bimState || 'SHARED') === state);
-                                                        const folderKey = `f_01_${state.toLowerCase()}`;
-                                                        const isExpanded = expandedFolders[folderKey] ?? (state === 'PUBLISHED' || state === 'SHARED');
-                                                        return (
-                                                            <div key={state} className="pl-2 border-l-2 border-amber-300 dark:border-amber-700 ml-1">
+                                            // Filter models and drawings scoped to this subproject
+                                            const spModels = cdeModels.filter(m =>
+                                                sp.id === 'global'
+                                                    ? (!m.subProject || m.subProject === 'global' || m.subProjectId === 'global')
+                                                    : (m.subProjectId === sp.id || m.subProject === sp.name)
+                                            );
+                                            const spDrawings = cdeDrawings.filter(d =>
+                                                sp.id === 'global'
+                                                    ? (!d.subProjectId || d.subProjectId === 'global' || !d.subProject || d.subProject === 'global')
+                                                    : (d.subProjectId === sp.id || d.subProject === sp.name)
+                                            );
+                                            const spWorkZones = (siteWorkZones || []).filter(z =>
+                                                z.projectId === projectId && (
+                                                    sp.id === 'global'
+                                                        ? (!z.subProjectId || z.subProjectId === 'global')
+                                                        : (z.subProjectId === sp.id)
+                                                )
+                                            );
+                                            const spObservations = (siteObservations || []).filter(o =>
+                                                o.projectId === projectId && (
+                                                    sp.id === 'global'
+                                                        ? (!o.subProjectId || o.subProjectId === 'global')
+                                                        : (o.subProjectId === sp.id)
+                                                )
+                                            );
+
+                                            return (
+                                                <div
+                                                    key={sp.id}
+                                                    className={cn(
+                                                        "border rounded-xl overflow-hidden transition-all shadow-2xs",
+                                                        isCurrentActive
+                                                            ? "border-blue-400 dark:border-blue-700 bg-blue-50/25 dark:bg-blue-950/25 ring-1 ring-blue-400/30"
+                                                            : "border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-850"
+                                                    )}
+                                                >
+                                                    {/* Cabeçalho do Subprojeto na Árvore */}
+                                                    <div
+                                                        onClick={() => {
+                                                            if (!isCurrentActive) handleSelectSubProject(sp.id);
+                                                            setExpandedFolders(p => ({ ...p, [spKey]: !p[spKey] }));
+                                                        }}
+                                                        className={cn(
+                                                            "w-full flex items-center justify-between p-2 font-bold cursor-pointer transition-colors text-left",
+                                                            isCurrentActive
+                                                                ? "bg-blue-100/70 dark:bg-blue-900/40 text-blue-950 dark:text-blue-100"
+                                                                : "hover:bg-slate-50 dark:hover:bg-neutral-800 text-slate-800 dark:text-slate-200"
+                                                        )}
+                                                    >
+                                                        <div className="flex items-center gap-1.5 truncate">
+                                                            <ChevronRight
+                                                                size={13}
+                                                                className={cn("transition-transform text-slate-400 shrink-0", isSpExpanded ? "rotate-90" : "")}
+                                                            />
+                                                            <Building2
+                                                                size={14}
+                                                                className={isCurrentActive ? "text-blue-600 dark:text-blue-400 shrink-0" : "text-slate-400 shrink-0"}
+                                                            />
+                                                            <span className="text-xs truncate font-bold">{sp.name}</span>
+                                                            <span className="text-[9px] font-mono px-1 rounded bg-slate-200/70 dark:bg-neutral-700 text-slate-600 dark:text-slate-300 shrink-0">
+                                                                {sp.code}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 shrink-0">
+                                                            {isCurrentActive && (
+                                                                <span className="text-[8px] bg-blue-600 text-white px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider">
+                                                                    Ativo
+                                                                </span>
+                                                            )}
+                                                            <span className="text-[9px] bg-slate-100 dark:bg-neutral-800 text-slate-600 dark:text-slate-400 px-1.5 rounded font-mono font-bold">
+                                                                {spModels.length + spDrawings.length}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Pastas ISO 19650 deste Subprojeto */}
+                                                    {isSpExpanded && (
+                                                        <div className="p-2 space-y-2 border-t border-slate-200 dark:border-neutral-800 bg-slate-50/50 dark:bg-neutral-900/50">
+                                                            {/* PASTA 01: MODELOS BIM (IFC) */}
+                                                            <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [folderKey]: !p[folderKey] }))}
-                                                                    className="w-full flex items-center justify-between py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:text-amber-600 cursor-pointer"
+                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [`${spKey}_01_ifc`]: !p[`${spKey}_01_ifc`] }))}
+                                                                    className="w-full flex items-center justify-between p-1.5 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
                                                                 >
-                                                                    <div className="flex items-center gap-1 truncate">
-                                                                        <ChevronRight size={11} className={cn("transition-transform text-slate-400", isExpanded ? "rotate-90" : "")} />
-                                                                        <Folder size={12} className="text-amber-500" />
-                                                                        <span>{state}</span>
+                                                                    <div className="flex items-center gap-1.5 truncate">
+                                                                        <ChevronRight
+                                                                            size={12}
+                                                                            className={cn("transition-transform text-slate-400", (expandedFolders[`${spKey}_01_ifc`] ?? true) ? "rotate-90" : "")}
+                                                                        />
+                                                                        <FolderOpen size={13} className="text-amber-500 shrink-0" />
+                                                                        <span className="text-[11px] truncate">01-Modelos BIM (IFC)</span>
                                                                     </div>
-                                                                    <span className="text-[8px] bg-slate-100 dark:bg-neutral-800 px-1 rounded text-slate-500 font-mono">
-                                                                        {folderModels.length}
+                                                                    <span className="text-[9px] bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 rounded-full font-bold">
+                                                                        {spModels.length}
                                                                     </span>
                                                                 </button>
 
-                                                                {isExpanded && (
-                                                                    <div className="pl-3 space-y-1 mt-0.5">
-                                                                        {folderModels.length === 0 ? (
-                                                                            <span className="text-[9px] text-slate-400 italic block py-0.5">Pasta vazia</span>
+                                                                {(expandedFolders[`${spKey}_01_ifc`] ?? true) && (
+                                                                    <div className="p-2 pt-0 space-y-1.5 border-t border-slate-100 dark:border-neutral-800">
+                                                                        {(['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED'] as const).map(state => {
+                                                                            const folderModels = spModels.filter(m => (m.bimState || 'SHARED') === state);
+                                                                            const folderKey = `${spKey}_01_${state.toLowerCase()}`;
+                                                                            const isFolderExp = expandedFolders[folderKey] ?? (state === 'PUBLISHED' || state === 'SHARED');
+                                                                            return (
+                                                                                <div key={state} className="pl-2 border-l-2 border-amber-300 dark:border-amber-700 ml-1">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setExpandedFolders(p => ({ ...p, [folderKey]: !p[folderKey] }))}
+                                                                                        className="w-full flex items-center justify-between py-0.5 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:text-amber-600 cursor-pointer"
+                                                                                    >
+                                                                                        <div className="flex items-center gap-1 truncate">
+                                                                                            <ChevronRight size={11} className={cn("transition-transform text-slate-400", isFolderExp ? "rotate-90" : "")} />
+                                                                                            <Folder size={11} className="text-amber-500" />
+                                                                                            <span>{state}</span>
+                                                                                        </div>
+                                                                                        <span className="text-[8px] bg-slate-100 dark:bg-neutral-800 px-1 rounded text-slate-500 font-mono">
+                                                                                            {folderModels.length}
+                                                                                        </span>
+                                                                                    </button>
+
+                                                                                    {isFolderExp && (
+                                                                                        <div className="pl-3 space-y-1 mt-0.5">
+                                                                                            {folderModels.length === 0 ? (
+                                                                                                <span className="text-[9px] text-slate-400 italic block py-0.5">Pasta vazia</span>
+                                                                                            ) : (
+                                                                                                folderModels.map(m => (
+                                                                                                    <div
+                                                                                                        key={m.id}
+                                                                                                        onClick={() => {
+                                                                                                            if (!isCurrentActive) setSelectedSubProjectId(sp.id);
+                                                                                                            handleLoadModelFromCde(m);
+                                                                                                        }}
+                                                                                                        className={cn(
+                                                                                                            "p-1.5 rounded border text-[10px] cursor-pointer flex items-center justify-between gap-1 shadow-2xs transition-colors",
+                                                                                                            m.active
+                                                                                                                ? "border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200"
+                                                                                                                : "border-slate-200 dark:border-neutral-700 hover:border-amber-400 bg-white dark:bg-neutral-800"
+                                                                                                        )}
+                                                                                                    >
+                                                                                                        <div className="truncate flex-1 min-w-0 flex items-center gap-1">
+                                                                                                            <Box size={11} className="text-blue-500 shrink-0" />
+                                                                                                            <span className="truncate font-semibold">{m.name}</span>
+                                                                                                        </div>
+                                                                                                        <span className="text-[8px] text-slate-400 font-mono shrink-0">{m.size}</span>
+                                                                                                    </div>
+                                                                                                ))
+                                                                                            )}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={handleExportSafetyIfc}
+                                                                            className="w-full py-1 px-2 mt-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors"
+                                                                            title="Exportar dados de segurança trabalhados para ficheiro IFC4 oficial deste subprojeto"
+                                                                        >
+                                                                            <PackageCheck size={11} />
+                                                                            <span>📦 Exportar IFC de Segurança</span>
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {/* PASTA 02: DESENHOS 2D (PLANTAS) */}
+                                                            <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [`${spKey}_02_drw`]: !p[`${spKey}_02_drw`] }))}
+                                                                    className="w-full flex items-center justify-between p-1.5 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
+                                                                >
+                                                                    <div className="flex items-center gap-1.5 truncate">
+                                                                        <ChevronRight
+                                                                            size={12}
+                                                                            className={cn("transition-transform text-slate-400", (expandedFolders[`${spKey}_02_drw`] ?? true) ? "rotate-90" : "")}
+                                                                        />
+                                                                        <FolderOpen size={13} className="text-blue-500 shrink-0" />
+                                                                        <span className="text-[11px] truncate">02-Desenhos 2D (Plantas)</span>
+                                                                    </div>
+                                                                    <span className="text-[9px] bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 px-1.5 py-0.2 rounded-full font-bold">
+                                                                        {spDrawings.length}
+                                                                    </span>
+                                                                </button>
+
+                                                                {(expandedFolders[`${spKey}_02_drw`] ?? true) && (
+                                                                    <div className="p-2 pt-0 space-y-1.5 border-t border-slate-100 dark:border-neutral-800">
+                                                                        {(['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED'] as const).map(state => {
+                                                                            const folderDrawings = spDrawings.filter(d => (d.bimState || 'WIP') === state);
+                                                                            const folderKey = `${spKey}_02_${state.toLowerCase()}`;
+                                                                            const isFolderExp = expandedFolders[folderKey] ?? (state === 'WIP' || state === 'PUBLISHED');
+                                                                            return (
+                                                                                <div key={state} className="pl-2 border-l-2 border-blue-300 dark:border-blue-700 ml-1">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setExpandedFolders(p => ({ ...p, [folderKey]: !p[folderKey] }))}
+                                                                                        className="w-full flex items-center justify-between py-0.5 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                                                                                    >
+                                                                                        <div className="flex items-center gap-1 truncate">
+                                                                                            <ChevronRight size={11} className={cn("transition-transform text-slate-400", isFolderExp ? "rotate-90" : "")} />
+                                                                                            <Folder size={11} className="text-blue-500" />
+                                                                                            <span>{state}</span>
+                                                                                        </div>
+                                                                                        <span className="text-[8px] bg-slate-100 dark:bg-neutral-800 px-1 rounded text-slate-500 font-mono">
+                                                                                            {folderDrawings.length}
+                                                                                        </span>
+                                                                                    </button>
+
+                                                                                    {isFolderExp && (
+                                                                                        <div className="pl-2 space-y-1.5 mt-0.5">
+                                                                                            {folderDrawings.length === 0 ? (
+                                                                                                <span className="text-[9px] text-slate-400 italic block py-0.5">Nenhum desenho nesta pasta</span>
+                                                                                            ) : (
+                                                                                                folderDrawings.map(dw => {
+                                                                                                    const isSelected = selected2dDrawing?.id === dw.id && viewDimension === '2d';
+                                                                                                    return (
+                                                                                                        <div
+                                                                                                            key={dw.id}
+                                                                                                            className={cn(
+                                                                                                                "p-2 rounded-lg border text-[11px] transition-all flex flex-col gap-1 shadow-2xs",
+                                                                                                                isSelected
+                                                                                                                    ? "bg-blue-50/90 border-blue-500 dark:bg-blue-950/70 dark:border-blue-600 ring-1 ring-blue-500/20"
+                                                                                                                    : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 hover:border-slate-300"
+                                                                                                            )}
+                                                                                                        >
+                                                                                                            <div className="flex items-start justify-between gap-1">
+                                                                                                                <div className="truncate flex-1 min-w-0">
+                                                                                                                    <div className="font-semibold truncate flex items-center gap-1 text-[10px]">
+                                                                                                                        <FileText size={11} className="text-red-500 shrink-0" />
+                                                                                                                        <span className="text-blue-600 font-bold">{dw.code}</span>
+                                                                                                                        <span className="truncate">{dw.title}</span>
+                                                                                                                    </div>
+                                                                                                                    <div className="text-[8.5px] text-slate-400 truncate pl-3.5">
+                                                                                                                        {dw.fileName}
+                                                                                                                    </div>
+                                                                                                                </div>
+                                                                                                                <span className="text-[8px] font-mono px-1 py-0.2 bg-slate-100 dark:bg-neutral-700 rounded font-bold shrink-0">
+                                                                                                                    Rev. {dw.revision}
+                                                                                                                </span>
+                                                                                                            </div>
+
+                                                                                                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-neutral-750 text-[9.5px]">
+                                                                                                                <span className="text-slate-400 text-[8px] font-mono">{dw.date}</span>
+                                                                                                                <div className="flex items-center gap-1">
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        onClick={() => {
+                                                                                                                            if (!isCurrentActive) setSelectedSubProjectId(sp.id);
+                                                                                                                            setSelected2dDrawing(dw);
+                                                                                                                            setViewDimension('2d');
+                                                                                                                            setDrawingViewMode('pdf');
+                                                                                                                            showToast(`Prancha PDF "${dw.code}" aberta no visualizador.`);
+                                                                                                                        }}
+                                                                                                                        className={cn(
+                                                                                                                            "px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors shadow-2xs",
+                                                                                                                            isSelected && drawingViewMode === 'pdf'
+                                                                                                                                ? "bg-blue-600 text-white"
+                                                                                                                                : "bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                                                                                                                        )}
+                                                                                                                        title="Visualizar documento PDF oficial arquivado nesta pasta"
+                                                                                                                    >
+                                                                                                                        Ver PDF
+                                                                                                                    </button>
+                                                                                                                    <button
+                                                                                                                        type="button"
+                                                                                                                        onClick={() => {
+                                                                                                                            if (!isCurrentActive) setSelectedSubProjectId(sp.id);
+                                                                                                                            setSelected2dDrawing(dw);
+                                                                                                                            setViewDimension('2d');
+                                                                                                                            setDrawingViewMode('interactive');
+                                                                                                                            showToast(`Planta interativa de "${dw.code}" aberta para edição.`);
+                                                                                                                        }}
+                                                                                                                        className={cn(
+                                                                                                                            "px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors shadow-2xs",
+                                                                                                                            isSelected && drawingViewMode === 'interactive'
+                                                                                                                                ? "bg-amber-600 text-white"
+                                                                                                                                : "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-neutral-800 dark:text-slate-300"
+                                                                                                                        )}
+                                                                                                                        title="Abrir prancha interativa associada para desenhar por cima"
+                                                                                                                    >
+                                                                                                                        Anotar
+                                                                                                                    </button>
+                                                                                                                    {state === 'WIP' && (
+                                                                                                                        <button
+                                                                                                                            type="button"
+                                                                                                                            onClick={() => {
+                                                                                                                                handlePublishDrawingRevision(dw, 'C01', 'PUBLISHED', new Blob([]), dw.previewDataUrl || '');
+                                                                                                                            }}
+                                                                                                                            className="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold cursor-pointer transition-colors shadow-2xs"
+                                                                                                                            title="Publicar prancha (mover para pasta PUBLISHED com Rev. C01)"
+                                                                                                                        >
+                                                                                                                            Publicar
+                                                                                                                        </button>
+                                                                                                                    )}
+                                                                                                                </div>
+                                                                                                            </div>
+                                                                                                        </div>
+                                                                                                    );
+                                                                                                })
+                                                                                            )}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            );
+                                                                        })}
+
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                if (!isCurrentActive) setSelectedSubProjectId(sp.id);
+                                                                                setIsNew2dModalOpen(true);
+                                                                            }}
+                                                                            disabled={isGenerating2dPlan}
+                                                                            className="w-full py-1.5 px-2 mt-1 rounded-lg border border-dashed border-blue-400 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                                                                            title="Gerar nova prancha técnica 2D a partir do modelo 3D IFC deste subprojeto"
+                                                                        >
+                                                                            {isGenerating2dPlan ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                                                                            <span>+ Nova Planta 2D (IFC)</span>
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            {/* PASTA 03: PLANOS DE ESTALEIRO E EMERGÊNCIA */}
+                                                            <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [`${spKey}_03_emerg`]: !p[`${spKey}_03_emerg`] }))}
+                                                                    className="w-full flex items-center justify-between p-1.5 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
+                                                                >
+                                                                    <div className="flex items-center gap-1.5 truncate">
+                                                                        <ChevronRight
+                                                                            size={12}
+                                                                            className={cn("transition-transform text-slate-400", (expandedFolders[`${spKey}_03_emerg`] ?? false) ? "rotate-90" : "")}
+                                                                        />
+                                                                        <FolderOpen size={13} className="text-red-500 shrink-0" />
+                                                                        <span className="text-[11px] truncate">03-Planos de Estaleiro e Emergência</span>
+                                                                    </div>
+                                                                    <span className="text-[9px] bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded-full font-bold">
+                                                                        {spWorkZones.length}
+                                                                    </span>
+                                                                </button>
+
+                                                                {expandedFolders[`${spKey}_03_emerg`] && (
+                                                                    <div className="p-2 pt-0 space-y-1 text-[10px] border-t border-slate-100 dark:border-neutral-800">
+                                                                        {spWorkZones.length === 0 ? (
+                                                                            <span className="text-[9px] text-slate-400 italic block py-0.5">Nenhuma zona de risco registada</span>
                                                                         ) : (
-                                                                            folderModels.map(m => (
-                                                                                <div
-                                                                                    key={m.id}
-                                                                                    onClick={() => handleLoadModelFromCde(m)}
-                                                                                    className="p-1.5 rounded border border-slate-200 dark:border-neutral-700 hover:border-amber-400 bg-white dark:bg-neutral-800 text-[10px] cursor-pointer flex items-center justify-between gap-1 shadow-2xs"
-                                                                                >
-                                                                                    <div className="truncate flex-1 min-w-0 flex items-center gap-1">
-                                                                                        <Box size={11} className="text-blue-500 shrink-0" />
-                                                                                        <span className="truncate font-semibold">{m.name}</span>
-                                                                                    </div>
-                                                                                    <span className="text-[8px] text-slate-400 font-mono shrink-0">{m.size}</span>
+                                                                            spWorkZones.map(z => (
+                                                                                <div key={z.id} className="p-1.5 rounded border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 flex items-center justify-between">
+                                                                                    <span className="font-semibold truncate">{z.name}</span>
+                                                                                    <span className="text-[8px] bg-red-200 dark:bg-red-900 px-1 rounded font-bold uppercase">{z.category}</span>
                                                                                 </div>
                                                                             ))
                                                                         )}
                                                                     </div>
                                                                 )}
                                                             </div>
-                                                        );
-                                                    })}
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleExportSafetyIfc}
-                                                        className="w-full py-1 px-2 mt-1 rounded bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold flex items-center justify-center gap-1 shadow-2xs cursor-pointer transition-colors"
-                                                        title="Exportar dados de segurança trabalhados para ficheiro IFC4 oficial"
-                                                    >
-                                                        <PackageCheck size={11} />
-                                                        <span>📦 Exportar IFC de Segurança</span>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* PASTA 02: DESENHOS 2D (PLANTAS) */}
-                                        <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedFolders(p => ({ ...p, f_02_drw: !p.f_02_drw }))}
-                                                className="w-full flex items-center justify-between p-2 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
-                                            >
-                                                <div className="flex items-center gap-1.5 truncate">
-                                                    <ChevronRight size={13} className={cn("transition-transform text-slate-400", (expandedFolders.f_02_drw ?? true) ? "rotate-90" : "")} />
-                                                    <FolderOpen size={14} className="text-blue-500" />
-                                                    <span className="text-[11px] truncate">02-Desenhos 2D (Plantas)</span>
-                                                </div>
-                                                <span className="text-[9px] bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 px-1.5 py-0.2 rounded-full font-bold">
-                                                    {cdeDrawings.length}
-                                                </span>
-                                            </button>
-
-                                            {(expandedFolders.f_02_drw ?? true) && (
-                                                <div className="p-2 pt-0 space-y-1.5 border-t border-slate-100 dark:border-neutral-800">
-                                                    {/* Subpastas ISO 19650 para 2D: WIP, SHARED, PUBLISHED, ARCHIVED */}
-                                                    {(['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED'] as const).map(state => {
-                                                        const folderDrawings = cdeDrawings.filter(d => (d.bimState || 'WIP') === state);
-                                                        const folderKey = `f_02_${state.toLowerCase()}`;
-                                                        const isExpanded = expandedFolders[folderKey] ?? (state === 'WIP' || state === 'PUBLISHED');
-                                                        return (
-                                                            <div key={state} className="pl-2 border-l-2 border-blue-300 dark:border-blue-700 ml-1">
+                                                            {/* PASTA 04: VISITAS DE INSPEÇÃO E SEGURANÇA */}
+                                                            <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [folderKey]: !p[folderKey] }))}
-                                                                    className="w-full flex items-center justify-between py-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:text-blue-600 cursor-pointer"
+                                                                    onClick={() => setExpandedFolders(p => ({ ...p, [`${spKey}_04_insp`]: !p[`${spKey}_04_insp`] }))}
+                                                                    className="w-full flex items-center justify-between p-1.5 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
                                                                 >
-                                                                    <div className="flex items-center gap-1 truncate">
-                                                                        <ChevronRight size={11} className={cn("transition-transform text-slate-400", isExpanded ? "rotate-90" : "")} />
-                                                                        <Folder size={12} className="text-blue-500" />
-                                                                        <span>{state}</span>
+                                                                    <div className="flex items-center gap-1.5 truncate">
+                                                                        <ChevronRight
+                                                                            size={12}
+                                                                            className={cn("transition-transform text-slate-400", (expandedFolders[`${spKey}_04_insp`] ?? false) ? "rotate-90" : "")}
+                                                                        />
+                                                                        <FolderOpen size={13} className="text-emerald-500 shrink-0" />
+                                                                        <span className="text-[11px] truncate">04-Visitas de Inspeção e Segurança</span>
                                                                     </div>
-                                                                    <span className="text-[8px] bg-slate-100 dark:bg-neutral-800 px-1 rounded text-slate-500 font-mono">
-                                                                        {folderDrawings.length}
+                                                                    <span className="text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.2 rounded-full font-bold">
+                                                                        {spObservations.length}
                                                                     </span>
                                                                 </button>
 
-                                                                {isExpanded && (
-                                                                    <div className="pl-2 space-y-1.5 mt-0.5">
-                                                                        {folderDrawings.length === 0 ? (
-                                                                            <span className="text-[9px] text-slate-400 italic block py-0.5">Nenhum desenho nesta pasta</span>
+                                                                {expandedFolders[`${spKey}_04_insp`] && (
+                                                                    <div className="p-2 pt-0 space-y-1 text-[10px] border-t border-slate-100 dark:border-neutral-800">
+                                                                        {spObservations.length === 0 ? (
+                                                                            <span className="text-[9px] text-slate-400 italic block py-0.5">Nenhuma visita registada</span>
                                                                         ) : (
-                                                                            folderDrawings.map(dw => {
-                                                                                const isSelected = selected2dDrawing?.id === dw.id && viewDimension === '2d';
-                                                                                return (
-                                                                                    <div
-                                                                                        key={dw.id}
-                                                                                        className={cn(
-                                                                                            "p-2 rounded-lg border text-[11px] transition-all flex flex-col gap-1 shadow-2xs",
-                                                                                            isSelected
-                                                                                                ? "bg-blue-50/90 border-blue-500 dark:bg-blue-950/70 dark:border-blue-600 ring-1 ring-blue-500/20"
-                                                                                                : "bg-white dark:bg-neutral-800 border-slate-200 dark:border-neutral-700 hover:border-slate-300"
-                                                                                        )}
-                                                                                    >
-                                                                                        <div className="flex items-start justify-between gap-1">
-                                                                                            <div className="truncate flex-1 min-w-0">
-                                                                                                <div className="font-semibold truncate flex items-center gap-1 text-[10px]">
-                                                                                                    <FileText size={11} className="text-red-500 shrink-0" />
-                                                                                                    <span className="text-blue-600 font-bold">{dw.code}</span>
-                                                                                                    <span className="truncate">{dw.title}</span>
-                                                                                                </div>
-                                                                                                <div className="text-[8.5px] text-slate-400 truncate pl-3.5">
-                                                                                                    {dw.fileName}
-                                                                                                </div>
-                                                                                            </div>
-                                                                                            <span className="text-[8px] font-mono px-1 py-0.2 bg-slate-100 dark:bg-neutral-700 rounded font-bold shrink-0">
-                                                                                                Rev. {dw.revision}
-                                                                                            </span>
-                                                                                        </div>
-
-                                                                                        {/* Ações Diretas: Ver PDF, Anotar, Descarregar, Publicar */}
-                                                                                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-neutral-750 text-[9.5px]">
-                                                                                            <span className="text-slate-400 text-[8px] font-mono">{dw.date}</span>
-                                                                                            <div className="flex items-center gap-1">
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    onClick={() => {
-                                                                                                        setSelected2dDrawing(dw);
-                                                                                                        setViewDimension('2d');
-                                                                                                        setDrawingViewMode('pdf');
-                                                                                                        showToast(`Prancha PDF "${dw.code}" aberta no visualizador.`);
-                                                                                                    }}
-                                                                                                    className={cn(
-                                                                                                        "px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors shadow-2xs",
-                                                                                                        isSelected && drawingViewMode === 'pdf'
-                                                                                                            ? "bg-blue-600 text-white"
-                                                                                                            : "bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
-                                                                                                    )}
-                                                                                                    title="Visualizar documento PDF oficial arquivado nesta pasta"
-                                                                                                >
-                                                                                                    Ver PDF
-                                                                                                </button>
-                                                                                                <button
-                                                                                                    type="button"
-                                                                                                    onClick={() => {
-                                                                                                        setSelected2dDrawing(dw);
-                                                                                                        setViewDimension('2d');
-                                                                                                        setDrawingViewMode('interactive');
-                                                                                                        showToast(`Planta interativa de "${dw.code}" aberta para edição.`);
-                                                                                                    }}
-                                                                                                    className={cn(
-                                                                                                        "px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors shadow-2xs",
-                                                                                                        isSelected && drawingViewMode === 'interactive'
-                                                                                                            ? "bg-amber-600 text-white"
-                                                                                                            : "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-neutral-800 dark:text-slate-300"
-                                                                                                    )}
-                                                                                                    title="Abrir prancha interativa associada para desenhar por cima"
-                                                                                                >
-                                                                                                    Anotar
-                                                                                                </button>
-                                                                                                {state === 'WIP' && (
-                                                                                                    <button
-                                                                                                        type="button"
-                                                                                                        onClick={() => {
-                                                                                                            const blobToUse = dw.localBlobUrl ? null : null;
-                                                                                                            handlePublishDrawingRevision(dw, 'C01', 'PUBLISHED', new Blob([]), dw.previewDataUrl || '');
-                                                                                                        }}
-                                                                                                        className="px-1.5 py-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold cursor-pointer transition-colors shadow-2xs"
-                                                                                                        title="Publicar prancha (mover para pasta PUBLISHED com Rev. C01)"
-                                                                                                    >
-                                                                                                        Publicar
-                                                                                                    </button>
-                                                                                                )}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                );
-                                                                            })
+                                                                            spObservations.map(obs => (
+                                                                                <div key={obs.id} className="p-1.5 rounded border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-center justify-between">
+                                                                                    <span className="font-semibold truncate">{obs.title}</span>
+                                                                                    <span className="text-[8px] bg-emerald-200 dark:bg-emerald-900 px-1 rounded font-bold uppercase">{obs.severity}</span>
+                                                                                </div>
+                                                                            ))
                                                                         )}
                                                                     </div>
                                                                 )}
                                                             </div>
-                                                        );
-                                                    })}
-
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setIsNew2dModalOpen(true)}
-                                                        disabled={isGenerating2dPlan}
-                                                        className="w-full py-1.5 px-2 mt-1 rounded-lg border border-dashed border-blue-400 dark:border-blue-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-[10px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                                                        title="Gerar nova prancha técnica 2D a partir do modelo 3D IFC"
-                                                    >
-                                                        {isGenerating2dPlan ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                                                        <span>+ Nova Planta 2D (IFC)</span>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* PASTA 03: PLANOS DE ESTALEIRO E EMERGÊNCIA */}
-                                        <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedFolders(p => ({ ...p, f_03_emerg: !p.f_03_emerg }))}
-                                                className="w-full flex items-center justify-between p-2 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
-                                            >
-                                                <div className="flex items-center gap-1.5 truncate">
-                                                    <ChevronRight size={13} className={cn("transition-transform text-slate-400", expandedFolders.f_03_emerg ? "rotate-90" : "")} />
-                                                    <FolderOpen size={14} className="text-red-500" />
-                                                    <span className="text-[11px] truncate">03-Planos de Estaleiro e Emergência</span>
-                                                </div>
-                                                <span className="text-[9px] bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 px-1.5 py-0.2 rounded-full font-bold">
-                                                    {projectWorkZones.length}
-                                                </span>
-                                            </button>
-
-                                            {expandedFolders.f_03_emerg && (
-                                                <div className="p-2 pt-0 space-y-1 text-[10px] border-t border-slate-100 dark:border-neutral-800">
-                                                    {projectWorkZones.length === 0 ? (
-                                                        <span className="text-[9px] text-slate-400 italic block py-0.5">Nenhuma zona de risco registada</span>
-                                                    ) : (
-                                                        projectWorkZones.map(z => (
-                                                            <div key={z.id} className="p-1.5 rounded border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 flex items-center justify-between">
-                                                                <span className="font-semibold truncate">{z.name}</span>
-                                                                <span className="text-[8px] bg-red-200 dark:bg-red-900 px-1 rounded font-bold uppercase">{z.category}</span>
-                                                            </div>
-                                                        ))
+                                                        </div>
                                                     )}
                                                 </div>
-                                            )}
-                                        </div>
-
-                                        {/* PASTA 04: VISITAS DE INSPEÇÃO E SEGURANÇA */}
-                                        <div className="border border-slate-200 dark:border-neutral-800 rounded-lg overflow-hidden bg-white dark:bg-neutral-850">
-                                            <button
-                                                type="button"
-                                                onClick={() => setExpandedFolders(p => ({ ...p, f_04_insp: !p.f_04_insp }))}
-                                                className="w-full flex items-center justify-between p-2 font-bold text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-neutral-800 cursor-pointer"
-                                            >
-                                                <div className="flex items-center gap-1.5 truncate">
-                                                    <ChevronRight size={13} className={cn("transition-transform text-slate-400", expandedFolders.f_04_insp ? "rotate-90" : "")} />
-                                                    <FolderOpen size={14} className="text-emerald-500" />
-                                                    <span className="text-[11px] truncate">04-Visitas de Inspeção e Segurança</span>
-                                                </div>
-                                                <span className="text-[9px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1.5 py-0.2 rounded-full font-bold">
-                                                    {projectObservations.length}
-                                                </span>
-                                            </button>
-
-                                            {expandedFolders.f_04_insp && (
-                                                <div className="p-2 pt-0 space-y-1 text-[10px] border-t border-slate-100 dark:border-neutral-800">
-                                                    {projectObservations.length === 0 ? (
-                                                        <span className="text-[9px] text-slate-400 italic block py-0.5">Nenhuma visita registada</span>
-                                                    ) : (
-                                                        projectObservations.map(obs => (
-                                                            <div key={obs.id} className="p-1.5 rounded border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 flex items-center justify-between">
-                                                                <span className="font-semibold truncate">{obs.title}</span>
-                                                                <span className="text-[8px] bg-emerald-200 dark:bg-emerald-900 px-1 rounded font-bold uppercase">{obs.severity}</span>
-                                                            </div>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
@@ -5459,6 +5621,26 @@ export default function BimViewerPage() {
                                 >
                                     Esq
                                 </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Active Subproject Badge Overlay */}
+                    {viewDimension === '3d' && (
+                        <div className="absolute top-3 left-3 z-20 pointer-events-none">
+                            <div className="bg-white/90 dark:bg-neutral-900/90 backdrop-blur-md border border-slate-200 dark:border-neutral-800 rounded-xl px-3 py-1.5 shadow-md flex items-center gap-2 pointer-events-auto">
+                                <Building2 size={13} className="text-blue-600 shrink-0" />
+                                <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 truncate max-w-[180px]">
+                                    {activeSubProject?.name}
+                                </span>
+                                <span className="text-[9px] font-mono px-1 py-0.2 bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 rounded font-bold shrink-0">
+                                    {activeSubProject?.code}
+                                </span>
+                                {selectedSubProjectId !== 'global' && !loadedIfcName && (
+                                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold pl-1.5 border-l border-slate-200 dark:border-neutral-700 shrink-0">
+                                        Área limpa • Sem IFC carregado
+                                    </span>
+                                )}
                             </div>
                         </div>
                     )}
