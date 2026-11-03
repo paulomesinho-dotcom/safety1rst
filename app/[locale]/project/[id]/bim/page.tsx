@@ -43,6 +43,7 @@ import {
     Sliders,
     FolderTree,
     Sparkles,
+    FileUp,
     Loader2,
     HardHat,
     Flame,
@@ -250,6 +251,21 @@ export interface CdeDrawing2D {
     localBlobUrl?: string;
     previewDataUrl?: string;
     vectorSegments?: [number, number, number, number][];
+    scale?: string;
+    cotaCorte?: number;
+    referenceElevation?: number;
+    style?: 'cad' | 'shaded';
+    viewOrientation?: ViewOrientation;
+    underlay?: {
+        enabled: boolean;
+        url?: string;
+        fileName?: string;
+        offsetX: number;
+        offsetZ: number;
+        scale: number;
+        rotation: number;
+        opacity: number;
+    };
     modelBounds?: {
         minX: number;
         maxX: number;
@@ -261,6 +277,21 @@ export interface CdeDrawing2D {
         cutY: number;
         meshCount: number;
     };
+}
+
+export interface Generate2dDrawingOptions {
+    title: string;
+    code: string;
+    format: 'a4' | 'a3' | 'a2' | 'a1' | 'a0';
+    orientation: 'landscape' | 'portrait';
+    viewOrientation: ViewOrientation;
+    scale: '1:50' | '1:100' | '1:200' | '1:500';
+    style: 'cad' | 'shaded';
+    storey: string;
+    referenceElevation: number;
+    cotaCorteOffset: number;
+    underlayUrl?: string | null;
+    underlayFileName?: string | null;
 }
 
 export interface CdeModelItem {
@@ -350,6 +381,21 @@ export default function BimViewerPage() {
     const [sectionCutHeight, setSectionCutHeight] = useState<number>(10);
     const [modelHeightRange, setModelHeightRange] = useState<{ min: number; max: number }>({ min: -2, max: 25 });
     const [copiedGuid, setCopiedGuid] = useState<boolean>(false);
+
+    // New 2D Technical Drawing Configuration Modal States
+    const [isNew2dModalOpen, setIsNew2dModalOpen] = useState<boolean>(false);
+    const [newDrawingTitle, setNewDrawingTitle] = useState<string>('Planta de Estaleiro e Segurana - Piso 0');
+    const [newDrawingCode, setNewDrawingCode] = useState<string>('PE-01');
+    const [newDrawingFormat, setNewDrawingFormat] = useState<'a4' | 'a3' | 'a2' | 'a1' | 'a0'>('a3');
+    const [newDrawingOrientation, setNewDrawingOrientation] = useState<'landscape' | 'portrait'>('landscape');
+    const [newDrawingViewOrientation, setNewDrawingViewOrientation] = useState<ViewOrientation>('top');
+    const [newDrawingScale, setNewDrawingScale] = useState<'1:50' | '1:100' | '1:200' | '1:500'>('1:100');
+    const [newDrawingStyle, setNewDrawingStyle] = useState<'cad' | 'shaded'>('cad');
+    const [newDrawingStorey, setNewDrawingStorey] = useState<string>('Piso 0');
+    const [newDrawingRefElevation, setNewDrawingRefElevation] = useState<number>(0.0);
+    const [newDrawingCotaCorteOffset, setNewDrawingCotaCorteOffset] = useState<number>(1.20);
+    const [newDrawingUnderlayUrl, setNewDrawingUnderlayUrl] = useState<string | null>(null);
+    const [newDrawingUnderlayFileName, setNewDrawingUnderlayFileName] = useState<string | null>(null);
     const [selectedDiscipline, setSelectedDiscipline] = useState<'all' | 'structure' | 'architecture' | 'mep' | 'safety'>('all');
     const [selectedStorey, setSelectedStorey] = useState<string>('all');
     const [ghostMode, setGhostMode] = useState<boolean>(true);
@@ -837,13 +883,13 @@ export default function BimViewerPage() {
         }
     };
 
-    // Automatic 2D Technical Floor Plan Generator directly from the loaded 3D IFC Model
-    const handleGenerate2dDrawingFromModel = async () => {
+    // Automatic 2D Technical Drawing & Plan Generator directly from the loaded 3D IFC Model
+    const handleGenerate2dDrawingFromModel = async (customOptions?: Partial<Generate2dDrawingOptions>) => {
         setIsGenerating2dPlan(true);
-        showToast('⚡ A seccionar a geometria real do modelo 3D IFC para gerar a planta 2D...');
+        showToast('A processar geometria do modelo 3D IFC para gerar a prancha 2D calibrada...');
 
         try {
-            // Ensure a real 3D IFC model is loaded in bimGroupRef
+            // Ensure a 3D IFC model is loaded in bimGroupRef
             if (bimGroupRef.current && bimGroupRef.current.children.length === 0 && cdeModels.length > 0) {
                 const firstRealModel = cdeModels.find(m => m.isRealCdeFile) || cdeModels[0];
                 if (firstRealModel) {
@@ -853,7 +899,7 @@ export default function BimViewerPage() {
 
             const bimGroup = bimGroupRef.current;
             if (!bimGroup || bimGroup.children.length === 0) {
-                showToast('Carregue primeiro o seu ficheiro .ifc no visualizador 3D para gerar a planta 2D.');
+                showToast('Carregue primeiro o seu ficheiro .ifc no visualizador 3D para gerar o desenho 2D.');
                 setIsGenerating2dPlan(false);
                 return;
             }
@@ -871,16 +917,33 @@ export default function BimViewerPage() {
             const modelD = Math.max(size.z, 1);
             const modelH = Math.max(size.y, 1);
 
-            const targetStorey = selectedStorey !== 'all' ? selectedStorey : 'Piso 0';
-            let cutRatio = 0.25;
-            if (targetStorey === 'Piso 1') cutRatio = 0.50;
-            else if (targetStorey === 'Piso 2') cutRatio = 0.72;
-            else if (targetStorey === 'Cobertura') cutRatio = 0.90;
+            // Options: Storey, Reference Elevation & Standard Cut Plane (+1.20m)
+            const targetStorey = customOptions?.storey || (selectedStorey !== 'all' ? selectedStorey : 'Piso 0');
+            
+            let refElevation = customOptions?.referenceElevation;
+            if (refElevation === undefined) {
+                if (targetStorey === 'Piso 1') refElevation = min.y + modelH * 0.33;
+                else if (targetStorey === 'Piso 2') refElevation = min.y + modelH * 0.66;
+                else if (targetStorey === 'Cobertura') refElevation = min.y + modelH * 0.88;
+                else refElevation = min.y + 0.3; // Piso 0
+            }
 
-            const cutY = min.y + Math.min(Math.max(modelH * cutRatio, 1.15), modelH * 0.92);
-            const sliceBandHalf = Math.max(modelH * 0.18, 1.2);
+            // Standard Architectural Section Cut Plane (+1.20m above floor level)
+            const cotaOffset = customOptions?.cotaCorteOffset ?? 1.20;
+            const cutY = refElevation + cotaOffset;
+            const sliceBandHalf = 0.85;
 
-            // 1. Extract real 2D vector section-cut segments [x1, z1, x2, z2] from IFC meshes
+            // Sheet format, scale & style options
+            const sheetFormat = customOptions?.format || 'a3';
+            const orientation = customOptions?.orientation || 'landscape';
+            const scaleFormat = customOptions?.scale || '1:100';
+            const style = customOptions?.style || 'cad';
+            const chosenView = customOptions?.viewOrientation || viewOrientation || 'top';
+            const title = customOptions?.title || `Planta de Estaleiro e Segurana - ${targetStorey}`;
+            const code = customOptions?.code || `PE-0${(cdeDrawings.length + 1).toString().padStart(2, '0')}`;
+            const fileName = `${code}_${title.replace(/[^a-zA-Z0-9]/g, '_')}_${scaleFormat.replace(':', '_')}.pdf`;
+
+            // 1. Extract 2D vector section-cut segments [x1, z1, x2, z2] from IFC meshes
             const cutSegments: [number, number, number, number][] = [];
             const projFootprints: [number, number, number, number][] = [];
             let sectionedMeshCount = 0;
@@ -926,7 +989,6 @@ export default function BimViewerPage() {
                     const posAttr = geom.attributes.position;
                     if (!posAttr) return;
 
-                    // If mesh straddles cutY (or within band), intersect its triangles with horizontal plane
                     const testY = (mBox.min.y <= cutY && mBox.max.y >= cutY)
                         ? cutY
                         : (mBox.min.y + mBox.max.y) * 0.5;
@@ -952,7 +1014,6 @@ export default function BimViewerPage() {
                         }
                     }
 
-                    // Also record horizontal bounding footprint for elements below cut plane
                     if (projFootprints.length < 2500) {
                         const bw = mBox.max.x - mBox.min.x;
                         const bd = mBox.max.z - mBox.min.z;
@@ -963,11 +1024,11 @@ export default function BimViewerPage() {
                 }
             });
 
-            // 2. Capture high-resolution Top-Down Orthographic Snapshot of the sliced 3D IFC model
+            // 2. High-resolution orthographic snapshot if shaded or CAD overlay
             let previewDataUrl: string | undefined;
             const renderer = rendererRef.current;
             const scene = sceneRef.current;
-            if (renderer && scene) {
+            if (renderer && scene && style === 'shaded') {
                 const prevBg = scene.background;
                 const prevPinsVis = pinsGroupRef.current ? pinsGroupRef.current.visible : true;
                 const prevLogVis = logisticsGroupRef.current ? logisticsGroupRef.current.visible : true;
@@ -991,63 +1052,91 @@ export default function BimViewerPage() {
 
                 scene.background = new THREE.Color(0xffffff);
                 renderer.localClippingEnabled = true;
-                // Clip above cutY + 0.5m so top roof/upper slabs don't obscure interior walls
-                const sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), cutY + Math.max(modelH * 0.12, 0.6));
+                const sectionPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), cutY + 0.6);
                 renderer.clippingPlanes = [sectionPlane];
 
                 const padFactor = 1.08;
                 const halfW = (modelW * padFactor) / 2;
                 const halfD = (modelD * padFactor) / 2;
-                const captureCam = new THREE.OrthographicCamera(-halfW, halfW, halfD, -halfD, 0.1, modelH * 10 + 500);
-                captureCam.position.set(center.x, max.y + modelH + 25, center.z);
-                captureCam.up.set(0, 0, -1);
-                captureCam.lookAt(center.x, center.y, center.z);
-                captureCam.updateProjectionMatrix();
+                const snapshotCamera = new THREE.OrthographicCamera(
+                    -halfW, halfW, halfD, -halfD, 0.1, 500
+                );
+                snapshotCamera.position.set(center.x, max.y + 30, center.z);
+                snapshotCamera.lookAt(center.x, cutY, center.z);
+                snapshotCamera.up.set(0, 0, -1);
+                snapshotCamera.updateProjectionMatrix();
 
-                renderer.render(scene, captureCam);
-                try {
-                    previewDataUrl = renderer.domElement.toDataURL('image/png');
-                } catch (_) {}
+                const snapW = 2048;
+                const snapH = Math.round(snapW * (modelD / modelW));
+                const renderTarget = new THREE.WebGLRenderTarget(snapW, snapH, {
+                    format: THREE.RGBAFormat,
+                    colorSpace: THREE.SRGBColorSpace
+                });
 
-                // Restore scene & renderer state
-                renderer.clippingPlanes = prevClipping;
-                renderer.localClippingEnabled = prevLocalClip;
+                renderer.setRenderTarget(renderTarget);
+                renderer.render(scene, snapshotCamera);
+                renderer.setRenderTarget(null);
+
+                const pixelBuffer = new Uint8Array(snapW * snapH * 4);
+                renderer.readRenderTargetPixels(renderTarget, 0, 0, snapW, snapH, pixelBuffer);
+                renderTarget.dispose();
+
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = snapW;
+                offCanvas.height = snapH;
+                const ctx = offCanvas.getContext('2d');
+                if (ctx) {
+                    const imgData = ctx.createImageData(snapW, snapH);
+                    for (let row = 0; row < snapH; row++) {
+                        const srcRow = snapH - 1 - row;
+                        const srcOffset = srcRow * snapW * 4;
+                        const dstOffset = row * snapW * 4;
+                        imgData.data.set(pixelBuffer.subarray(srcOffset, srcOffset + snapW * 4), dstOffset);
+                    }
+                    ctx.putImageData(imgData, 0, 0);
+                    previewDataUrl = offCanvas.toDataURL('image/png', 0.92);
+                }
+
                 scene.background = prevBg;
                 if (pinsGroupRef.current) pinsGroupRef.current.visible = prevPinsVis;
                 if (logisticsGroupRef.current) logisticsGroupRef.current.visible = prevLogVis;
                 if (grid2dGroupRef.current) grid2dGroupRef.current.visible = prevGridVis;
                 hiddenHelpers.forEach(obj => { obj.visible = true; });
-                if (cameraRef.current) {
-                    renderer.render(scene, cameraRef.current);
-                }
+                renderer.clippingPlanes = prevClipping;
+                renderer.localClippingEnabled = prevLocalClip;
             }
 
-            // 3. Generate Official A3 Landscape Technical PDF (420mm x 297mm) with real IFC geometry
-            const storeyCode = targetStorey.toLowerCase().replace(/\s+/g, '').replace('piso', 'p0');
-            const code = `IFC-${storeyCode.toUpperCase() || 'P00'}`;
-            const activeIfcLabel = loadedIfcName || cdeModels.find(m => m.active)?.name || cdeModels[0]?.name || 'Modelo_IFC';
-            const title = `Planta de Corte Horizontal (${targetStorey}) — ${activeIfcLabel}`;
-            const fileName = `${activeIfcLabel.replace(/\.ifc$/i, '').replace(/[^a-zA-Z0-9_-]/g, '_')}_Planta_${storeyCode.toUpperCase()}.pdf`;
+            // 3. Assemble Official Technical Drawing PDF
+            const dims: Record<string, [number, number]> = {
+                a4: [297, 210],
+                a3: [420, 297],
+                a2: [594, 420],
+                a1: [841, 594],
+                a0: [1189, 841]
+            };
+            const [pW, pH] = orientation === 'portrait'
+                ? [dims[sheetFormat][1], dims[sheetFormat][0]]
+                : [dims[sheetFormat][0], dims[sheetFormat][1]];
 
-            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-            // Outer sheet border (A3: 420 x 297 mm)
-            doc.setFillColor(255, 255, 255);
-            doc.rect(0, 0, 420, 297, 'F');
+            const doc = new jsPDF({ orientation, unit: 'mm', format: sheetFormat });
+
+            // Official Margins (10mm outer, 12mm inner)
             doc.setDrawColor(15, 23, 42);
             doc.setLineWidth(0.6);
-            doc.rect(10, 10, 400, 277);
+            doc.rect(10, 10, pW - 20, pH - 20);
             doc.setLineWidth(0.2);
-            doc.rect(12, 12, 396, 273);
+            doc.rect(12, 12, pW - 24, pH - 24);
 
-            // Drawing viewport box on the A3 sheet: x=[28..315], y=[24..258] (287mm x 234mm)
-            const vpX = 28;
-            const vpY = 24;
-            const vpW = 287;
-            const vpH = 234;
+            // Viewport Box on Sheet
+            const sidebarW = Math.min(95, pW * 0.24);
+            const vpX = 24;
+            const vpY = 22;
+            const vpW = pW - sidebarW - 36;
+            const vpH = pH - 44;
 
             const scaleX = vpW / modelW;
             const scaleZ = vpH / modelD;
-            const drawScale = Math.min(scaleX, scaleZ) * 0.86;
+            const drawScale = Math.min(scaleX, scaleZ) * 0.85;
 
             const drawW = modelW * drawScale;
             const drawH = modelD * drawScale;
@@ -1057,8 +1146,15 @@ export default function BimViewerPage() {
             const toSheetX = (wx: number) => offsetX + ((wx - min.x) / modelW) * drawW;
             const toSheetY = (wz: number) => offsetY + ((wz - min.z) / modelD) * drawH;
 
-            // Place high-res top-down orthographic IFC render as base layer
-            if (previewDataUrl) {
+            // Optional Underlay Image in PDF
+            if (customOptions?.underlayUrl) {
+                try {
+                    doc.addImage(customOptions.underlayUrl, 'PNG', offsetX, offsetY, drawW, drawH);
+                } catch (_) {}
+            }
+
+            // Place shaded snapshot if requested
+            if (previewDataUrl && style === 'shaded') {
                 try {
                     const padW = drawW * 1.08;
                     const padH = drawH * 1.08;
@@ -1068,7 +1164,7 @@ export default function BimViewerPage() {
                 } catch (_) {}
             }
 
-            // Structural CAD grid axes proportional to real IFC bounding box
+            // Structural CAD Grid Axes (1, 2, 3.. and A, B, C..)
             const cols = 5;
             const rows = 4;
             doc.setDrawColor(203, 213, 225);
@@ -1091,7 +1187,7 @@ export default function BimViewerPage() {
                 doc.text(axisLetters[j] || String(j + 1), offsetX - 11.8, gy + 0.8);
             }
 
-            // Draw projected element footprints (light grey CAD lines)
+            // Projected Footprints below cut plane (Light grey)
             doc.setDrawColor(148, 163, 184);
             doc.setLineWidth(0.12);
             for (const [x1, z1, x2, z2] of projFootprints) {
@@ -1102,76 +1198,79 @@ export default function BimViewerPage() {
                 doc.rect(sx, sy, sw, sh);
             }
 
-            // Draw exact vector section-cut segments from IFC triangles (bold dark CAD lines)
+            // Bold Section Cut Vector Lines from IFC Triangles (Standard Architectural 0.35mm)
             doc.setDrawColor(15, 23, 42);
-            doc.setLineWidth(0.32);
+            doc.setLineWidth(0.35);
             for (const [x1, z1, x2, z2] of cutSegments) {
                 doc.line(toSheetX(x1), toSheetY(z1), toSheetX(x2), toSheetY(z2));
             }
 
-            // Exterior Dimension Lines (Cotas Reais do IFC em Metros)
+            // Dimension Strings (L and P in meters)
             doc.setDrawColor(37, 99, 235);
             doc.setTextColor(30, 64, 175);
             doc.setLineWidth(0.22);
             doc.setFontSize(8);
-            // Bottom overall width dimension
             const dimY = offsetY + drawH + 14;
             doc.line(offsetX, dimY, offsetX + drawW, dimY);
             doc.line(offsetX, offsetY + drawH + 2, offsetX, dimY + 2);
             doc.line(offsetX + drawW, offsetY + drawH + 2, offsetX + drawW, dimY + 2);
-            doc.text(`L = ${modelW.toFixed(2)} m (Dimensão Real IFC)`, offsetX + drawW / 2 - 18, dimY - 1.5);
+            doc.text(`L = ${modelW.toFixed(2)} m (Medio Real IFC)`, offsetX + drawW / 2 - 18, dimY - 1.5);
 
-            // Right overall depth dimension
             const dimX = offsetX + drawW + 14;
             doc.line(dimX, offsetY, dimX, offsetY + drawH);
             doc.line(offsetX + drawW + 2, offsetY, dimX + 2, offsetY);
             doc.line(offsetX + drawW + 2, offsetY + drawH, dimX + 2, offsetY + drawH);
             doc.text(`P = ${modelD.toFixed(2)} m`, dimX + 2, offsetY + drawH / 2);
 
-            // Right-Side Technical Sidebar & ISO 19650 Cartouche (x=[325..406])
+            // Right-Side Technical Sidebar & ISO 19650 Cartouche
+            const sbX = pW - sidebarW - 12;
             doc.setDrawColor(15, 23, 42);
             doc.setLineWidth(0.35);
-            doc.line(324, 12, 324, 285);
+            doc.line(sbX, 12, sbX, pH - 12);
 
-            // Legend & Model Metrics Box
+            // Sidebar Box
             doc.setFillColor(248, 250, 252);
-            doc.rect(327, 16, 78, 85, 'FD');
+            doc.rect(sbX + 3, 16, sidebarW - 6, 92, 'FD');
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(9);
             doc.setTextColor(15, 23, 42);
-            doc.text('DADOS GEOMÉTRICOS DO IFC', 331, 24);
+            doc.text('DADOS TCNICOS DO IFC', sbX + 7, 24);
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
             doc.setTextColor(51, 65, 85);
-            doc.text(`Ficheiro Base: ${activeIfcLabel.slice(0, 28)}`, 331, 33);
-            doc.text(`Nível / Piso: ${targetStorey}`, 331, 40);
-            doc.text(`Cota de Corte Horizontal: +${(cutY - min.y).toFixed(2)} m`, 331, 47);
-            doc.text(`Largura Total (Eixo X): ${modelW.toFixed(2)} m`, 331, 54);
-            doc.text(`Profundidade (Eixo Z): ${modelD.toFixed(2)} m`, 331, 61);
-            doc.text(`Altura Total do Modelo: ${modelH.toFixed(2)} m`, 331, 68);
-            doc.text(`Elementos 3D Seccionados: ${sectionedMeshCount}`, 331, 75);
-            doc.text(`Segmentos Vetoriais 2D: ${cutSegments.length}`, 331, 82);
-            doc.text(`Norma: ISO 16739 (IFC) / ISO 19650`, 331, 89);
+            doc.text(`Obra: ${currentProject.name.slice(0, 28)}`, sbX + 7, 33);
+            doc.text(`Nvel / Piso: ${targetStorey}`, sbX + 7, 40);
+            doc.text(`Cota do Piso: ${refElevation.toFixed(2)} m`, sbX + 7, 47);
+            doc.text(`Cota de Corte: +${cotaOffset.toFixed(2)} m (Regulamentar)`, sbX + 7, 54);
+            doc.text(`Dimenses: ${modelW.toFixed(2)}m  ${modelD.toFixed(2)}m`, sbX + 7, 61);
+            doc.text(`Escala: ${scaleFormat} | Formato: ${sheetFormat.toUpperCase()}`, sbX + 7, 68);
+            doc.text(`Elementos Cortados: ${sectionedMeshCount}`, sbX + 7, 75);
+            doc.text(`Segmentos Vetoriais: ${cutSegments.length}`, sbX + 7, 82);
+            doc.text(`Norma: ISO 16739 (IFC) / DL 273/2003`, sbX + 7, 89);
+            doc.text(`Estilo: ${style === 'cad' ? 'CAD Vetorial P&B' : 'Shaded IFC'}`, sbX + 7, 96);
 
-            // Official Title Block (Carimbo Técnico) at bottom-right
+            // Official Title Block (Carimbo Tcnico CSO)
+            const cartH = 68;
+            const cartY = pH - cartH - 14;
             doc.setFillColor(15, 23, 42);
-            doc.rect(327, 215, 78, 16, 'F');
+            doc.rect(sbX + 3, cartY, sidebarW - 6, 16, 'F');
             doc.setTextColor(255, 255, 255);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(10);
-            doc.text('SAFESITE BIM • PLANTA 2D', 331, 223);
-            doc.setFontSize(7.5);
-            doc.text('EXTRAÇÃO DIRETA DO MODELO IFC', 331, 228.5);
+            doc.text('SAFESITE BIM  PLANTA 2D', sbX + 7, cartY + 7);
+            doc.setFontSize(7);
+            doc.text('GEORREFERENCIADA COM O MODELO 3D', sbX + 7, cartY + 12.5);
 
             doc.setDrawColor(15, 23, 42);
-            doc.rect(327, 231, 78, 51);
+            doc.rect(sbX + 3, cartY + 16, sidebarW - 6, cartH - 16);
             doc.setTextColor(15, 23, 42);
             doc.setFontSize(8);
-            doc.text(`OBRA: ${currentProject.name.slice(0, 26)}`, 331, 239);
-            doc.text(`PEÇA: ${code} — ${targetStorey}`, 331, 247);
-            doc.text(`MODELO: ${activeIfcLabel.slice(0, 25)}`, 331, 255);
-            doc.text(`FORMATO: A3 Horizontal • Data: ${new Date().toLocaleDateString('pt-PT')}`, 331, 263);
-            doc.text(`ESTADO: Gerado do IFC Carregado (Rev. R0)`, 331, 271);
+            doc.text(`OBRA: ${currentProject.name.slice(0, 24)}`, sbX + 7, cartY + 23);
+            doc.text(`PEA: ${code} - ${targetStorey}`, sbX + 7, cartY + 30);
+            doc.text(`ESCALA: ${scaleFormat} | ${sheetFormat.toUpperCase()}`, sbX + 7, cartY + 37);
+            doc.text(`DATA: ${new Date().toLocaleDateString('pt-PT')}`, sbX + 7, cartY + 44);
+            doc.text(`COORDENAO: DL 273/2003 (CSO)`, sbX + 7, cartY + 51);
+            doc.text(`ESTADO: Aprovado para Estaleiro`, sbX + 7, cartY + 58);
 
             const pdfBlob = doc.output('blob');
             const createdBlobUrl = URL.createObjectURL(pdfBlob);
@@ -1183,7 +1282,7 @@ export default function BimViewerPage() {
                 code,
                 title,
                 fileName,
-                format: `${modelW.toFixed(1)}×${modelD.toFixed(1)}m (A3)`,
+                format: `${sheetFormat.toUpperCase()} (${scaleFormat})`,
                 storey: targetStorey,
                 revision: 'IFC Direto',
                 discipline: 'architecture',
@@ -1193,6 +1292,20 @@ export default function BimViewerPage() {
                 localBlobUrl: createdBlobUrl,
                 previewDataUrl,
                 vectorSegments: cutSegments.slice(0, 6000),
+                scale: scaleFormat,
+                cotaCorte: cotaOffset,
+                referenceElevation: refElevation,
+                style,
+                underlay: customOptions?.underlayUrl ? {
+                    enabled: true,
+                    url: customOptions.underlayUrl,
+                    fileName: customOptions.underlayFileName || 'Fundo_Referencia.pdf',
+                    offsetX: 0,
+                    offsetZ: 0,
+                    scale: 1.0,
+                    rotation: 0,
+                    opacity: 0.45
+                } : undefined,
                 modelBounds: {
                     minX: min.x,
                     maxX: max.x,
@@ -1206,7 +1319,7 @@ export default function BimViewerPage() {
                 }
             };
 
-            // Persist metadata in state and localStorage (without overflowing quota with large base64)
+            // Persist metadata in state and localStorage
             setCdeDrawings(prev => {
                 const next = [newDrawing, ...prev.filter(d => d.id !== newDrawingId && !isSampleDrawingId(d))];
                 try {
@@ -1238,10 +1351,10 @@ export default function BimViewerPage() {
                     }
                 }).catch(() => {});
 
-            showToast(`⚡ Planta 2D (${code}) extraída do modelo IFC "${activeIfcLabel}" (${sectionedMeshCount} elementos)!`);
+            showToast(`Prancha 2D "${title}" gerada com sucesso e aberta no editor!`);
         } catch (err: any) {
-            console.error('Erro ao gerar planta 2D a partir do IFC:', err);
-            showToast('Aviso: Não foi possível extrair a planta 2D do modelo IFC.');
+            console.error('Failed to generate 2D drawing:', err);
+            showToast('Aviso: No foi possvel extrair a planta 2D do modelo IFC.');
         } finally {
             setIsGenerating2dPlan(false);
         }
@@ -2173,6 +2286,8 @@ export default function BimViewerPage() {
                     setSelected2dDrawing(cdeDrawings[0]);
                 } else {
                     setSelected2dDrawing(null);
+                    // Automatic generation of 2D drawing of model in current view
+                    handleGenerate2dDrawingFromModel();
                 }
             }
             showToast('Modo Planta Técnica 2D ativado.');
@@ -3276,6 +3391,15 @@ export default function BimViewerPage() {
                             <Layers size={13} strokeWidth={2} />
                             <span>2D</span>
                         </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsNew2dModalOpen(true)}
+                            className="h-6 px-2.5 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs ml-1"
+                            title="Criar Novo Desenho 2D / Prancha Técnica a partir do Modelo 3D"
+                        >
+                            <Sparkles size={12} strokeWidth={2} />
+                            <span>+ Novo 2D</span>
+                        </button>
                     </div>
 
                     {/* NAVEGAÇÃO 3D: Orbitar vs Pan (Deslocamento) */}
@@ -3892,7 +4016,7 @@ export default function BimViewerPage() {
                                                             </p>
                                                             <button
                                                                 type="button"
-                                                                onClick={handleGenerate2dDrawingFromModel}
+                                                                onClick={() => handleGenerate2dDrawingFromModel()}
                                                                 disabled={isGenerating2dPlan}
                                                                 className="w-full py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer transition-colors"
                                                             >
@@ -3991,7 +4115,7 @@ export default function BimViewerPage() {
                                                             })}
                                                             <button
                                                                 type="button"
-                                                                onClick={handleGenerate2dDrawingFromModel}
+                                                                onClick={() => handleGenerate2dDrawingFromModel()}
                                                                 disabled={isGenerating2dPlan}
                                                                 className="w-full py-1.5 px-2 mt-1 rounded-lg border border-dashed border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
                                                                 title="Gerar nova planta 2D técnica a partir do modelo 3D"
@@ -4650,6 +4774,26 @@ export default function BimViewerPage() {
                                         <span>← Voltar ao 3D</span>
                                     </button>
 
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsNew2dModalOpen(true)}
+                                        className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all shrink-0"
+                                        title="Configurar e Gerar Novo Desenho 2D do Modelo"
+                                    >
+                                        <Sparkles size={13} />
+                                        <span>+ Novo Desenho 2D</span>
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setIs2dDrawingsModalOpen(true)}
+                                        className="h-8 px-2.5 bg-white dark:bg-neutral-800 hover:bg-slate-50 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-neutral-700 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all shrink-0"
+                                        title="Ver e Selecionar Outras Plantas 2D do CDE"
+                                    >
+                                        <FileText size={13} />
+                                        <span>Pranchas CDE ({cdeDrawings.length})</span>
+                                    </button>
+
                                     <div className="h-5 w-px bg-slate-200 dark:bg-neutral-700 shrink-0 mx-1" />
 
                                     <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shrink-0 font-mono">
@@ -4832,7 +4976,7 @@ export default function BimViewerPage() {
                                 <div className="flex flex-col sm:flex-row items-center gap-2 w-full">
                                     <button
                                         type="button"
-                                        onClick={handleGenerate2dDrawingFromModel}
+                                        onClick={() => handleGenerate2dDrawingFromModel()}
                                         disabled={isGenerating2dPlan}
                                         className="w-full sm:flex-1 py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
                                     >
@@ -5301,6 +5445,275 @@ export default function BimViewerPage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal: Configurar Novo Desenho 2D / Prancha Técnica (IFC -> CAD & PDF) */}
+            {isNew2dModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-neutral-800 max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+                        {/* Header */}
+                        <div className="p-4 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/40">
+                            <div className="flex items-center gap-2.5">
+                                <Sparkles size={20} className="text-emerald-600" />
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        Novo Desenho 2D / Prancha Técnica do Modelo
+                                    </h3>
+                                    <p className="text-[11px] text-slate-500">
+                                        Geração calibrada de plantas CAD e PDF com corte regulamentar a +1,20m e opções de fundo
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setIsNew2dModalOpen(false)}
+                                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body Form */}
+                        <div className="p-5 flex-1 overflow-y-auto space-y-4 text-xs">
+                            {/* Identificação */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="col-span-2">
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        Título do Desenho / Peça Desenhada
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={newDrawingTitle}
+                                        onChange={(e) => setNewDrawingTitle(e.target.value)}
+                                        className="w-full px-3 py-1.5 border border-slate-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 font-medium"
+                                        placeholder="Ex: Planta de Estaleiro e Segurança - Piso 0"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        Código da Peça
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={newDrawingCode}
+                                        onChange={(e) => setNewDrawingCode(e.target.value)}
+                                        className="w-full px-3 py-1.5 border border-slate-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 font-mono font-bold"
+                                        placeholder="Ex: PE-01"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Vista do Modelo 3D */}
+                            <div>
+                                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                    Vista do Modelo 3D a Projetar
+                                </label>
+                                <select
+                                    value={newDrawingViewOrientation}
+                                    onChange={(e) => setNewDrawingViewOrientation(e.target.value as ViewOrientation)}
+                                    className="w-full px-3 py-1.5 border border-slate-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 font-semibold"
+                                >
+                                    <option value="top">📐 Planta / Topo (Planta do Piso com Corte Horizontal)</option>
+                                    <option value="front">🏛️ Alçado Sul (Frente)</option>
+                                    <option value="back">🏛️ Alçado Norte (Trás)</option>
+                                    <option value="right">🏛️ Alçado Este (Direita)</option>
+                                    <option value="left">🏛️ Alçado Oeste (Esquerda)</option>
+                                    <option value="isometric">🧊 Vista Isométrica / Axonométrica</option>
+                                </select>
+                            </div>
+
+                            {/* Piso e Cota de Corte Regulamentar (+1,20m) */}
+                            <div className="grid grid-cols-3 gap-3 p-3 bg-slate-50 dark:bg-neutral-800/60 rounded-xl border border-slate-200 dark:border-neutral-700">
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                        Piso / Nível
+                                    </label>
+                                    <select
+                                        value={newDrawingStorey}
+                                        onChange={(e) => {
+                                            const st = e.target.value;
+                                            setNewDrawingStorey(st);
+                                            setNewDrawingTitle(`Planta de Estaleiro e Segurança - ${st}`);
+                                            const ref = st === 'Piso 1' ? 3.3 : st === 'Piso 2' ? 6.6 : st === 'Cobertura' ? 9.9 : 0.0;
+                                            setNewDrawingRefElevation(ref);
+                                        }}
+                                        className="w-full px-2 py-1 border border-slate-200 dark:border-neutral-700 rounded bg-white dark:bg-neutral-800 font-bold"
+                                    >
+                                        <option value="Piso 0">Piso 0 (R/C)</option>
+                                        <option value="Piso 1">Piso 1</option>
+                                        <option value="Piso 2">Piso 2</option>
+                                        <option value="Cobertura">Cobertura</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                        Cota do Piso (Y ref)
+                                    </label>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            value={newDrawingRefElevation}
+                                            onChange={(e) => setNewDrawingRefElevation(Number(e.target.value))}
+                                            className="w-full px-2 py-1 border border-slate-200 dark:border-neutral-700 rounded bg-white dark:bg-neutral-800 font-mono"
+                                        />
+                                        <span className="ml-1 text-[10px] text-slate-400">m</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mb-1">
+                                        Cota de Corte (+1,20m)
+                                    </label>
+                                    <div className="flex items-center">
+                                        <input
+                                            type="number"
+                                            step="0.05"
+                                            value={newDrawingCotaCorteOffset}
+                                            onChange={(e) => setNewDrawingCotaCorteOffset(Number(e.target.value))}
+                                            className="w-full px-2 py-1 border border-emerald-300 dark:border-emerald-700 rounded bg-emerald-50 dark:bg-emerald-950 font-mono font-bold text-emerald-800 dark:text-emerald-200"
+                                        />
+                                        <span className="ml-1 text-[10px] text-slate-400">m</span>
+                                    </div>
+                                </div>
+                                <div className="col-span-3 text-[10px] text-slate-500 dark:text-slate-400 italic">
+                                    💡 Norma de desenho técnico: os cortes horizontais de planta são realizados a <strong>1,20m acima do piso de referência</strong> para seccionar paredes, portas e janelas mantendo os peitoris visíveis.
+                                </div>
+                            </div>
+
+                            {/* Formato da Folha, Escala e Estilo */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        Tamanho da Folha
+                                    </label>
+                                    <select
+                                        value={newDrawingFormat}
+                                        onChange={(e) => setNewDrawingFormat(e.target.value as any)}
+                                        className="w-full px-2 py-1.5 border border-slate-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 uppercase font-bold"
+                                    >
+                                        <option value="a4">A4 (297×210 mm)</option>
+                                        <option value="a3">A3 (420×297 mm) [Padrão]</option>
+                                        <option value="a2">A2 (594×420 mm)</option>
+                                        <option value="a1">A1 (841×594 mm)</option>
+                                        <option value="a0">A0 (1189×841 mm)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        Escala Técnica
+                                    </label>
+                                    <select
+                                        value={newDrawingScale}
+                                        onChange={(e) => setNewDrawingScale(e.target.value as any)}
+                                        className="w-full px-2 py-1.5 border border-slate-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 font-bold"
+                                    >
+                                        <option value="1:50">Escala 1:50 (Pormenor)</option>
+                                        <option value="1:100">Escala 1:100 (Estaleiro Padrão)</option>
+                                        <option value="1:200">Escala 1:200 (Implantação)</option>
+                                        <option value="1:500">Escala 1:500 (Conjunto)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        Estilo do Desenho
+                                    </label>
+                                    <select
+                                        value={newDrawingStyle}
+                                        onChange={(e) => setNewDrawingStyle(e.target.value as any)}
+                                        className="w-full px-2 py-1.5 border border-slate-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-800 font-semibold"
+                                    >
+                                        <option value="cad">📐 Tipo Planta CAD (Vetorial P&B)</option>
+                                        <option value="shaded">🎨 Modelo Sombreado (IFC Shaded)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Planta PDF de Fundo de Referência (Opcional) */}
+                            <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 rounded-xl border border-amber-200 dark:border-amber-800/60 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 font-bold text-[11px] text-amber-900 dark:text-amber-200">
+                                        <FileUp size={14} className="text-amber-600" />
+                                        <span>Planta de Fundo de Referência (Opcional)</span>
+                                    </div>
+                                    {newDrawingUnderlayUrl && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setNewDrawingUnderlayUrl(null);
+                                                setNewDrawingUnderlayFileName(null);
+                                            }}
+                                            className="text-[10px] text-red-600 hover:underline cursor-pointer"
+                                        >
+                                            Remover Fundo
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-amber-800/80 dark:text-amber-300/80 leading-relaxed">
+                                    Pode carregar uma planta PDF ou imagem de projeto existente para colocar no fundo. Posteriormente, no editor 2D, poderá ajustar a escala, deslocamento, rotação ou ocultar/tirar o fundo.
+                                </p>
+                                {newDrawingUnderlayFileName ? (
+                                    <div className="flex items-center gap-2 bg-white dark:bg-neutral-800 px-2.5 py-1.5 rounded-lg border border-amber-300 text-[11px] text-slate-700 dark:text-slate-200">
+                                        <Check size={13} className="text-emerald-600" />
+                                        <span className="truncate font-semibold">{newDrawingUnderlayFileName}</span>
+                                    </div>
+                                ) : (
+                                    <input
+                                        type="file"
+                                        accept=".pdf,image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            const reader = new FileReader();
+                                            reader.onload = (ev) => {
+                                                setNewDrawingUnderlayUrl(ev.target?.result as string);
+                                                setNewDrawingUnderlayFileName(file.name);
+                                            };
+                                            reader.readAsDataURL(file);
+                                        }}
+                                        className="text-[11px] file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-[10px] file:font-bold file:bg-amber-600 file:text-white cursor-pointer"
+                                    />
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Footer Actions */}
+                        <div className="p-4 border-t border-slate-200 dark:border-neutral-800 flex items-center justify-end gap-2 bg-slate-50 dark:bg-neutral-900">
+                            <button
+                                type="button"
+                                onClick={() => setIsNew2dModalOpen(false)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-neutral-800 cursor-pointer"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    setIsNew2dModalOpen(false);
+                                    await handleGenerate2dDrawingFromModel({
+                                        title: newDrawingTitle,
+                                        code: newDrawingCode,
+                                        format: newDrawingFormat,
+                                        orientation: newDrawingOrientation,
+                                        viewOrientation: newDrawingViewOrientation,
+                                        scale: newDrawingScale,
+                                        style: newDrawingStyle,
+                                        storey: newDrawingStorey,
+                                        referenceElevation: newDrawingRefElevation,
+                                        cotaCorteOffset: newDrawingCotaCorteOffset,
+                                        underlayUrl: newDrawingUnderlayUrl,
+                                        underlayFileName: newDrawingUnderlayFileName
+                                    });
+                                }}
+                                disabled={isGenerating2dPlan}
+                                className="px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                                {isGenerating2dPlan ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                                <span>Gerar Prancha 2D (Guardar no CDE)</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
