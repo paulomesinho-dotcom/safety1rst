@@ -23,6 +23,10 @@ import {
     Trash2,
     Layers,
     RotateCcw,
+    Save,
+    Share2,
+    GitBranch,
+    PackageCheck,
     X,
     Maximize2,
     Minimize2,
@@ -93,6 +97,7 @@ import {
     generateRealisticPdfDrawing
 } from '@/lib/bim-samples';
 import { shouldUseFragmentsEngine, calculateEngineOptimization } from '@/lib/that-open-fragments';
+import { generateSafetyIfcExport } from '@/lib/ifc-export';
 
 export type ProjectionMode = 'perspective' | 'isometric';
 export type ViewOrientation = 'isometric' | 'top' | 'front' | 'back' | 'right' | 'left';
@@ -233,6 +238,17 @@ const SEED_LOGISTICS_ITEMS: Omit<SiteLogisticsItem, 'id'>[] = [
     }
 ];
 
+export type BimState = 'WIP' | 'SHARED' | 'PUBLISHED' | 'ARCHIVED';
+
+export interface BimSubProject {
+    id: string;
+    projectId: string;
+    name: string;
+    code: string;
+    description?: string;
+    createdAt: string;
+}
+
 // 2D Drawings catalog in project CDE
 export interface CdeDrawing2D {
     id: string;
@@ -243,6 +259,10 @@ export interface CdeDrawing2D {
     storey: string;
     format: string;
     revision: string;
+    bimState?: BimState;
+    subProjectId?: string;
+    subProjectName?: string;
+    overlays?: any;
     fileName: string;
     date: string;
     webViewLink?: string;
@@ -475,6 +495,22 @@ export default function BimViewerPage() {
     const [cdeStatus, setCdeStatus] = useState<{ connected: boolean; provider?: string | null; hasFiles?: boolean }>(initialCdeData.status);
     const [isSyncingCde, setIsSyncingCde] = useState(false);
     const [cdeDrawings, setCdeDrawings] = useState<CdeDrawing2D[]>(initialCdeData.drawings);
+
+    // BIM Subprojects / Fases de Obra
+    const [subProjects, setSubProjects] = useState<BimSubProject[]>(() => {
+        try {
+            const cached = localStorage.getItem(`safesite_bim_subprojects_${projectId}`);
+            if (cached) return JSON.parse(cached);
+        } catch (_) {}
+        return [
+            { id: 'global', projectId, name: 'Obra Global (Estaleiro Completo)', code: 'GLOBAL', createdAt: new Date().toISOString() }
+        ];
+    });
+    const [selectedSubProjectId, setSelectedSubProjectId] = useState<string>('global');
+    const [isNewSubProjectModalOpen, setIsNewSubProjectModalOpen] = useState<boolean>(false);
+    const [newSubProjectName, setNewSubProjectName] = useState<string>('');
+    const [newSubProjectCode, setNewSubProjectCode] = useState<string>('');
+    const [selectedBimStateTab, setSelectedBimStateTab] = useState<'all' | 'WIP' | 'SHARED' | 'PUBLISHED' | 'ARCHIVED'>('all');
     const [selected2dDrawing, setSelected2dDrawing] = useState<CdeDrawing2D | null>(initialCdeData.drawings[0] || null);
 
     // Active 2D drawing: strictly real CDE or IFC-generated drawings
@@ -1284,7 +1320,9 @@ export default function BimViewerPage() {
                 fileName,
                 format: `${sheetFormat.toUpperCase()} (${scaleFormat})`,
                 storey: targetStorey,
-                revision: 'IFC Direto',
+                revision: 'P01',
+                bimState: 'WIP',
+                subProjectId: selectedSubProjectId,
                 discipline: 'architecture',
                 date: new Date().toISOString().slice(0, 10),
                 isRealCdeFile: true,
@@ -1358,6 +1396,148 @@ export default function BimViewerPage() {
         } finally {
             setIsGenerating2dPlan(false);
         }
+    };
+
+    // Handlers for BIM Subprojects, CDE Sync and Standalone Safety IFC Export
+    const handleCreateSubProject = async () => {
+        if (!newSubProjectName.trim()) return;
+        const newId = `subproj-${Date.now()}`;
+        const newSub: BimSubProject = {
+            id: newId,
+            projectId,
+            name: newSubProjectName.trim(),
+            code: newSubProjectCode.trim() || `SUB-${subProjects.length + 1}`,
+            createdAt: new Date().toISOString()
+        };
+        const nextSubs = [...subProjects, newSub];
+        setSubProjects(nextSubs);
+        setSelectedSubProjectId(newId);
+        try {
+            localStorage.setItem(`safesite_bim_subprojects_${projectId}`, JSON.stringify(nextSubs));
+        } catch (_) {}
+
+        showToast(`Subprojeto "${newSub.name}" criado com estrutura ISO 19650 (WIP, Shared, Published, Archived)!`);
+        setIsNewSubProjectModalOpen(false);
+        setNewSubProjectName('');
+        setNewSubProjectCode('');
+    };
+
+    const handleExportSafetyIfc = () => {
+        try {
+            showToast('A compilar modelo OpenBIM IFC4 de Segurana e Estaleiro...');
+            const activeSub = subProjects.find(s => s.id === selectedSubProjectId);
+            const hseIfcContent = generateSafetyIfcExport(
+                currentProject as any,
+                projectObservations,
+                projectLogistics,
+                projectWorkZones,
+                {
+                    subProjectName: activeSub?.name,
+                    authorName: 'Coordenador de Segurana em Obra (CSO)',
+                    organizationName: 'SafeSite BIM HSE'
+                }
+            );
+
+            const blob = new Blob([hseIfcContent], { type: 'application/x-step' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const cleanName = currentProject.name.replace(/[^a-zA-Z0-9]/g, '_');
+            const fileName = `${cleanName}_Seguranca_Estaleiro_IFC4.ifc`;
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast(`Modelo IFC4 de Segurana "${fileName}" exportado! Pode ser aberto no Revit, ArchiCAD ou Solibri sobre o modelo de arquitetura/estruturas.`);
+        } catch (err) {
+            console.error('Failed to export Safety IFC:', err);
+            showToast('Erro ao exportar modelo IFC de segurana.');
+        }
+    };
+
+    const handleSaveInteractivePdfToCde = async (dw: CdeDrawing2D, pdfBlob: Blob, pdfDataUrl: string, overlays: any) => {
+        const updatedBlobUrl = URL.createObjectURL(pdfBlob);
+        const updatedDw: CdeDrawing2D = {
+            ...dw,
+            localBlobUrl: updatedBlobUrl,
+            previewDataUrl: pdfDataUrl,
+            overlays,
+            date: new Date().toISOString().slice(0, 10)
+        };
+
+        setCdeDrawings(prev => {
+            const next = prev.map(d => d.id === dw.id ? updatedDw : d);
+            try {
+                const lightNext = next.map(({ previewDataUrl: _p, vectorSegments: _v, localBlobUrl: _b, ...rest }) => rest);
+                localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(lightNext));
+            } catch (_) {}
+            return next;
+        });
+
+        setSelected2dDrawing(updatedDw);
+        setCurrentPdfUrl(updatedBlobUrl);
+
+        // Upload to CDE folder if connected
+        try {
+            const r = await fetch(`/api/projects/${projectId}/cde`);
+            const data = await r.json();
+            if (data?.cdeConfig?.connected) {
+                const targetFolder = `Desenhos 2D (Plantas)/${dw.bimState || 'WIP'}`;
+                const file = new File([pdfBlob], dw.fileName, { type: 'application/pdf' });
+                await uploadToCDEFolder({ ...data.cdeConfig, projectId } as any, targetFolder, file);
+                showToast(`Planta "${dw.code}" sincronizada com o CDE Cloud na pasta ${targetFolder}.`);
+            }
+        } catch (_) {}
+    };
+
+    const handlePublishDrawingRevision = async (dw: CdeDrawing2D, newRev: string, newState: BimState, pdfBlob: Blob, pdfDataUrl: string) => {
+        const updatedBlobUrl = URL.createObjectURL(pdfBlob);
+        const cleanTitle = dw.title.replace(/[^a-zA-Z0-9]/g, '_');
+        const newFileName = `${dw.code}_${cleanTitle}_Rev_${newRev}.pdf`;
+
+        // Archive current version
+        const archivedDw: CdeDrawing2D = {
+            ...dw,
+            id: `arch-${dw.id}-${Date.now()}`,
+            bimState: 'ARCHIVED',
+            title: `${dw.title} (Histrico Rev. ${dw.revision})`
+        };
+
+        // Published new version
+        const publishedDw: CdeDrawing2D = {
+            ...dw,
+            revision: newRev,
+            bimState: newState,
+            localBlobUrl: updatedBlobUrl,
+            previewDataUrl: pdfDataUrl,
+            fileName: newFileName,
+            date: new Date().toISOString().slice(0, 10)
+        };
+
+        setCdeDrawings(prev => {
+            const filtered = prev.filter(d => d.id !== dw.id);
+            const next = [publishedDw, archivedDw, ...filtered];
+            try {
+                const lightNext = next.map(({ previewDataUrl: _p, vectorSegments: _v, localBlobUrl: _b, ...rest }) => rest);
+                localStorage.setItem(`safesite_cde_drawings_${projectId}`, JSON.stringify(lightNext));
+            } catch (_) {}
+            return next;
+        });
+
+        setSelected2dDrawing(publishedDw);
+        setCurrentPdfUrl(updatedBlobUrl);
+
+        try {
+            const r = await fetch(`/api/projects/${projectId}/cde`);
+            const data = await r.json();
+            if (data?.cdeConfig?.connected) {
+                const file = new File([pdfBlob], newFileName, { type: 'application/pdf' });
+                await uploadToCDEFolder({ ...data.cdeConfig, projectId } as any, 'Desenhos 2D (Plantas)/PUBLISHED', file);
+                showToast(`Reviso ${newRev} publicada e arquivada em "Desenhos 2D (Plantas)/PUBLISHED" no CDE Cloud.`);
+            }
+        } catch (_) {}
     };
 
     // Filter project observations and logistics items
@@ -4008,15 +4188,40 @@ export default function BimViewerPage() {
                                             </button>
 
                                             {expandedFolders.drawings_root && (
-                                                <div className="pl-3.5 space-y-1.5 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
-                                                    {cdeDrawings.length === 0 ? (
+                                                <div className="pl-3.5 space-y-2 mt-1 border-l-2 border-slate-200 dark:border-neutral-700 ml-2">
+                                                    {/* Filtros de Estados BIM ISO 19650 */}
+                                                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+                                                        {(['all', 'WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED'] as const).map(tab => {
+                                                            const count = tab === 'all'
+                                                                ? cdeDrawings.length
+                                                                : cdeDrawings.filter(d => (d.bimState || 'WIP') === tab).length;
+                                                            return (
+                                                                <button
+                                                                    key={tab}
+                                                                    type="button"
+                                                                    onClick={() => setSelectedBimStateTab(tab)}
+                                                                    className={cn(
+                                                                        "px-1.5 py-0.5 rounded text-[9px] font-bold shrink-0 transition-colors cursor-pointer",
+                                                                        selectedBimStateTab === tab
+                                                                            ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                                                                            : "bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-neutral-800 dark:text-slate-400"
+                                                                    )}
+                                                                >
+                                                                    {tab === 'all' ? 'Todos' : tab} ({count})
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+
+                                                    {/* Lista de Desenhos Filtrados */}
+                                                    {cdeDrawings.filter(d => selectedBimStateTab === 'all' || (d.bimState || 'WIP') === selectedBimStateTab).length === 0 ? (
                                                         <div className="p-2.5 rounded-lg bg-blue-50/60 dark:bg-blue-950/30 border border-dashed border-blue-200 dark:border-blue-800 text-center space-y-2">
                                                             <p className="text-[10px] text-slate-600 dark:text-slate-300">
-                                                                Nenhum desenho 2D no CDE. Pode gerar plantas técnicas diretamente a partir do modelo 3D IFC.
+                                                                Nenhum desenho 2D neste estado BIM. Pode gerar pranchas diretamente a partir do modelo 3D IFC.
                                                             </p>
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleGenerate2dDrawingFromModel()}
+                                                                onClick={() => setIsNew2dModalOpen(true)}
                                                                 disabled={isGenerating2dPlan}
                                                                 className="w-full py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-[10px] font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer transition-colors"
                                                             >
@@ -4026,102 +4231,112 @@ export default function BimViewerPage() {
                                                         </div>
                                                     ) : (
                                                         <>
-                                                            {cdeDrawings.map(dw => {
-                                                                const isSelected = selected2dDrawing?.id === dw.id && viewDimension === '2d';
-                                                                return (
-                                                                    <div
-                                                                        key={dw.id}
-                                                                        onClick={() => {
-                                                                            setSelected2dDrawing(dw);
-                                                                            setViewDimension('2d');
-                                                                            setDrawingViewMode('pdf');
-                                                                            showToast(`Desenho "${dw.code} - ${dw.title}" aberto em PDF.`);
-                                                                        }}
-                                                                        className={cn(
-                                                                            "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex flex-col gap-1.5",
-                                                                            isSelected
-                                                                                ? "bg-blue-50/90 border-blue-500 text-blue-950 font-bold dark:bg-blue-950/70 dark:border-blue-600 dark:text-blue-100 shadow-2xs ring-1 ring-blue-500/20"
-                                                                                : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300 dark:hover:border-neutral-600"
-                                                                        )}
-                                                                    >
-                                                                        <div className="flex items-start justify-between gap-1.5">
-                                                                            <div className="truncate flex-1 min-w-0">
-                                                                                <div className="font-semibold truncate flex items-center gap-1.5">
-                                                                                    <FileText size={12} className={isSelected ? "text-blue-600 dark:text-blue-400 shrink-0" : "text-slate-400 shrink-0"} />
-                                                                                    <span className="text-blue-600 dark:text-blue-400 font-bold">{dw.code}</span>
-                                                                                    <span className="truncate">{dw.title}</span>
-                                                                                </div>
-                                                                                <div className="text-[9px] text-slate-400 truncate pl-4.5">{dw.storey} • {dw.format}</div>
-                                                                            </div>
-                                                                            {dw.isRealCdeFile ? (
-                                                                                <span className="text-[8px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-1 py-0.5 rounded font-bold uppercase tracking-wider shrink-0">
-                                                                                    CDE Cloud
-                                                                                </span>
-                                                                            ) : (
-                                                                                <span className="text-[8px] bg-slate-100 text-slate-500 dark:bg-neutral-800 dark:text-neutral-400 px-1 py-0.5 rounded font-medium uppercase tracking-wider shrink-0">
-                                                                                    Exemplo
-                                                                                </span>
+                                                            {cdeDrawings
+                                                                .filter(d => selectedBimStateTab === 'all' || (d.bimState || 'WIP') === selectedBimStateTab)
+                                                                .map(dw => {
+                                                                    const isSelected = selected2dDrawing?.id === dw.id && viewDimension === '2d';
+                                                                    const bState = dw.bimState || 'WIP';
+                                                                    return (
+                                                                        <div
+                                                                            key={dw.id}
+                                                                            onClick={() => {
+                                                                                setSelected2dDrawing(dw);
+                                                                                setViewDimension('2d');
+                                                                                setDrawingViewMode('interactive');
+                                                                                showToast(`Planta "${dw.code} - ${dw.title}" aberta na prancha interativa.`);
+                                                                            }}
+                                                                            className={cn(
+                                                                                "p-2 rounded-lg border text-[11px] transition-all cursor-pointer flex flex-col gap-1.5",
+                                                                                isSelected
+                                                                                    ? "bg-blue-50/90 border-blue-500 text-blue-950 font-bold dark:bg-blue-950/70 dark:border-blue-600 dark:text-blue-100 shadow-2xs ring-1 ring-blue-500/20"
+                                                                                    : "bg-white dark:bg-neutral-800/60 border-slate-200 dark:border-neutral-700 hover:border-slate-300 dark:hover:border-neutral-600"
                                                                             )}
-                                                                        </div>
+                                                                        >
+                                                                            <div className="flex items-start justify-between gap-1.5">
+                                                                                <div className="truncate flex-1 min-w-0">
+                                                                                    <div className="font-semibold truncate flex items-center gap-1.5">
+                                                                                        <FileText size={12} className={isSelected ? "text-blue-600 dark:text-blue-400 shrink-0" : "text-slate-400 shrink-0"} />
+                                                                                        <span className="text-blue-600 dark:text-blue-400 font-bold">{dw.code}</span>
+                                                                                        <span className="truncate">{dw.title}</span>
+                                                                                    </div>
+                                                                                    <div className="text-[9px] text-slate-400 truncate pl-4.5">
+                                                                                        {dw.storey} • {dw.format}
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="flex flex-col items-end gap-0.5 shrink-0">
+                                                                                    <span className={cn(
+                                                                                        "text-[8px] px-1 py-0.2 rounded font-bold uppercase tracking-wider font-mono",
+                                                                                        bState === 'PUBLISHED' ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" :
+                                                                                        bState === 'SHARED' ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300" :
+                                                                                        bState === 'ARCHIVED' ? "bg-slate-200 text-slate-700" :
+                                                                                        "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                                                                                    )}>
+                                                                                        {bState}
+                                                                                    </span>
+                                                                                    <span className="text-[8px] text-slate-400 font-mono">
+                                                                                        Rev. {dw.revision}
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
 
-                                                                        {/* Quick Action Buttons: Ver PDF vs Anotar */}
-                                                                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-neutral-750 text-[10px]">
-                                                                            <span className="text-[9px] text-slate-400 font-mono">{dw.revision}</span>
-                                                                            <div className="flex items-center gap-1">
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        setSelected2dDrawing(dw);
-                                                                                        setViewDimension('2d');
-                                                                                        setDrawingViewMode('pdf');
-                                                                                        showToast(`A visualizar PDF de "${dw.code}" no ecrã central.`);
-                                                                                    }}
-                                                                                    className={cn(
-                                                                                        "px-2 py-0.5 rounded font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
-                                                                                        isSelected && drawingViewMode === 'pdf'
-                                                                                            ? "bg-blue-600 text-white"
-                                                                                            : "bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
-                                                                                    )}
-                                                                                    title="Visualizar documento PDF oficial"
-                                                                                >
-                                                                                    <FileText size={10} />
-                                                                                    <span>Ver PDF</span>
-                                                                                </button>
-                                                                                <button
-                                                                                    type="button"
-                                                                                    onClick={(e) => {
-                                                                                        e.stopPropagation();
-                                                                                        setSelected2dDrawing(dw);
-                                                                                        setViewDimension('2d');
-                                                                                        setDrawingViewMode('interactive');
-                                                                                        showToast(`Prancha interativa de "${dw.code}" ativada.`);
-                                                                                    }}
-                                                                                    className={cn(
-                                                                                        "px-2 py-0.5 rounded font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
-                                                                                        isSelected && drawingViewMode === 'interactive'
-                                                                                            ? "bg-amber-600 text-white"
-                                                                                            : "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-neutral-800 dark:text-slate-300"
-                                                                                    )}
-                                                                                    title="Abrir prancha interativa de estaleiro para anotações e equipamentos"
-                                                                                >
-                                                                                    <Layers size={10} />
-                                                                                    <span>Anotar</span>
-                                                                                </button>
+                                                                            {/* Quick Action Buttons: Ver PDF vs Anotar */}
+                                                                            <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-neutral-750 text-[10px]">
+                                                                                <span className="text-[9px] text-slate-400 font-mono">{dw.date}</span>
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setSelected2dDrawing(dw);
+                                                                                            setViewDimension('2d');
+                                                                                            setDrawingViewMode('pdf');
+                                                                                            showToast(`A visualizar prancha PDF oficial de "${dw.code}".`);
+                                                                                        }}
+                                                                                        className={cn(
+                                                                                            "px-2 py-0.5 rounded font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
+                                                                                            isSelected && drawingViewMode === 'pdf'
+                                                                                                ? "bg-blue-600 text-white"
+                                                                                                : "bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
+                                                                                        )}
+                                                                                        title="Visualizar documento PDF oficial guardado"
+                                                                                    >
+                                                                                        <FileText size={10} />
+                                                                                        <span>Ver PDF</span>
+                                                                                    </button>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={(e) => {
+                                                                                            e.stopPropagation();
+                                                                                            setSelected2dDrawing(dw);
+                                                                                            setViewDimension('2d');
+                                                                                            setDrawingViewMode('interactive');
+                                                                                            showToast(`Planta interativa de "${dw.code}" ativada para desenhar.`);
+                                                                                        }}
+                                                                                        className={cn(
+                                                                                            "px-2 py-0.5 rounded font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs",
+                                                                                            isSelected && drawingViewMode === 'interactive'
+                                                                                                ? "bg-amber-600 text-white"
+                                                                                                : "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-neutral-800 dark:text-slate-300"
+                                                                                        )}
+                                                                                        title="Abrir prancha interativa para desenhar símbolos, vias e zonas em cima"
+                                                                                    >
+                                                                                        <Layers size={10} />
+                                                                                        <span>Anotar</span>
+                                                                                    </button>
+                                                                                </div>
                                                                             </div>
                                                                         </div>
-                                                                    </div>
-                                                                );
-                                                            })}
+                                                                    );
+                                                                })}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => handleGenerate2dDrawingFromModel()}
+                                                                onClick={() => setIsNew2dModalOpen(true)}
                                                                 disabled={isGenerating2dPlan}
                                                                 className="w-full py-1.5 px-2 mt-1 rounded-lg border border-dashed border-blue-300 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors shadow-2xs"
                                                                 title="Gerar nova planta 2D técnica a partir do modelo 3D"
                                                             >
                                                                 {isGenerating2dPlan ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
-                                                                <span>+ Gerar Planta 2D do Modelo</span>
+                                                                <span>+ Nova Planta 2D (IFC)</span>
                                                             </button>
                                                         </>
                                                     )}
