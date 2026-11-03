@@ -5810,6 +5810,88 @@ export default function BimViewerPage() {
             )}
 
             {/* Modal: Configurar Novo Desenho 2D / Prancha Técnica (IFC -> CAD & PDF) */}
+            {/* Modal: Novo Subprojeto / Fase da Obra (ISO 19650) */}
+            {isNewSubProjectModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+                    <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-neutral-800 max-w-md w-full overflow-hidden flex flex-col">
+                        <div className="p-4 border-b border-slate-200 dark:border-neutral-800 flex items-center justify-between bg-blue-50 dark:bg-blue-950/40">
+                            <div className="flex items-center gap-2">
+                                <Building2 size={18} className="text-blue-600 dark:text-blue-400" />
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">Novo Subprojeto / Fase da Obra</h3>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">Criação da estrutura CDE ISO 19650 sincronizada</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsNewSubProjectModalOpen(false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        <div className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                    Nome do Subprojeto ou Fase:
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newSubProjectName}
+                                    onChange={e => setNewSubProjectName(e.target.value)}
+                                    placeholder="Ex: Bloco A - Residencial, Fase 1 - Contenções, Piso -2..."
+                                    className="w-full h-9 px-3 bg-slate-50 dark:bg-neutral-800 border border-slate-300 dark:border-neutral-700 rounded-lg text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-200 mb-1">
+                                    Código de Identificação:
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newSubProjectCode}
+                                    onChange={e => setNewSubProjectCode(e.target.value)}
+                                    placeholder="Ex: BLOCO-A, FASE-01, PISO-0..."
+                                    className="w-full h-9 px-3 bg-slate-50 dark:bg-neutral-800 border border-slate-300 dark:border-neutral-700 rounded-lg text-xs font-semibold uppercase focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            <div className="p-3 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl space-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+                                <span className="font-bold text-blue-950 dark:text-blue-200 block">Pastas criadas no CDE externo (ISO 19650):</span>
+                                <div className="space-y-0.5 font-mono text-[9.5px]">
+                                    <div>📁 [Nome]/01-Modelos BIM (IFC) [WIP, Shared, Published, Archived]</div>
+                                    <div>📁 [Nome]/02-Desenhos 2D (Plantas) [WIP, Shared, Published, Archived]</div>
+                                    <div>📁 [Nome]/03-Planos de Estaleiro e Emergência</div>
+                                    <div>📁 [Nome]/04-Visitas de Inspeção e Segurança</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-slate-200 dark:border-neutral-800 flex items-center justify-end gap-2 bg-slate-50 dark:bg-neutral-900">
+                            <button
+                                type="button"
+                                onClick={() => setIsNewSubProjectModalOpen(false)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-neutral-800 cursor-pointer"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleCreateSubProject}
+                                disabled={!newSubProjectName.trim()}
+                                className="px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                                <FolderPlus size={13} />
+                                <span>Criar Subprojeto & Estrutura CDE</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isNew2dModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
                     <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-neutral-800 max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
