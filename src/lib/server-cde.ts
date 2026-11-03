@@ -1434,7 +1434,7 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         return { success: true, logs, companyFolderId };
     }
 
-    if (action === 'initialize_project_structure' || action === 'init_project_bim_structure') {
+    if (action === 'initialize_project_structure' || action === 'init_project_bim_structure' || action === 'create_subproject_bim_folders') {
         clearServerCdeCache();
         const logs: string[] = [];
         const baseFolder = await resolveBaseFolder();
@@ -1462,10 +1462,42 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
             logs.push(`Aviso pastas BIM na raiz: ${bimErr.message}`);
         }
 
-        if (action === 'init_project_bim_structure') {
+        if (action === 'init_project_bim_structure' || action === 'create_subproject_bim_folders') {
+            const subProjectName = payload.subProjectName || payload.name;
+            let targetRootId = baseFolderId;
+            if (subProjectName && subProjectName.trim()) {
+                const subRes = await ensureSharePointFolder(baseFolderId, subProjectName.trim(), driveId);
+                targetRootId = subRes.id;
+                logs.push(subRes.exists ? `📁 ${subProjectName} (existente)` : `📁 ${subProjectName} (criada)`);
+            }
+
+            // 01-Modelos BIM (IFC) with ISO 19650: WIP, SHARED, PUBLISHED, ARCHIVED
+            const bimFolder = await ensureSharePointFolder(targetRootId, '01-Modelos BIM (IFC)', driveId);
+            logs.push(bimFolder.exists ? `📁 01-Modelos BIM (IFC) (existente)` : `📁 01-Modelos BIM (IFC) (criada)`);
+            for (const state of ['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED']) {
+                await ensureSharePointFolder(bimFolder.id, state, driveId);
+                logs.push(`  └─ 📁 ${state}`);
+            }
+
+            // 02-Desenhos 2D (Plantas) with ISO 19650: WIP, SHARED, PUBLISHED, ARCHIVED
+            const drwFolder = await ensureSharePointFolder(targetRootId, '02-Desenhos 2D (Plantas)', driveId);
+            logs.push(drwFolder.exists ? `📁 02-Desenhos 2D (Plantas) (existente)` : `📁 02-Desenhos 2D (Plantas) (criada)`);
+            for (const state of ['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED']) {
+                await ensureSharePointFolder(drwFolder.id, state, driveId);
+                logs.push(`  └─ 📁 ${state}`);
+            }
+
+            // 03-Planos de Estaleiro e Emergência
+            await ensureSharePointFolder(targetRootId, '03-Planos de Estaleiro e Emergência', driveId);
+            logs.push(`📁 03-Planos de Estaleiro e Emergência`);
+
+            // 04-Visitas de Inspeção e Segurança
+            await ensureSharePointFolder(targetRootId, '04-Visitas de Inspeção e Segurança', driveId);
+            logs.push(`📁 04-Visitas de Inspeção e Segurança`);
+
             return {
                 success: true,
-                message: 'Estrutura de pastas BIM e 2D criada com sucesso na raiz do projeto!',
+                message: subProjectName ? `Estrutura ISO 19650 para "${subProjectName}" criada no SharePoint!` : 'Estrutura ISO 19650 criada com sucesso na raiz do projeto no SharePoint!',
                 logs
             };
         }
@@ -1532,16 +1564,24 @@ async function executeSharePointServerAction(config: DecryptedCdeConfig, action:
         const driveId = baseFolder.driveId;
 
         const reqFolderId = payload.folderId || payload.parentId || payload.path;
-        const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolderId : reqFolderId;
+        let targetFolderId = (!reqFolderId || reqFolderId === 'root') ? baseFolderId : reqFolderId;
+
+        // If targetFolderId is a relative path like '02-Desenhos 2D (Plantas)/WIP', ensure all intermediate folders exist in SharePoint
+        if (typeof targetFolderId === 'string' && targetFolderId.includes('/')) {
+            const segments = targetFolderId.split('/').filter(Boolean);
+            let curParent = baseFolderId;
+            for (const seg of segments) {
+                const segRes = await ensureSharePointFolder(curParent, seg, driveId);
+                curParent = segRes.id;
+            }
+            targetFolderId = curParent;
+        }
 
         const fileBuffer = Buffer.from(fileBase64, 'base64');
         const isRoot = !targetFolderId || targetFolderId === 'root';
-        const isPath = typeof targetFolderId === 'string' && targetFolderId.includes('/');
         const uploadUrl = isRoot
             ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${encodeURIComponent(fileName)}:/content`)
-            : isPath
-                ? (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${targetFolderId.replace(/^\//, '')}/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/${targetFolderId.replace(/^\//, '')}/${encodeURIComponent(fileName)}:/content`)
-                : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content`);
+            : (driveId ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content` : `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/items/${targetFolderId}:/${encodeURIComponent(fileName)}:/content`);
 
         const uploadRes = await fetch(uploadUrl, {
             method: 'PUT',
@@ -1787,14 +1827,26 @@ async function executeDropboxServerAction(projectId: string, config: DecryptedCd
             logs.push(`📁 ${label} ${ok ? '(ok)' : '(erro)'}`);
         };
 
-        await createDbx(`${basePath}/Modelos BIM (IFC)`, 'Modelos BIM (IFC)');
-        await createDbx(`${basePath}/Modelos BIM (IFC)/01-Arquitetura`, '01-Arquitetura');
-        await createDbx(`${basePath}/Modelos BIM (IFC)/02-Estruturas`, '02-Estruturas');
-        await createDbx(`${basePath}/Modelos BIM (IFC)/03-Especialidades (MEP)`, '03-Especialidades (MEP)');
-        await createDbx(`${basePath}/Modelos BIM (IFC)/04-Segurança (PSS)`, '04-Segurança (PSS)');
-        await createDbx(`${basePath}/Desenhos 2D (Plantas e Cortes)`, 'Desenhos 2D (Plantas e Cortes)');
+        const subProjectName = payload.subProjectName || payload.name;
+        const targetBase = subProjectName ? `${basePath}/${subProjectName.trim()}` : basePath;
+        if (subProjectName) {
+            await createDbx(targetBase, subProjectName);
+        }
 
-        return { success: true, message: 'Pastas BIM e 2D criadas na raiz do Dropbox com sucesso!', logs };
+        await createDbx(`${targetBase}/01-Modelos BIM (IFC)`, '01-Modelos BIM (IFC)');
+        for (const state of ['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED']) {
+            await createDbx(`${targetBase}/01-Modelos BIM (IFC)/${state}`, `01-Modelos BIM (IFC)/${state}`);
+        }
+
+        await createDbx(`${targetBase}/02-Desenhos 2D (Plantas)`, '02-Desenhos 2D (Plantas)');
+        for (const state of ['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED']) {
+            await createDbx(`${targetBase}/02-Desenhos 2D (Plantas)/${state}`, `02-Desenhos 2D (Plantas)/${state}`);
+        }
+
+        await createDbx(`${targetBase}/03-Planos de Estaleiro e Emergência`, '03-Planos de Estaleiro e Emergência');
+        await createDbx(`${targetBase}/04-Visitas de Inspeção e Segurança`, '04-Visitas de Inspeção e Segurança');
+
+        return { success: true, message: 'Pastas ISO 19650 criadas no Dropbox com sucesso!', logs };
     }
 
     if (action === 'upload' || action === 'upload_file') {
@@ -1947,7 +1999,36 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
         if (!fileBase64) throw new Error('Conteúdo do ficheiro obrigatório.');
 
         const reqFolderId = payload.folderId || payload.parentId;
-        const targetFolderId = (!reqFolderId || reqFolderId === 'root') ? (config.folderId || 'root') : reqFolderId;
+        let targetFolderId = (!reqFolderId || reqFolderId === 'root') ? (config.folderId || 'root') : reqFolderId;
+
+        // If targetFolderId is a relative path like '02-Desenhos 2D (Plantas)/WIP', ensure all intermediate folders exist in Google Drive
+        if (typeof targetFolderId === 'string' && targetFolderId.includes('/')) {
+            const segments = targetFolderId.split('/').filter(Boolean);
+            let curParent = config.folderId || 'root';
+            for (const seg of segments) {
+                const q = `'${curParent}' in parents and name = '${seg}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+                const checkRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                if (checkRes.ok) {
+                    const data = await checkRes.json();
+                    if (data.files && data.files.length > 0) {
+                        curParent = data.files[0].id;
+                        continue;
+                    }
+                }
+                const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: seg, mimeType: 'application/vnd.google-apps.folder', parents: [curParent] })
+                });
+                if (createRes.ok) {
+                    const cData = await createRes.json();
+                    curParent = cData.id;
+                }
+            }
+            targetFolderId = curParent;
+        }
 
         const boundary = '-------safesiteupload' + Date.now();
         const delimiter = "\r\n--" + boundary + "\r\n";
@@ -2019,14 +2100,26 @@ async function executeGoogleDriveServerAction(config: DecryptedCdeConfig, action
             return rootId;
         };
 
-        const bimId = await createGdrive(rootId, 'Modelos BIM (IFC)');
-        await createGdrive(bimId, '01-Arquitetura');
-        await createGdrive(bimId, '02-Estruturas');
-        await createGdrive(bimId, '03-Especialidades (MEP)');
-        await createGdrive(bimId, '04-Segurança (PSS)');
-        await createGdrive(rootId, 'Desenhos 2D (Plantas e Cortes)');
+        const subProjectName = payload.subProjectName || payload.name;
+        let targetParentId = rootId;
+        if (subProjectName && subProjectName.trim()) {
+            targetParentId = await createGdrive(rootId, subProjectName.trim());
+        }
 
-        return { success: true, message: 'Pastas BIM e 2D criadas na raiz do Google Drive!', logs };
+        const bimId = await createGdrive(targetParentId, '01-Modelos BIM (IFC)');
+        for (const state of ['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED']) {
+            await createGdrive(bimId, state);
+        }
+
+        const drwId = await createGdrive(targetParentId, '02-Desenhos 2D (Plantas)');
+        for (const state of ['WIP', 'SHARED', 'PUBLISHED', 'ARCHIVED']) {
+            await createGdrive(drwId, state);
+        }
+
+        await createGdrive(targetParentId, '03-Planos de Estaleiro e Emergência');
+        await createGdrive(targetParentId, '04-Visitas de Inspeção e Segurança');
+
+        return { success: true, message: 'Pastas ISO 19650 criadas no Google Drive com sucesso!', logs };
     }
 
     if (action === 'download' || action === 'download_file') {

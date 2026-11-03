@@ -1407,12 +1407,13 @@ export default function BimViewerPage() {
 
     // Handlers for BIM Subprojects, CDE Sync and Standalone Safety IFC Export
     const handleCreateSubProject = async () => {
-        if (!newSubProjectName.trim()) return;
+        const cleanName = newSubProjectName.trim();
+        if (!cleanName) return;
         const newId = `subproj-${Date.now()}`;
         const newSub: BimSubProject = {
             id: newId,
             projectId,
-            name: newSubProjectName.trim(),
+            name: cleanName,
             code: newSubProjectCode.trim() || `SUB-${subProjects.length + 1}`,
             createdAt: new Date().toISOString()
         };
@@ -1423,10 +1424,34 @@ export default function BimViewerPage() {
             localStorage.setItem(`safesite_bim_subprojects_${projectId}`, JSON.stringify(nextSubs));
         } catch (_) {}
 
-        showToast(`Subprojeto "${newSub.name}" criado com estrutura ISO 19650 (WIP, Shared, Published, Archived)!`);
         setIsNewSubProjectModalOpen(false);
         setNewSubProjectName('');
         setNewSubProjectCode('');
+        showToast(`Subprojeto "${newSub.name}" registado. A criar pastas no CDE externo...`);
+
+        // Sincronizar criação física das pastas no CDE externo (SharePoint / Google Drive / Dropbox)
+        try {
+            const activeCfg = (currentProject as any)?.cdeConfig;
+            const res = await fetch(`/api/projects/${projectId}/cde/action`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'create_subproject_bim_folders',
+                    payload: {
+                        subProjectName: newSub.name,
+                        subProjectCode: newSub.code,
+                        cdeConfig: activeCfg
+                    }
+                })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Pastas do subprojeto "${newSub.name}" criadas com sucesso no CDE externo!`);
+                await loadRealCdeFiles();
+            }
+        } catch (cdeErr) {
+            console.warn('[CDE Sync warning]', cdeErr);
+        }
     };
 
     const handleExportSafetyIfc = async () => {
